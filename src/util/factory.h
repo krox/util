@@ -42,6 +42,14 @@ class Store
 		return *ptr;
 	}
 
+	void remove(const std::string &name)
+	{
+		if (table.count(name) == 0)
+			throw std::range_error(
+			    fmt::format("Named object '{}' not found.", name));
+		table.erase(name);
+	}
+
 	template <typename T> T &get(const std::string &name)
 	{
 		if (table.count(name) == 0)

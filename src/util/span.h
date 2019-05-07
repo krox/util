@@ -1,7 +1,9 @@
 #ifndef UTIL_SPAN_H
 #define UTIL_SPAN_H
 
+#include <array>
 #include <cassert>
+#include <cstddef>
 #include <type_traits>
 #include <vector>
 
@@ -29,6 +31,12 @@ template <typename T> class span
 	span(std::vector<T> &v) : data_(v.data()), size_(v.size()) {}
 	span(const std::vector<T_mut> &v) : data_(v.data()), size_(v.size()) {}
 	span(const span<T_mut> &v) : data_(v.data()), size_(v.size()) {}
+	template <size_t N>
+	span(std::array<T, N> &v) : data_(v.data()), size_(v.size())
+	{}
+	template <size_t N>
+	span(const std::array<T_mut, N> &v) : data_(v.data()), size_(v.size())
+	{}
 
 	/** field access */
 	T *data() { return data_; }
@@ -49,12 +57,25 @@ template <typename T> class span
 	const_iterator cbegin() const { return data_; }
 	const_iterator cend() const { return data_ + size_; }
 
+	/** number of bytes */
+	size_t size_bytes() const { return size_ * sizeof(T); }
+
 	/** supspan */
 	span<T> subspan(size_t a, size_t b)
 	{
 		return span<T>(data_ + a, data_ + b);
 	}
 };
+
+template <class T> span<const std::byte> as_bytes(span<T> s)
+{
+	return {(const std::byte *)s.data(), s.size_bytes()};
+}
+
+template <class T> span<std::byte> as_writable_bytes(span<T> s)
+{
+	return {(std::byte *)s.data(), s.size_bytes()};
+}
 
 /** strided 1D array-view */
 template <typename T> class gspan

@@ -270,6 +270,15 @@ class bitset
 		return c;
 	}
 
+	/** number of bits equal to b */
+	size_t count(bool b) const
+	{
+		if (b)
+			return count();
+		else
+			return size() - count();
+	}
+
 	/** find first set bit. returns size() if none is set */
 	size_t find() const
 	{

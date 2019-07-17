@@ -1,6 +1,7 @@
 #ifndef UTIL_STOPWATCH_H
 #define UTIL_STOPWATCH_H
 
+#include <cassert>
 #include <chrono>
 
 namespace util {
@@ -16,6 +17,8 @@ class Stopwatch
 
   public:
 	Stopwatch() {}
+
+	bool running() const { return running_; }
 
 	Stopwatch &start()
 	{
@@ -46,6 +49,28 @@ class Stopwatch
 		           .count() *
 		       1.0e-6;
 	}
+};
+
+/** RAII-style scope guard for benchmarking blocks of code */
+class StopwatchGuard
+{
+	Stopwatch &sw;
+
+  public:
+	StopwatchGuard(Stopwatch &sw) : sw(sw)
+	{
+		assert(!sw.running());
+		sw.start();
+	}
+
+	~StopwatchGuard()
+	{
+		assert(sw.running());
+		sw.stop();
+	}
+
+	StopwatchGuard(const StopwatchGuard &) = delete;
+	StopwatchGuard &operator=(const StopwatchGuard &) = delete;
 };
 
 } // namespace util

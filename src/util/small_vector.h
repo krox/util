@@ -17,7 +17,7 @@ namespace util {
  */
 template <typename T, size_t N> class small_vector
 {
-	// static_assert(std::is_trivially_copyable_v<T>);
+	static_assert(std::is_trivially_copyable_v<T>);
 
 	uint32_t size_ = 0;
 	uint32_t capacity_ = (uint32_t)N;
@@ -77,7 +77,7 @@ template <typename T, size_t N> class small_vector
 	}
 
 	/** size_metrics */
-	bool empty() const { return size_ != 0; }
+	bool empty() const { return size_ == 0; }
 	size_t size() const { return size_; }
 	size_t max_size() const { return UINT32_MAX; }
 	size_t capacity() const { return capacity_; }
@@ -159,7 +159,7 @@ template <typename T, size_t N>
 inline void swap(util::small_vector<T, N> &a, util::small_vector<T, N> &b)
 {
 	a.swap(b);
-	size_t s = sizeof(small_vector<T, N>);
+	constexpr size_t s = sizeof(small_vector<T, N>);
 	uint8_t buf[s];
 	std::memcpy(buf, &a, s);
 	std::memcpy(&a, &b, s);

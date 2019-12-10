@@ -125,6 +125,22 @@ template <typename T> class gspan
 	}
 };
 
+/** wildcard index */
+class
+{
+} _;
+
+/** slice index */
+struct Slice
+{
+	size_t begin = 0, end = 0, step = 1;
+	Slice() = default;
+	Slice(size_t begin, size_t end) : begin(begin), end(end), step(1) {}
+	Slice(size_t begin, size_t end, size_t step)
+	    : begin(begin), end(end), step(step)
+	{}
+};
+
 /** N-dimensional array view */
 template <typename T, size_t N> class ndspan
 {
@@ -167,7 +183,7 @@ template <typename T, size_t N> class ndspan
 	    : data_(data), shape_(shape), stride_(stride)
 	{}
 
-	// "const ndspan<T>" to "ndspan<const T>" conversion
+	/** "const ndspan<T>" to "ndspan<const T>" conversion */
 	ndspan(const ndspan<value_type, N> &v)
 	    : data_(v.data_), shape_(v.shape_), stride_(v.stride_)
 	{}
@@ -199,59 +215,100 @@ template <typename T, size_t N> class ndspan
 	const T &operator[](index_type i) const { return data_[flat_index(i)]; }
 
 	/** arbitrary slicing */
-	template <typename... Is>
-	auto operator()(Is... is) ->
-	    typename std::conditional<sizeof...(Is) == N, T &,
-	                              ndspan<T, N - sizeof...(Is)>>::type
+	template <size_t start> auto subscript() -> ndspan<T, N> { return *this; }
+
+	template <size_t start, typename... Is>
+	auto subscript(decltype(_), Is &&... is)
+	    -> decltype(subscript<start + 1>(std::forward<Is>(is)...))
 	{
-		constexpr size_t K = sizeof...(Is);
-		static_assert(K <= N);
+		return subscript<start + 1>(std::forward<Is>(is)...);
+	}
 
-		std::array<size_t, K> index = {is...};
-
-		auto data = data_;
-		for (int i = 0; i < K; ++i)
-		{
-			assert(index[i] < shape_[i]);
-			data += stride_[i] * index[i];
-		}
-
-		if constexpr (K == N)
+	template <size_t start, typename... Is>
+	auto subscript(size_t i, Is &&... is) -> typename std::conditional<
+	    N == 1, T &,
+	    decltype(ndspan<T, (N == 1 ? 1 : N - 1)>().template subscript<start>(
+	        std::forward<Is>(is)...))>::type
+	{
+		static_assert(start < N);
+		assert(i < shape_[start]);
+		T *data = data_ + i * stride_[start];
+		if constexpr (N == 1)
 		{
 			return *data;
 		}
 		else
 		{
-			std::array<size_t, N - K> shape, stride;
-			for (int i = K; i < N; ++i)
+			std::array<size_t, N - 1> shape, stride;
+			for (int k = 0; k < start; ++k)
 			{
-				shape[i - K] = shape_[i];
-				stride[i - K] = stride_[i];
+				shape[k] = shape_[k];
+				stride[k] = stride_[k];
 			}
-			return ndspan<T, N - K>(data, shape, stride);
+			for (int k = start + 1; k < N; ++k)
+			{
+				shape[k - 1] = shape_[k];
+				stride[k - 1] = stride_[k];
+			}
+			return ndspan<T, N - 1>(data, shape, stride)
+			    .template subscript<start>(is...);
 		}
 	}
 
-	template <typename... Is> auto operator()(Is... is) const
+	template <size_t start, typename... Is>
+	auto subscript(Slice i, Is &&... is)
+	    -> decltype(subscript<start + 1>(is...))
 	{
-		return ndspan<const T, N>(data_, shape_, stride_)(is...);
+		static_assert(start < N);
+		assert(i.begin <= i.end && i.end < shape_[start]);
+
+		T *data = data_ + i.begin * stride_[start];
+		std::array<size_t, N> shape = shape_;
+		std::array<size_t, N> stride = stride_;
+		shape[start] = (i.end - i.begin) / i.step;
+		stride[start] = stride[start] * i.step;
+		return ndspan<T, N>(data, shape, stride)
+		    .template subscript<start + 1>(std::forward<Is>(is)...);
 	}
-};
+
+	template <typename... Is>
+	auto operator()(Is &&... is) -> decltype(subscript<0>(is...))
+	{
+		static_assert(sizeof...(is) <= N);
+		return subscript<0>(std::forward<Is>(is)...);
+	}
+
+	template <typename... Is>
+	auto operator()(Is &&... is) const -> decltype(subscript<0>(is...))
+	{
+		static_assert(sizeof...(is) <= N);
+		return ndspan<const T, N>(data_, shape_, stride_)
+		    .template subscript<0>(std::forward<Is>(is)...);
+	}
+}; // namespace util
+
+template <size_t N, typename F, typename... Ts>
+void map_impl(F &&f, size_t *shape, ndspan<Ts, N>... as)
+{
+	if constexpr (N == 1)
+	{
+		for (size_t i = 0; i < *shape; ++i)
+			f(as(i)...);
+	}
+	else
+	{
+		for (size_t i = 0; i < *shape; ++i)
+			map_impl(f, shape + 1, as(i)...);
+	}
+}
 
 template <size_t N, typename F, typename... Ts>
 void map(F &&f, ndspan<Ts, N>... as)
 {
-	// TODO: check that shapes match
-	size_t len = std::get<0>(std::make_tuple(as.shape(0)...));
-
-	if constexpr (N == 1)
-	{
-		for (size_t i = 0; i < len; ++i)
-			f(as(i)...);
-	}
-	else
-		for (size_t i = 0; i < len; ++i)
-			map(f, as(i)...);
+	std::array<std::array<size_t, N>, sizeof...(Ts)> shapes = {as.shape()...};
+	for (int i = 1; i < sizeof...(Ts); ++i)
+		assert(shapes[i] == shapes[0]);
+	map_impl(f, shapes[0].data(), as...);
 }
 
 /** create a (row-major) Nd-array-view from a 1d array view */
@@ -265,7 +322,7 @@ ndspan<T, N> make_ndspan(gspan<T> data, std::array<size_t, N> shape)
 
 	std::array<size_t, N> stride;
 	stride[N - 1] = data.stride();
-	for (int i = N - 2; i >= 0; --i)
+	for (int i = (int)N - 2; i >= 0; --i)
 		stride[i] = stride[i + 1] * shape[i + 1];
 
 	return ndspan<T, N>(data.data(), shape, stride);

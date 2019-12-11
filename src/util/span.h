@@ -125,6 +125,11 @@ template <typename T> class gspan
 	}
 };
 
+/** forward declarations */
+template <typename, size_t> class ndspan;
+template <size_t N, typename F, typename... Ts>
+void map(F &&, ndspan<Ts, N>...);
+
 /** wildcard index */
 class
 {
@@ -141,7 +146,17 @@ struct Slice
 	{}
 };
 
-/** N-dimensional array view */
+/**
+ * N-dimensional array view
+ *    - non-owning
+ *    - arbitrary strides, though row-major is default upon construction
+ *    - out-of-bounds element access is undefined behaviour
+ *    - data-parallel operations throw on shape mismatch
+ *    - TODO:
+ *       * numpy-style broadcasting rules
+ *       * optimize data-parallel operations (use (T)BLIS for serious stuff)
+ *       * merge the N=0 case with the gspan class
+ */
 template <typename T, size_t N> class ndspan
 {
 	/** rank-0 tensors "should" just be scalar values. But implementing
@@ -159,8 +174,8 @@ template <typename T, size_t N> class ndspan
 
   private:
 	T *data_ = nullptr;
-	index_type shape_;
-	index_type stride_;
+	index_type shape_ = {};
+	index_type stride_ = {};
 
 	size_t flat_index(index_type index)
 	{
@@ -179,14 +194,48 @@ template <typename T, size_t N> class ndspan
   public:
 	/** constructors */
 	ndspan() = default;
-	ndspan(T *data, index_type shape, index_type stride)
+	explicit ndspan(T *data, index_type shape, index_type stride)
 	    : data_(data), shape_(shape), stride_(stride)
 	{}
+
+	/** create a (row-major) Nd-array-view from a 1d array view */
+	explicit ndspan(gspan<T> data, index_type shape)
+	    : data_(data.data()), shape_(shape)
+	{
+		size_t count = 1;
+		for (size_t s : shape)
+			count *= s;
+		assert(count == data.size());
+
+		stride_[N - 1] = data.stride();
+		for (int i = (int)N - 2; i >= 0; --i)
+			stride_[i] = stride_[i + 1] * shape[i + 1];
+	}
 
 	/** "const ndspan<T>" to "ndspan<const T>" conversion */
 	ndspan(const ndspan<value_type, N> &v)
 	    : data_(v.data_), shape_(v.shape_), stride_(v.stride_)
 	{}
+
+	/** shallow assigment, i.e. "a = ..." */
+	void operator=(ndspan other) &
+	{
+		data_ = other.data_;
+		shape_ = other.shape_;
+		stride_ = other.stride_;
+	}
+
+	/** element-wise assigment, i.e. "a(...) = ..." */
+	void operator=(ndspan const &other) &&
+	{
+		map([](T &a, T const &b) { a = b; }, *this, other);
+	}
+
+	/** broadcasting assignment */
+	void operator=(T const &value)
+	{
+		map([&value](T &a) { a = value; }, *this);
+	}
 
 	/** field access */
 	T *data() { return data_; }
@@ -260,7 +309,7 @@ template <typename T, size_t N> class ndspan
 	    -> decltype(subscript<start + 1>(is...))
 	{
 		static_assert(start < N);
-		assert(i.begin <= i.end && i.end < shape_[start]);
+		assert(i.begin <= i.end && i.end <= shape_[start]);
 
 		T *data = data_ + i.begin * stride_[start];
 		std::array<size_t, N> shape = shape_;
@@ -285,7 +334,77 @@ template <typename T, size_t N> class ndspan
 		return ndspan<const T, N>(data_, shape_, stride_)
 		    .template subscript<0>(std::forward<Is>(is)...);
 	}
-}; // namespace util
+
+	/** check if span is in contiguous/dense (row-major) format */
+	bool contiguous() const
+	{
+		if (stride_[N - 1] != 1)
+			return false;
+		for (int i = (int)N - 2; i >= 0; --i)
+			if (stride_[i] != stride_[i + 1] * shape_[i + 1])
+				return false;
+		return true;
+	}
+
+	template <size_t K>
+	auto reshape(std::array<size_t, K> new_shape) -> ndspan<T, K>
+	{
+		assert(contiguous());
+		size_t count = 1;
+		for (size_t s : new_shape)
+			count *= s;
+		assert(count == size());
+
+		std::array<size_t, K> new_stride;
+		new_stride[K - 1] = stride_[0];
+		for (int i = (int)K - 2; i >= 0; --i)
+			new_stride[i] = new_stride[i + 1] * new_shape[i + 1];
+
+		return ndspan<T, K>(data_, new_shape, new_stride);
+	}
+
+	/** data-parallel operations */
+	template <typename U> void operator+=(ndspan<U, N> b)
+	{
+		map([](T &x, U const &y) { x += y; }, *this, b);
+	}
+	template <typename U> void operator-=(ndspan<U, N> b)
+	{
+		map([](T &x, U const &y) { x -= y; }, *this, b);
+	}
+	template <typename U> void operator*=(ndspan<U, N> b)
+	{
+		map([](T &x, U const &y) { x *= y; }, *this, b);
+	}
+	template <typename U> void operator/=(ndspan<U, N> b)
+	{
+		map([](T &x, U const &y) { x /= y; }, *this, b);
+	}
+
+	/** broadcasting data-parallel operations */
+	template <typename U> void operator+=(U const &b)
+	{
+		map([&b](T &x) { x += b; }, *this);
+	}
+	template <typename U> void operator-=(U const &b)
+	{
+		map([&b](T &x) { x -= b; }, *this);
+	}
+	template <typename U> void operator*=(U const &b)
+	{
+		map([&b](T &x) { x *= b; }, *this);
+	}
+	template <typename U> void operator/=(U const &b)
+	{
+		map([&b](T &x) { x /= b; }, *this);
+	}
+};
+
+/** deduction guides */
+template <typename C, size_t N>
+ndspan(C, std::array<size_t, N>)->ndspan<typename C::value_type, N>;
+template <typename T, size_t N>
+ndspan(T *, std::array<size_t, N>, std::array<size_t, N>)->ndspan<T, N>;
 
 template <size_t N, typename F, typename... Ts>
 void map_impl(F &&f, size_t *shape, ndspan<Ts, N>... as)
@@ -310,24 +429,6 @@ void map(F &&f, ndspan<Ts, N>... as)
 		assert(shapes[i] == shapes[0]);
 	map_impl(f, shapes[0].data(), as...);
 }
-
-/** create a (row-major) Nd-array-view from a 1d array view */
-template <typename T, size_t N>
-ndspan<T, N> make_ndspan(gspan<T> data, std::array<size_t, N> shape)
-{
-	size_t count = 1;
-	for (size_t s : shape)
-		count *= s;
-	assert(count == data.size());
-
-	std::array<size_t, N> stride;
-	stride[N - 1] = data.stride();
-	for (int i = (int)N - 2; i >= 0; --i)
-		stride[i] = stride[i + 1] * shape[i + 1];
-
-	return ndspan<T, N>(data.data(), shape, stride);
-}
-
 } // namespace util
 
 namespace fmt {
@@ -379,7 +480,7 @@ struct formatter<util::ndspan<T, N>> : formatter<T>
 	{
 		// format all elements
 		auto str_buf = std::vector<std::string>(a.size());
-		auto strs = util::make_ndspan<std::string>(str_buf, a.shape());
+		auto strs = util::ndspan(str_buf, a.shape());
 		// TODO: use actual formatter here
 		map([&](auto &s, auto &x) { s = fmt::format("{}", x); }, strs, a);
 

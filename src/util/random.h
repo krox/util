@@ -339,6 +339,89 @@ template <class RealType = double> class truncated_normal_distribution
 	}
 };
 
+/**
+ * Random numbers with "canonical quartic exponential" distribution
+ * P(x) = const * exp(-x^4 - alpha*x^2 - beta*x)
+ */
+template <class RealType = double>
+class canonical_quartic_exponential_distribution
+{
+	// parameters of the distribution
+	RealType alpha_ = 0.0, beta_ = 0.0;
+
+	// statistics on the rejection-sampling
+	int64_t nAccept = 0, nReject = 0; // for performance statistics
+
+	// internal helpers
+	RealType sigma;
+	std::uniform_real_distribution<RealType> uniform;
+	std::normal_distribution<RealType> normal;
+
+  public:
+	/** types */
+	using result_type = RealType;
+	using param_type = std::tuple<RealType, RealType>;
+
+	/** constructors */
+	canonical_quartic_exponential_distribution()
+	    : canonical_quartic_exponential_distribution(0, 0)
+	{}
+
+	explicit canonical_quartic_exponential_distribution(RealType alpha = 0,
+	                                                    RealType beta = 0)
+	    : alpha_(alpha), beta_(beta), uniform(0.0, 1.0)
+	{}
+
+	explicit canonical_quartic_exponential_distribution(
+	    const param_type &params)
+	    : canonical_quartic_exponential_distribution(std::get<0>(params),
+	                                                 std::get<1>(params))
+	{}
+
+	/** get back parameters of the distribution */
+	RealType alpha() const { return alpha_; }
+	RealType beta() const { return beta_; }
+
+	/** acceptance rate so far (hopefully not much below 1.0) */
+	double acceptance() const { return (double)nAccept / (nAccept + nReject); }
+
+	/** generate the next random value */
+	template <class Generator> result_type operator()(Generator &rng)
+	{
+		// this parameter is optimal in the case delta=0, for any gamma_
+		sigma = 0.5 * std::sqrt((std::sqrt(alpha_ * alpha_ + 4) - alpha_));
+		RealType mu = -beta_ * sigma * sigma;
+		normal = std::normal_distribution<RealType>(mu, sigma);
+
+		// idea: sample a normal distribution with carefully chosen
+		// parameters and do accept/reject to get precise distribution.
+		RealType tmp = alpha_ - 1.0 / (2 * sigma * sigma); // gamma' in notes
+
+		while (true)
+		{
+			RealType x = normal(rng);
+			RealType p =
+			    std::exp(-x * x * x * x - tmp * x * x - 0.25 * tmp * tmp);
+
+			assert(p <= 1.0);
+			if (uniform(rng) <= p)
+			{
+				nAccept += 1;
+				return x;
+			}
+			else
+				nReject += 1;
+		}
+	}
+
+	/** non-normalized probability distribution function */
+	RealType pdf(RealType x)
+	{
+		auto x2 = x * x;
+		return std::exp(-x2 * x2 - alpha_ * x2 - beta_ * x);
+	}
+};
+
 } // namespace util
 
 #endif

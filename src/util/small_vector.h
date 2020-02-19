@@ -120,6 +120,17 @@ template <typename T, size_t N> class small_vector
 		size_ += 1;
 	}
 	void pop_back() { size_ -= 1; }
+
+	void erase(size_t i)
+	{
+		std::memmove(data() + i, data() + i + 1, (size_ - i - 1) * sizeof(T));
+		size_ -= 1;
+	}
+	void erase(const T *a)
+	{
+		std::memmove((T *)a, (T *)a + 1, (end() - a - 1) * sizeof(T));
+		size_ -= 1;
+	}
 	void erase(const T *a, const T *b)
 	{
 		std::memmove((T *)a, b, (end() - b) * sizeof(T));

@@ -140,9 +140,9 @@ struct Slice
 {
 	size_t begin = 0, end = 0, step = 1;
 	Slice() = default;
-	Slice(size_t begin, size_t end) : begin(begin), end(end), step(1) {}
-	Slice(size_t begin, size_t end, size_t step)
-	    : begin(begin), end(end), step(step)
+	Slice(size_t begin_, size_t end_) : begin(begin_), end(end_), step(1) {}
+	Slice(size_t begin_, size_t end_, size_t step_)
+	    : begin(begin_), end(end_), step(step_)
 	{}
 };
 

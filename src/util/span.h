@@ -214,7 +214,7 @@ template <typename T, size_t N> class ndspan
 
 	/** "const ndspan<T>" to "ndspan<const T>" conversion */
 	ndspan(const ndspan<value_type, N> &v)
-	    : data_(v.data_), shape_(v.shape_), stride_(v.stride_)
+	    : data_(v.data()), shape_(v.shape()), stride_(v.stride())
 	{}
 
 	/** shallow assigment, i.e. "a = ..." */
@@ -247,7 +247,7 @@ template <typename T, size_t N> class ndspan
 	size_t size() const
 	{
 		size_t s = 1;
-		for (int i = 0; i < N; ++i)
+		for (size_t i = 0; i < N; ++i)
 			s *= shape_[i];
 		return s;
 	}
@@ -289,12 +289,12 @@ template <typename T, size_t N> class ndspan
 		else
 		{
 			std::array<size_t, N - 1> shape, stride;
-			for (int k = 0; k < start; ++k)
+			for (size_t k = 0; k < start; ++k)
 			{
 				shape[k] = shape_[k];
 				stride[k] = stride_[k];
 			}
-			for (int k = start + 1; k < N; ++k)
+			for (size_t k = start + 1; k < N; ++k)
 			{
 				shape[k - 1] = shape_[k];
 				stride[k - 1] = stride_[k];
@@ -402,9 +402,9 @@ template <typename T, size_t N> class ndspan
 
 /** deduction guides */
 template <typename C, size_t N>
-ndspan(C, std::array<size_t, N>)->ndspan<typename C::value_type, N>;
+ndspan(C, std::array<size_t, N>) -> ndspan<typename C::value_type, N>;
 template <typename T, size_t N>
-ndspan(T *, std::array<size_t, N>, std::array<size_t, N>)->ndspan<T, N>;
+ndspan(T *, std::array<size_t, N>, std::array<size_t, N>) -> ndspan<T, N>;
 
 template <size_t N, typename F, typename... Ts>
 void map_impl(F &&f, size_t *shape, ndspan<Ts, N>... as)

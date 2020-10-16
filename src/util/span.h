@@ -10,59 +10,60 @@
 
 namespace util {
 
-/** contiguous 1D array-view */
+/**
+ * NOTES:
+ *   - 'const span<T>' only means "head const", i.e. the elements are still
+ *     mutable (unless T itself is const). This is the same a simple pointer,
+ *     but different from 'std::vector'
+ *   - .subspan() takes start+size, NOT start+end as arguments. This is the same
+ *     as 'std::string.substr()' but different from other languages like
+ *     D (builtin slice-type), python (lists, numpy-arrays), ...
+ */
+
+/** Contiguous 1D array-view. Will be superseded by std::span in C++20 */
 template <typename T> class span
 {
 	T *data_ = nullptr;
 	size_t size_ = 0;
 
-	typedef typename std::remove_cv<T>::type T_mut;
-
   public:
-	using value_type = T;
+	using element_type = T;
+	using value_type = std::remove_cv_t<T>;
 	using size_type = size_t;
 	using index_type = size_t;
 	using iterator = T *;
-	using const_iterator = const T *;
 
 	/** constructors */
 	span() = default;
 	span(T *data, size_t size) : data_(data), size_(size) {}
 	span(T *begin, T *end) : data_(begin), size_(end - begin) {}
 	span(std::vector<T> &v) : data_(v.data()), size_(v.size()) {}
-	span(const std::vector<T_mut> &v) : data_(v.data()), size_(v.size()) {}
-	span(const span<T_mut> &v) : data_(v.data()), size_(v.size()) {}
+	span(std::vector<value_type> const &v) : data_(v.data()), size_(v.size()) {}
+	span(span<value_type> const &v) : data_(v.data()), size_(v.size()) {}
 	template <size_t N>
 	span(std::array<T, N> &v) : data_(v.data()), size_(v.size())
 	{}
 	template <size_t N>
-	span(const std::array<T_mut, N> &v) : data_(v.data()), size_(v.size())
+	span(std::array<value_type, N> const &v) : data_(v.data()), size_(v.size())
 	{}
 
 	/** field access */
-	T *data() { return data_; }
-	const T *data() const { return data_; }
+	T *data() const { return data_; }
 	size_t size() const { return size_; }
 
 	/** element access */
-	T &operator[](size_t i) { return data_[i]; }
-	const T &operator[](size_t i) const { return data_[i]; }
-	T &operator()(int i) { return data_[i]; }
-	const T &operator()(int i) const { return data_[i]; }
+	T &operator[](size_t i) const { return data_[i]; }
+	T &operator()(int i) const { return data_[i]; }
 
 	/** iterators */
-	iterator begin() { return data_; }
-	iterator end() { return data_ + size_; }
-	const_iterator begin() const { return data_; }
-	const_iterator end() const { return data_ + size_; }
-	const_iterator cbegin() const { return data_; }
-	const_iterator cend() const { return data_ + size_; }
+	iterator begin() const { return data_; }
+	iterator end() const { return data_ + size_; }
 
 	/** number of bytes */
 	size_t size_bytes() const { return size_ * sizeof(T); }
 
 	/** supspan */
-	span<T> subspan(size_t a, size_t b)
+	span<T> slice(size_t a, size_t b) const
 	{
 		return span<T>(data_ + a, data_ + b);
 	}
@@ -85,10 +86,9 @@ template <typename T> class gspan
 	size_t size_ = 0;
 	size_t stride_ = 1;
 
-	typedef typename std::remove_cv<T>::type T_mut;
-
   public:
-	using value_type = T;
+	using element_type = T;
+	using value_type = std::remove_cv_t<T>;
 	using size_type = size_t;
 	using index_type = size_t;
 	// NOTE: don't use T* as iterator
@@ -99,26 +99,24 @@ template <typename T> class gspan
 	    : data_(data), size_(size), stride_(stride)
 	{}
 	gspan(std::vector<T> &v) : data_(v.data()), size_(v.size()) {}
-	gspan(const std::vector<T_mut> &v) : data_(v.data()), size_(v.size()) {}
+	gspan(std::vector<value_type> const &v) : data_(v.data()), size_(v.size())
+	{}
 	gspan(span<T> &v) : data_(v.data()), size_(v.size()) {}
-	gspan(const gspan<T_mut> &v)
+	gspan(gspan<value_type> const &v)
 	    : data_(v.data()), size_(v.size()), stride_(v.stride())
 	{}
 
 	/** field access */
-	T *data() { return data_; }
-	const T *data() const { return data_; }
+	T *data() const { return data_; }
 	size_t size() const { return size_; }
 	size_t stride() const { return stride_; }
 
 	/** element access */
-	T &operator[](size_t i) { return data_[i * stride_]; }
-	const T &operator[](size_t i) const { return data_[i * stride_]; }
-	T &operator()(int i) { return data_[i * stride_]; }
-	const T &operator()(int i) const { return data_[i * stride_]; }
+	T &operator[](size_t i) const { return data_[i * stride_]; }
+	T &operator()(int i) const { return data_[i * stride_]; }
 
 	/** supspan */
-	gspan<T> subspan(size_t a, size_t b)
+	gspan<T> slice(size_t a, size_t b) const
 	{
 		assert(a <= b && b <= size_);
 		return gspan<T>(data_ + a * stride_, b - a, stride_);
@@ -177,7 +175,7 @@ template <typename T, size_t N> class ndspan
 	index_type shape_ = {};
 	index_type stride_ = {};
 
-	size_t flat_index(index_type index)
+	size_t flat_index(index_type index) const
 	{
 		size_t r = 0;
 		for (int i = 0; i < N; ++i)
@@ -213,7 +211,7 @@ template <typename T, size_t N> class ndspan
 	}
 
 	/** "const ndspan<T>" to "ndspan<const T>" conversion */
-	ndspan(const ndspan<value_type, N> &v)
+	ndspan(ndspan<value_type, N> const &v)
 	    : data_(v.data()), shape_(v.shape()), stride_(v.stride())
 	{}
 
@@ -238,8 +236,7 @@ template <typename T, size_t N> class ndspan
 	}
 
 	/** field access */
-	T *data() { return data_; }
-	const T *data() const { return data_; }
+	T *data() const { return data_; }
 	index_type shape() const { return shape_; }
 	size_t shape(size_t i) const { return shape_[i]; }
 	index_type stride() const { return stride_; }
@@ -260,21 +257,23 @@ template <typename T, size_t N> class ndspan
 	}
 
 	/** element access */
-	T &operator[](index_type i) { return data_[flat_index(i)]; }
-	const T &operator[](index_type i) const { return data_[flat_index(i)]; }
+	T &operator[](index_type i) const { return data_[flat_index(i)]; }
 
 	/** arbitrary slicing */
-	template <size_t start> auto subscript() -> ndspan<T, N> { return *this; }
+	template <size_t start> auto subscript() const -> ndspan<T, N>
+	{
+		return *this;
+	}
 
 	template <size_t start, typename... Is>
-	auto subscript(decltype(_), Is &&... is)
+	auto subscript(decltype(_), Is &&... is) const
 	    -> decltype(subscript<start + 1>(std::forward<Is>(is)...))
 	{
 		return subscript<start + 1>(std::forward<Is>(is)...);
 	}
 
 	template <size_t start, typename... Is>
-	auto subscript(size_t i, Is &&... is) -> typename std::conditional<
+	auto subscript(size_t i, Is &&... is) const -> typename std::conditional<
 	    N == 1, T &,
 	    decltype(ndspan<T, (N == 1 ? 1 : N - 1)>().template subscript<start>(
 	        std::forward<Is>(is)...))>::type
@@ -305,7 +304,7 @@ template <typename T, size_t N> class ndspan
 	}
 
 	template <size_t start, typename... Is>
-	auto subscript(Slice i, Is &&... is)
+	auto subscript(Slice i, Is &&... is) const
 	    -> decltype(subscript<start + 1>(is...))
 	{
 		static_assert(start < N);
@@ -321,18 +320,10 @@ template <typename T, size_t N> class ndspan
 	}
 
 	template <typename... Is>
-	auto operator()(Is &&... is) -> decltype(subscript<0>(is...))
-	{
-		static_assert(sizeof...(is) <= N);
-		return subscript<0>(std::forward<Is>(is)...);
-	}
-
-	template <typename... Is>
 	auto operator()(Is &&... is) const -> decltype(subscript<0>(is...))
 	{
 		static_assert(sizeof...(is) <= N);
-		return ndspan<const T, N>(data_, shape_, stride_)
-		    .template subscript<0>(std::forward<Is>(is)...);
+		return subscript<0>(std::forward<Is>(is)...);
 	}
 
 	/** check if span is in contiguous/dense (row-major) format */
@@ -347,7 +338,7 @@ template <typename T, size_t N> class ndspan
 	}
 
 	template <size_t K>
-	auto reshape(std::array<size_t, K> new_shape) -> ndspan<T, K>
+	auto reshape(std::array<size_t, K> new_shape) const -> ndspan<T, K>
 	{
 		assert(contiguous());
 		size_t count = 1;

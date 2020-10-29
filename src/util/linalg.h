@@ -27,6 +27,24 @@ Notes on 'Matrix':
    So we write the their product as 'Matrix * Vector'. This is the usual
    convention in 3D-Graphics (though OpenGL does not actually require it
    due to user-defined shaders)
+
+Notes on implementation details/performance:
+ * You should compile with '-fno-math-errno'. Otherwise you get assmebly like
+   if x > 0:
+     y = avx_sqrt(x)
+   else:
+     y = library_sqrt(x).
+   Thats a useless branch and a potential slow library call. Just for a
+   floating-point-exception that we don't use anyway.
+ * The compiler cannot optimize "0+x" to "x", due to signed zeros. So either
+   compile with '-fno-signed-zeros' or avoid that code at all by replacing:
+     x = 0
+     for i = 0 to n:
+        x += y[i]
+   with
+     x = y[0]
+     for i = 1 to n:
+       x += y[i]
 */
 
 namespace util {
@@ -146,8 +164,8 @@ UTIL_DEFINE_VECTOR_OPERATOR(/)
 template <typename T, typename U, size_t N>
 auto dot(Vector<T, N> const &a, Vector<U, N> const &b) -> decltype(a[0] * b[0])
 {
-	decltype(a[0] * b[0]) r = 0;
-	for (size_t i = 0; i < N; ++i)
+	decltype(a[0] * b[0]) r = a[0] * b[0];
+	for (size_t i = 1; i < N; ++i)
 		r += a[i] * b[i];
 	return r;
 }
@@ -163,10 +181,7 @@ auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b)
 }
 template <typename T, size_t N> T length(Vector<T, N> const &a)
 {
-	T r = 0;
-	for (size_t i = 0; i < N; ++i)
-		r += a[i] * a[i];
-	return sqrt(r);
+	return sqrt(dot(a, a));
 }
 template <typename T, size_t N> Vector<T, N> normalize(Vector<T, N> const &a)
 {
@@ -185,10 +200,7 @@ template <typename T, typename U, size_t N>
 auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b)
     -> decltype(a[0] * b[0])
 {
-	decltype(a[0] * b[0]) r = 0;
-	for (size_t i = 0; i < N; ++i)
-		r += a[i] * b[i];
-	return r;
+	return dot(a, b);
 }
 template <typename T, size_t N> T norm2(Vector<T, N> const &a)
 {
@@ -268,8 +280,8 @@ auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
 	for (size_t i = 0; i < N; ++i)
 		for (size_t j = 0; j < N; ++j)
 		{
-			r(i, j) = T(0);
-			for (size_t k = 0; k < N; ++k)
+			r(i, j) = a(i, 0) * b(0, j);
+			for (size_t k = 1; k < N; ++k)
 				r(i, j) += a(i, k) * b(k, j);
 		}
 	return r;

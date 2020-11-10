@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <initializer_list>
+#include <random>
 
 /**
 vector/matrix types for fixed (small) dimension. Similar to the GLM library.
@@ -50,6 +51,25 @@ Notes on implementation details/performance:
 namespace util {
 
 template <typename T, size_t N> struct Vector;
+
+template <typename T> struct Vector<T, 1>
+{
+	T x;
+
+	Vector() = default;
+	Vector(T const &a) : x(a) {}
+
+	T &operator[](size_t i)
+	{
+		assert(i < 1);
+		return (&x)[i];
+	}
+	T const &operator[](size_t i) const
+	{
+		assert(i < 1);
+		return (&x)[i];
+	}
+};
 
 template <typename T> struct Vector<T, 2>
 {
@@ -315,5 +335,80 @@ template <typename T> Matrix<T, 3> inverse(Matrix<T, 3> const &a)
 
 	return b * (T(1) / det);
 }
+
+/**
+ * Random point on a sphere with uniform distribution.
+ */
+template <typename T> class uniform_sphere_distribution;
+
+template <typename RealType, size_t N>
+class uniform_sphere_distribution<Vector<RealType, N>>
+{
+	// internal helpers
+	std::normal_distribution<RealType> normal;
+
+  public:
+	/** types */
+	using result_type = Vector<RealType, N>;
+
+	/** constructors */
+	uniform_sphere_distribution() : normal(0.0, 1.0) {}
+
+	/** generate the next random value */
+	template <class Generator> result_type operator()(Generator &rng)
+	{
+		result_type r;
+		for (size_t i = 0; i < N; ++i)
+			r[i] = normal(rng);
+		return normalize(r);
+	}
+};
+
+template <typename T> class exponential_sphere_distribution;
+
+/**
+ * Random point on a sphere with distribution P(r) = e^(-alpha r[0]).
+ */
+template <typename RealType>
+class exponential_sphere_distribution<Vector<RealType, 3>>
+{
+	RealType alpha_;
+	std::normal_distribution<RealType> normal;
+	std::uniform_real_distribution<double> uniform;
+
+  public:
+	/** types */
+	using result_type = Vector<RealType, 3>;
+
+	/** constructors */
+	exponential_sphere_distribution(RealType alpha)
+	    : alpha_(alpha), normal(0.0, 1.0), uniform(exp(-2 * alpha), 1.0)
+	{
+		assert(alpha > 0.0);
+	}
+
+	/** generate the next random value */
+	template <class Generator> result_type operator()(Generator &rng)
+	{
+		result_type r;
+
+		// NOTE: In 3D, each individual component of a uniform
+		//       sphere-distribution has an exact uniform [-1,1]-distribution.
+		//       For the exponential sphere-distribution, the first component
+		//       can therefore simply be generated as a 1D (truncated)
+		//       exponential distribution. This is only true in 3D (!).
+
+		// exponential distribution of r[0]
+		r[0] = log(uniform(rng)) / alpha_ + 1;
+
+		// uniform sphere distribution of remaining entries
+		r[1] = normal(rng);
+		r[2] = normal(rng);
+		double s = sqrt((1 - r[0] * r[0]) / (r[1] * r[1] + r[2] * r[2]));
+		r[1] *= s;
+		r[2] *= s;
+		return r;
+	}
+};
 
 } // namespace util

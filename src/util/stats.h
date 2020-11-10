@@ -16,6 +16,9 @@ double variance(gspan<const double> xs);
 double covariance(gspan<const double> xs, gspan<const double> ys);
 double correlation(gspan<const double> xs, gspan<const double> ys);
 
+double mean_abs(gspan<const double> xs);
+double variance_abs(gspan<const double> xs);
+
 /** fit constant function f(x) = a */
 struct ConstantFit
 {

@@ -39,6 +39,23 @@ double correlation(gspan<const double> xs, gspan<const double> ys)
 	return covariance(xs, ys) / std::sqrt(variance(xs) * variance(ys));
 }
 
+double mean_abs(gspan<const double> xs)
+{
+	double sum = 0;
+	for (size_t i = 0; i < xs.size(); ++i)
+		sum += std::abs(xs[i]);
+	return sum / xs.size();
+}
+
+double variance_abs(gspan<const double> xs)
+{
+	double m = mean_abs(xs);
+	double sum = 0;
+	for (size_t i = 0; i < xs.size(); ++i)
+		sum += (std::abs(xs[i]) - m) * (std::abs(xs[i]) - m);
+	return sum / xs.size();
+}
+
 ConstantFit::ConstantFit(span<const double> ys)
 {
 	a = 0;

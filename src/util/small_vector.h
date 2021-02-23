@@ -163,6 +163,24 @@ template <typename T, size_t N> class small_vector
 	}
 };
 
+template <typename T, size_t N, typename U>
+size_t erase(small_vector<T, N> &c, const U &value)
+{
+	auto it = std::remove_if(c.begin(), c.end(), value);
+	auto r = std::distance(it, c.end());
+	c.erase(it, c.end());
+	return r;
+}
+
+template <typename T, size_t N, typename Pred>
+size_t erase_if(small_vector<T, N> &c, Pred pred)
+{
+	auto it = std::remove_if(c.begin(), c.end(), pred);
+	auto r = std::distance(it, c.end());
+	c.erase(it, c.end());
+	return r;
+}
+
 } // namespace util
 
 namespace std {

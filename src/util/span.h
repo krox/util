@@ -2,6 +2,7 @@
 #define UTIL_SPAN_H
 
 #include "fmt/format.h"
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -122,6 +123,27 @@ template <typename T> class gspan
 		return gspan<T>(data_ + a * stride_, b - a, stride_);
 	}
 };
+
+/** short-hand for the "erase–remove idiom" (part of std in C++20) */
+template <class T, class Alloc, class U>
+constexpr typename std::vector<T, Alloc>::size_type
+erase(std::vector<T, Alloc> &c, const U &value)
+{
+	auto it = std::remove(c.begin(), c.end(), value);
+	auto r = std::distance(it, c.end());
+	c.erase(it, c.end());
+	return r;
+}
+
+template <class T, class Alloc, class Pred>
+constexpr typename std::vector<T, Alloc>::size_type
+erase_if(std::vector<T, Alloc> &c, Pred pred)
+{
+	auto it = std::remove_if(c.begin(), c.end(), pred);
+	auto r = std::distance(it, c.end());
+	c.erase(it, c.end());
+	return r;
+}
 
 /** forward declarations */
 template <typename, size_t> class ndspan;
@@ -445,9 +467,9 @@ template <typename T, size_t N> class ndspan
 
 /** deduction guides */
 template <typename C, size_t N>
-ndspan(C, std::array<size_t, N>)->ndspan<typename C::value_type, N>;
+ndspan(C, std::array<size_t, N>) -> ndspan<typename C::value_type, N>;
 template <typename T, size_t N>
-ndspan(T *, std::array<size_t, N>, std::array<size_t, N>)->ndspan<T, N>;
+ndspan(T *, std::array<size_t, N>, std::array<size_t, N>) -> ndspan<T, N>;
 
 template <size_t N, typename F, typename... Ts>
 void map_impl(F &&f, size_t *shape, ndspan<Ts, N> const &... as)

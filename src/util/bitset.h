@@ -10,7 +10,11 @@ namespace util {
  * Similar to specialized std::vector<bool>, but
  *   - does not pretend to be container (no iterators, no push_back, ...)
  *   - offers (fast) bitwise operations
- *   - resizing is slow, because no spare capacity is kept
+ *   - resizing is always slow, because no spare capacity is kept
+ *     (might change in future if the need arises)
+ *   - using 'add() and remove()', it can be used as a 'set of integers'
+ *   - beware of different semantics. e.g. '.clear()' sets all bits to zero,
+ *     whereas std::vector<bool>::clear() resizes the vector
  */
 class bitset
 {
@@ -286,6 +290,30 @@ class bitset
 			if (data_[k] != limb_t(0))
 				return limb_bits * k + __builtin_ctzll(data_[k]);
 		return size_;
+	}
+
+	/** sets i'th element to true. returns false if it already was */
+	bool add(size_t i)
+	{
+		if ((*this)[i])
+			return false;
+		else
+		{
+			(*this)[i] = true;
+			return true;
+		}
+	}
+
+	/** sets i'th element to false. returns false if it already was */
+	bool remove(size_t i)
+	{
+		if (!(*this)[i])
+			return false;
+		else
+		{
+			(*this)[i] = false;
+			return true;
+		}
 	}
 };
 

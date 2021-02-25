@@ -188,7 +188,7 @@ template <typename T, size_t N>
 inline void swap(util::small_vector<T, N> &a, util::small_vector<T, N> &b)
 {
 	a.swap(b);
-	constexpr size_t s = sizeof(small_vector<T, N>);
+	constexpr size_t s = sizeof(util::small_vector<T, N>);
 	uint8_t buf[s];
 	std::memcpy(buf, &a, s);
 	std::memcpy(&a, &b, s);

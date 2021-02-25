@@ -7,6 +7,7 @@
 
 #include <random>
 #include <stdint.h>
+#include <tuple>
 
 namespace util {
 

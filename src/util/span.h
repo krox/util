@@ -48,6 +48,7 @@ template <typename T> class span
 	span(std::array<value_type, N> const &v) : data_(v.data()), size_(v.size())
 	{}
 	span(std::initializer_list<T> data) : span(data.begin(), data.end()) {}
+	template <size_t N> span(T (&data)[N]) : span(data, N) {}
 
 	/** field access */
 	T *data() const { return data_; }

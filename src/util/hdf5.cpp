@@ -13,6 +13,7 @@ hid_t enforce(hid_t id)
 		throw std::runtime_error("HDF5 error");
 	return id;
 }
+
 } // namespace
 
 DataSet::DataSet(hid_t id) : id(id)
@@ -48,13 +49,13 @@ template <> std::vector<double> DataSet::read<double>()
 	return r;
 }
 
-void DataSet::write(util::span<const double> data)
+template <typename T> void DataSet::write(util::span<const T> data)
 {
 	assert(data.size() == size);
-	enforce(H5Dwrite(id, H5T_NATIVE_DOUBLE, 0, 0, 0, data.data()));
+	enforce(H5Dwrite(id, h5_type_id<T>(), 0, 0, 0, data.data()));
 }
 
-void DataSet::write(hsize_t row, util::span<const double> data)
+template <typename T> void DataSet::write(hsize_t row, util::span<const T> data)
 {
 	assert(id > 0);
 	assert(row < shape[0]);
@@ -69,7 +70,7 @@ void DataSet::write(hsize_t row, util::span<const double> data)
 	H5Sselect_hyperslab(space, H5S_SELECT_SET, offset.data(), nullptr,
 	                    rowShape.data(), nullptr);
 
-	enforce(H5Dwrite(id, H5T_NATIVE_DOUBLE, memspace, space, 0, data.data()));
+	enforce(H5Dwrite(id, h5_type_id<T>(), memspace, space, 0, data.data()));
 
 	H5Sclose(memspace);
 	H5Sclose(space);
@@ -99,10 +100,9 @@ void DataFile::close()
 }
 
 DataSet DataFile::createData(const std::string &name,
-                             const std::vector<hsize_t> &size)
+                             const std::vector<hsize_t> &size, hid_t type)
 {
 	assert(id > 0);
-	auto type = H5T_NATIVE_DOUBLE;
 	auto space = enforce(H5Screate_simple(size.size(), size.data(), nullptr));
 	auto set = enforce(H5Dcreate2(id, name.c_str(), type, space, 0, 0, 0));
 	H5Sclose(space);
@@ -252,5 +252,12 @@ DataFile::getAttribute<std::vector<int>>(const std::string &name)
 	H5Aclose(attr);
 	return r;
 }
+
+// explicit template instantitions
+template void DataSet::write<float>(util::span<const float> data);
+template void DataSet::write<double>(util::span<const double> data);
+template void DataSet::write<int8_t>(util::span<const int8_t> data);
+template void DataSet::write<int16_t>(util::span<const int16_t> data);
+template void DataSet::write<int32_t>(util::span<const int32_t> data);
 
 } // namespace util

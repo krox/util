@@ -10,6 +10,22 @@
 
 namespace util {
 
+template <typename T> hid_t h5_type_id()
+{
+	if constexpr (std::is_same_v<T, float>)
+		return H5T_NATIVE_FLOAT;
+	else if constexpr (std::is_same_v<T, double>)
+		return H5T_NATIVE_DOUBLE;
+	else if constexpr (std::is_same_v<T, int8_t>)
+		return H5T_NATIVE_INT8;
+	else if constexpr (std::is_same_v<T, int16_t>)
+		return H5T_NATIVE_INT16;
+	else if constexpr (std::is_same_v<T, int32_t>)
+		return H5T_NATIVE_INT32;
+	else
+		assert(false);
+}
+
 class DataSet
 {
 	hid_t id = 0;
@@ -38,8 +54,19 @@ class DataSet
 	~DataSet();
 	void close();
 
-	void write(util::span<const double> data);
-	void write(hsize_t row, util::span<const double> data);
+	template <typename T> void write(util::span<const T> data);
+	template <typename T> void write(hsize_t row, util::span<const T> data);
+
+	// workaround for failing template deduction
+	template <typename T> void write(std::vector<T> const &data)
+	{
+		write<T>(util::span<const T>(data));
+	}
+	template <typename T> void write(hsize_t row, std::vector<T> const &data)
+	{
+		write<T>(row, util::span<const T>(data));
+	}
+
 	void read(util::span<double> data);
 	template <typename T> std::vector<T> read();
 };
@@ -81,7 +108,8 @@ class DataFile
 
 	/** access to datasets */
 	DataSet createData(const std::string &name,
-	                   const std::vector<hsize_t> &size);
+	                   const std::vector<hsize_t> &size,
+	                   hid_t type = H5T_NATIVE_DOUBLE);
 	DataSet openData(const std::string &name);
 
 	/** groups */

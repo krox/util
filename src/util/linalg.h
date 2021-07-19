@@ -55,6 +55,7 @@ template <typename T, size_t N> struct Vector;
 template <typename T> struct Vector<T, 1>
 {
 	T x;
+	using value_type = T;
 
 	Vector() = default;
 	Vector(T const &a) : x(a) {}
@@ -74,6 +75,7 @@ template <typename T> struct Vector<T, 1>
 template <typename T> struct Vector<T, 2>
 {
 	T x, y;
+	using value_type = T;
 
 	Vector() = default;
 	Vector(T const &a, T const &b) : x(a), y(b) {}
@@ -93,6 +95,7 @@ template <typename T> struct Vector<T, 2>
 template <typename T> struct Vector<T, 3>
 {
 	T x, y, z;
+	using value_type = T;
 
 	Vector() = default;
 	Vector(T const &a, T const &b, T const &c) : x(a), y(b), z(c) {}
@@ -112,6 +115,7 @@ template <typename T> struct Vector<T, 3>
 template <typename T> struct Vector<T, 4>
 {
 	T x, y, z, w;
+	using value_type = T;
 
 	Vector() = default;
 	Vector(T const &a, T const &b, T const &c, T const &d)

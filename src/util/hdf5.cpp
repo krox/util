@@ -99,12 +99,80 @@ void DataFile::close()
 	id = 0;
 }
 
+namespace {
+
+/** guess a hopefully reasonable chunk size for a dataset */
+std::vector<hsize_t> guessChunkSize(std::vector<hsize_t> const &size,
+                                    hid_t type)
+{
+	//  - Auto-chunking in the h5py library tries to keep chunks somewhat
+	//    close to square. This is reasonable if nothing is known about the
+	//    dimensions and arbitrary slices might occur.
+	//  - We instead keep the trailing dimension(s) contiguous, chunking only
+	//    the leading one(s). This is (hopefully) reasonable if the user already
+	//    optimized the order of dimenions for performance in "row major" order.
+
+	assert(size.size() >= 1);
+	auto typeSize = H5Tget_size(type);
+	assert(typeSize > 0 && typeSize <= 1024);
+
+	// HDF5 guideline is to keep chunk size between ~10KiB and 1MiB
+	size_t minElems = 8 * 1024 / typeSize;    // soft limit
+	size_t maxElems = 1024 * 1024 / typeSize; // hard limit
+
+	// first guess: whole dataset as a single chunk
+	//              (with size 1 on resizable dimensions)
+	auto chunk = size;
+	size_t elems = 1;
+	bool resizable = false;
+	for (auto &c : chunk)
+	{
+		if (c == 0) // indicates resizable dimension
+		{
+			c = 1;
+			resizable = true;
+		}
+		elems *= c;
+	}
+
+	// chunk too small -> enlarge in resizable dimension(s)
+	while (elems < minElems && resizable)
+	{
+		for (size_t i = 0; i < size.size(); ++i)
+			if (size[i] == 0)
+			{
+				chunk[i] *= 2;
+				elems *= 2;
+			}
+	}
+
+	// chunk too large -> cut down in leading dimension(s)
+	for (size_t i = 0; i < size.size() && elems > maxElems; ++i)
+		while (chunk[i] > 1 && elems > maxElems)
+		{
+			elems /= chunk[i];
+			chunk[i] /= 2;
+			elems *= chunk[i];
+		}
+	return chunk;
+}
+
+} // namespace
+
 DataSet DataFile::createData(const std::string &name,
                              const std::vector<hsize_t> &size, hid_t type)
 {
 	assert(id > 0);
 	auto space = enforce(H5Screate_simple(size.size(), size.data(), nullptr));
-	auto set = enforce(H5Dcreate2(id, name.c_str(), type, space, 0, 0, 0));
+	auto props = enforce(H5Pcreate(H5P_DATASET_CREATE));
+	auto chunk = guessChunkSize(size, type);
+	if (size.size() > 0)
+	{
+		H5Pset_chunk(props, chunk.size(), chunk.data());
+		enforce(H5Pset_fletcher32(props));
+	}
+	auto set = enforce(H5Dcreate2(id, name.c_str(), type, space, 0, props, 0));
+	H5Pclose(props);
 	H5Sclose(space);
 	return DataSet(set);
 }

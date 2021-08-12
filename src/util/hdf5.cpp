@@ -165,12 +165,22 @@ DataSet DataFile::createData(const std::string &name,
 	assert(id > 0);
 	auto space = enforce(H5Screate_simple(size.size(), size.data(), nullptr));
 	auto props = enforce(H5Pcreate(H5P_DATASET_CREATE));
-	auto chunk = guessChunkSize(size, type);
-	if (size.size() > 0)
+
+	if (size.size() > 0) // zero-dimensional datasets dont support chunks
 	{
+		auto chunk = guessChunkSize(size, type);
 		H5Pset_chunk(props, chunk.size(), chunk.data());
+
+		// enable compact encoding whenever the type has reduced precision
+		auto typeSize = H5Tget_size(type);
+		auto precision = H5Tget_precision(type); // 0 for compound types
+		if (precision > 0 && precision < typeSize * 8)
+			enforce(H5Pset_nbit(props));
+
+		// checksum after (potentially lossy) compression
 		enforce(H5Pset_fletcher32(props));
 	}
+
 	auto set = enforce(H5Dcreate2(id, name.c_str(), type, space, 0, props, 0));
 	H5Pclose(props);
 	H5Sclose(space);

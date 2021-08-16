@@ -194,6 +194,14 @@ DataSet DataFile::openData(const std::string &name)
 	return DataSet(set);
 }
 
+template <typename T>
+DataSet DataFile::writeData(const std::string &name, std::vector<T> const &data)
+{
+	auto ds = createData(name, {data.size()}, h5_type_id<T>());
+	ds.write(data);
+	return ds;
+}
+
 bool DataFile::exists(const std::string &name)
 {
 	assert(id > 0);
@@ -332,6 +340,16 @@ DataFile::getAttribute<std::vector<int>>(const std::string &name)
 }
 
 // explicit template instantitions
+template DataSet DataFile::writeData<float>(const std::string &,
+                                            std::vector<float> const &);
+template DataSet DataFile::writeData<double>(const std::string &,
+                                             std::vector<double> const &);
+template DataSet DataFile::writeData<int8_t>(const std::string &,
+                                             std::vector<int8_t> const &);
+template DataSet DataFile::writeData<int16_t>(const std::string &,
+                                              std::vector<int16_t> const &);
+template DataSet DataFile::writeData<int32_t>(const std::string &,
+                                              std::vector<int32_t> const &);
 template void DataSet::write<float>(util::span<const float> data);
 template void DataSet::write<double>(util::span<const double> data);
 template void DataSet::write<int8_t>(util::span<const int8_t> data);

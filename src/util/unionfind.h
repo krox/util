@@ -44,6 +44,17 @@ class UnionFind
 			par_[i] = i;
 	}
 
+	/** resets to all-disconnected state */
+	void clear()
+	{
+		for (int i = 0; i < (int)par_.size(); ++i)
+		{
+			par_[i] = i;
+			size_[i] = 1;
+		}
+		nComp_ = (int)par_.size();
+	}
+
 	/** number of nodes */
 	size_t size() const { return par_.size(); }
 

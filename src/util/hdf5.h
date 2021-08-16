@@ -112,6 +112,10 @@ class DataFile
 	                   hid_t type = H5T_NATIVE_DOUBLE);
 	DataSet openData(const std::string &name);
 
+	/** shortcut for creating + writing dataset */
+	template <typename T>
+	DataSet writeData(const std::string &name, std::vector<T> const &data);
+
 	/** groups */
 	void makeGroup(const std::string &name);
 

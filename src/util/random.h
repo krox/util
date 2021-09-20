@@ -57,12 +57,13 @@ class xoshiro256
   public:
 	xoshiro256() { seed(0); }
 	explicit xoshiro256(uint64_t x) { seed(x); }
+	explicit xoshiro256(uint64_t x, uint64_t y) { seed(x, y); }
 
 	using result_type = uint64_t;
 	uint64_t min() const { return 0; }
 	uint64_t max() const { return UINT64_MAX; }
 
-	/** set the internal state to some seed value */
+	/** set the internal state using a 64 bit seed */
 	void seed(uint64_t x)
 	{
 		splitmix64 gen(x);
@@ -72,9 +73,21 @@ class xoshiro256
 		s[3] = gen();
 	}
 
+	/** set the internal state using a 128 bit seed */
+	void seed(uint64_t x, uint64_t y)
+	{
+		splitmix64 gen1(x);
+		splitmix64 gen2(y);
+		s[0] = gen1();
+		s[1] = gen1();
+		s[2] = gen2();
+		s[3] = gen2();
+	}
+
 	/** generate next value in the random sequence */
 	uint64_t operator()()
 	{
+		// this is the '**' output function
 		uint64_t result = rotl(s[1] * 5, 7) * 9;
 
 		uint64_t t = s[1] << 17;
@@ -86,6 +99,45 @@ class xoshiro256
 		s[3] = rotl(s[3], 45);
 
 		return result;
+	}
+
+	/**
+	 * generate uniform value in [0,1).
+	 * Essentially equivalent to
+	 *     std::uniform_real_distribution<double>(0,1)(*this)
+	 * But faster.
+	 */
+	double rand()
+	{
+		// this is the '++' output function. Faster, but weaker than then
+		// the '**' version used in operator(). The weakness is mostly on the
+		// low bits of result, which are not used when converting to a
+		// floating point number.
+		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
+
+		const uint64_t t = s[1] << 17;
+		s[2] ^= s[0];
+		s[3] ^= s[1];
+		s[1] ^= s[2];
+		s[0] ^= s[3];
+		s[2] ^= t;
+		s[3] = rotl(s[3], 45);
+
+		// this version can return 1.0 (depending on rounding mode)
+		// return result * 0x1p-64;
+
+		// this version is strictly in [0,1) (independent of rounding mode)
+		return (result >> 11) * 0x1p-53;
+	}
+
+	/** start a new generator, seeded by values from this one */
+	xoshiro256 split()
+	{
+		// This splitting method was not really well studied/tested for
+		// statistical robustness. But using a 128 bit seed with some scrambling
+		// provided by the splitmix64 inside of the constructor is hopefully
+		// good enough to avoid any problems in practice.
+		return xoshiro256((*this)(), (*this)());
 	}
 
 	/** discards 2^128 values of the random sequence */

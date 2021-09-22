@@ -107,7 +107,7 @@ class xoshiro256
 	 *     std::uniform_real_distribution<double>(0,1)(*this)
 	 * But faster.
 	 */
-	double rand()
+	double uniform()
 	{
 		// this is the '++' output function. Faster, but weaker than then
 		// the '**' version used in operator(). The weakness is mostly on the

@@ -58,6 +58,12 @@ struct Histogram
 	std::vector<double> mins;
 	std::vector<double> maxs;
 	std::vector<size_t> bins;
+	size_t total = 0;
+	size_t ignored = 0;
+
+	double min() const { return mins.front(); }
+	double max() const { return maxs.back(); }
+	size_t binCount() const { return bins.size(); }
 
 	void init(double min, double max, size_t n);
 	Histogram(double min, double max, size_t n);

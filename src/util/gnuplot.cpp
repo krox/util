@@ -1,5 +1,6 @@
 #include "util/gnuplot.h"
 
+#include "util/numerics.h"
 #include <fmt/format.h>
 #include <fstream>
 
@@ -151,20 +152,33 @@ Gnuplot &Gnuplot::plotData(gspan<const double> xs, const vector2d<double> &ys,
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title)
+Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title,
+                                double scale)
 {
 	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
 	std::ofstream file(filename);
 
 	for (size_t i = 0; i < hist.bins.size(); ++i)
-		file << 0.5 * (hist.mins[i] + hist.maxs[i]) << " " << hist.bins[i]
-		     << "\n";
+		file << 0.5 * (hist.mins[i] + hist.maxs[i]) << " "
+		     << scale * hist.bins[i] << "\n";
 	file.flush();
 	file.close();
 	fmt::print(pipe, "{} '{}' using 1:2 with histeps title \"{}\"\n",
 	           (nplots ? "replot" : "plot"), filename, title);
 	fflush(pipe);
 	nplots++;
+	return *this;
+}
+
+Gnuplot &Gnuplot::plotHistogram(const Histogram &hist,
+                                const std::function<double(double)> &dist,
+                                const std::string &title)
+{
+	double c = 1.0 / util::integrate(dist, hist.min(), hist.max());
+	plotHistogram(hist, title,
+	              hist.binCount() / (hist.max() - hist.min()) / hist.total);
+	plotFunction([&](double x) { return c * dist(x); }, hist.min(), hist.max());
+
 	return *this;
 }
 

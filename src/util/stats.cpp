@@ -136,10 +136,16 @@ Histogram::Histogram(span<const double> xs, size_t n)
 
 void Histogram::add(double x)
 {
+	if (!(mins.front() <= x && x <= maxs.back()))
+	{
+		ignored += 1;
+		return;
+	}
+
 	auto it = std::upper_bound(maxs.begin(), maxs.end(), x);
 	auto i = std::distance(maxs.begin(), it);
-	if (0 <= i && i < (ptrdiff_t)bins.size()) // ignore out-of-range samples
-		bins[i] += 1;
+	bins[i] += 1;
+	total += 1;
 }
 
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }

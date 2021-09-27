@@ -65,6 +65,10 @@ class Gnuplot
 
 	/** plot a histogram */
 	Gnuplot &plotHistogram(const Histogram &hist,
+	                       const std::string &title = "hist",
+	                       double scale = 1.0);
+	Gnuplot &plotHistogram(const Histogram &hist,
+	                       const std::function<double(double)> &dist,
 	                       const std::string &title = "hist");
 
 	/** black horizontal line without label */

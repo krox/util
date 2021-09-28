@@ -102,7 +102,7 @@ class xoshiro256
 	}
 
 	/**
-	 * generate uniform value in [0,1).
+	 * generate uniform value in [0,1].
 	 * Essentially equivalent to
 	 *     std::uniform_real_distribution<double>(0,1)(*this)
 	 * But faster.
@@ -111,7 +111,7 @@ class xoshiro256
 	{
 		// this is the '++' output function. Faster, but weaker than then
 		// the '**' version used in operator(). The weakness is mostly on the
-		// low bits of result, which are not used when converting to a
+		// low bits of result, which are usually not used when converting to a
 		// floating point number.
 		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
 
@@ -124,10 +124,79 @@ class xoshiro256
 		s[3] = rotl(s[3], 45);
 
 		// this version can return 1.0 (depending on rounding mode)
-		// return result * 0x1p-64;
+		return result * 0x1p-64;
 
 		// this version is strictly in [0,1) (independent of rounding mode)
-		return (result >> 11) * 0x1p-53;
+		// return (result >> 11) * 0x1p-53;
+	}
+
+	/** generate a value with normal/Gaussian distribution (µ=0, σ²=1) */
+	double normal()
+	{
+		// tables for the Ziggurat method
+		auto pdf = [](double x) { return std::exp(-0.5 * x * x); };
+		constexpr int n = 16; // must be power of two
+		constexpr double table_x[17] = {
+		    0,
+		    0.5760613949656382,
+		    0.7848844962025341,
+		    0.9423784527652854,
+		    1.0773743224753307,
+		    1.200704026435259,
+		    1.3180610326087927,
+		    1.4332000178637592,
+		    1.5491474170121649,
+		    1.6688615282467072,
+		    1.7958043759924367,
+		    1.9347422398932554,
+		    2.093335394648163,
+		    2.2862554378205204,
+		    2.5498700041250193,
+		    3.0419762337330707,
+		    9,
+		};
+		constexpr double table_y[17] = {
+		    1,
+		    0.8471111497389042,
+		    0.734899270434089,
+		    0.641440677341622,
+		    0.5596925211819822,
+		    0.4863410853434781,
+		    0.41952068615317745,
+		    0.35806843715908643,
+		    0.3012156396855146,
+		    0.24844112073029095,
+		    0.1993971571819638,
+		    0.15387514265202898,
+		    0.11180192085428531,
+		    0.0732789444190452,
+		    0.03873860933779797,
+		    0.00978592937289994,
+		    2.576757109154981e-18,
+		};
+
+		// implementaion notes:
+		//    * a uniform double does not (usually) use the low bits of the
+		//      random 64-bit value. Therefore we can simply use some for
+		//      randomly selecting the layer and the sign
+		//    * only ~2^-64 of the pdf is outside of a 9-sigma radius. Therefore
+		//      it will not be practically noticable if we just cur off there
+		//    * implementation could be slightly optimized by pre-multiplying
+		//      tablex by 2^-64 and such ideas
+		//   * also, for maximal performance, one might use exponential tails
+		//     instead of truncation, and also bigger tables
+
+		auto u = (*this)();
+		auto i = (size_t)(u & (n - 1));
+		auto x = u * 0x1.0p-64;
+		x *= table_x[i + 1];
+		if (x > table_x[i])
+		{
+			if (table_y[i + 1] + uniform() * (table_y[i] - table_y[i + 1]) >
+			    pdf(x))
+				return normal();
+		}
+		return (u & n) ? x : -x;
 	}
 
 	/** start a new generator, seeded by values from this one */

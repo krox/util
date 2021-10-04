@@ -77,6 +77,16 @@ template <class T> span<const std::byte> as_bytes(span<T> s)
 	return {(const std::byte *)s.data(), s.size_bytes()};
 }
 
+template <class T> span<const std::byte> as_bytes(std::basic_string_view<T> s)
+{
+	return {(const std::byte *)s.data(), s.size() * sizeof(T)};
+}
+
+inline span<const std::byte> as_bytes(char const *s)
+{
+	return as_bytes(std::string_view(s));
+}
+
 template <class T> span<std::byte> as_writable_bytes(span<T> s)
 {
 	return {(std::byte *)s.data(), s.size_bytes()};

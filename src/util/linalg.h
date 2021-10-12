@@ -1,5 +1,7 @@
 #pragma once
 
+#include "util/complex.h"
+#include "util/span.h"
 #include <array>
 #include <cassert>
 #include <initializer_list>
@@ -15,8 +17,6 @@ Some general notes:
  * The compiler might be able to do some limited auto-vectorization.
    But for serious workloads, you probably need something like 'Vector<simd<T>>'
    using std::experimental::simd, or any available simd-wrapper library.
- * Complex types are not supported yet. (It compiles, but does not do any
-   complex conjugation inside inner products and such.)
 
 Notes on 'Vector':
  * Component-wise arithmetic on "Vector" includes operations like
@@ -50,88 +50,115 @@ Notes on implementation details/performance:
 
 namespace util {
 
-template <typename T, size_t N> struct Vector;
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
+#pragma clang diagnostic ignored "-Wnested-anon-types"
+#elif __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 
-template <typename T> struct Vector<T, 1>
+template <typename T, size_t N> struct VectorStorage
 {
-	T x;
-	using value_type = T;
-
-	Vector() = default;
-	Vector(T const &a) : x(a) {}
-
-	T &operator[](size_t i)
-	{
-		assert(i < 1);
-		return (&x)[i];
-	}
-	T const &operator[](size_t i) const
-	{
-		assert(i < 1);
-		return (&x)[i];
-	}
+	T elements_[N];
+	VectorStorage() = default;
+	T &operator[](size_t i) { return elements_[i]; }
+	T const &operator[](size_t i) const { return elements_[i]; }
 };
 
-template <typename T> struct Vector<T, 2>
+template <typename T> struct VectorStorage<T, 1>
 {
-	T x, y;
-	using value_type = T;
-
-	Vector() = default;
-	Vector(T const &a, T const &b) : x(a), y(b) {}
-
-	T &operator[](size_t i)
+	union
 	{
-		assert(i < 2);
-		return (&x)[i];
-	}
-	T const &operator[](size_t i) const
-	{
-		assert(i < 2);
-		return (&x)[i];
-	}
+		T elements_[1];
+		struct
+		{
+			T x;
+		};
+		struct
+		{
+			T r;
+		};
+	};
+	VectorStorage() = default;
+	VectorStorage(T a) : x(std::move(a)) {}
 };
-
-template <typename T> struct Vector<T, 3>
+template <typename T> struct VectorStorage<T, 2>
 {
-	T x, y, z;
-	using value_type = T;
-
-	Vector() = default;
-	Vector(T const &a, T const &b, T const &c) : x(a), y(b), z(c) {}
-
-	T &operator[](size_t i)
+	union
 	{
-		assert(i < 3);
-		return (&x)[i];
-	}
-	T const &operator[](size_t i) const
-	{
-		assert(i < 3);
-		return (&x)[i];
-	}
+		T elements_[2];
+		struct
+		{
+			T x, y;
+		};
+		struct
+		{
+			T r, g;
+		};
+	};
+	VectorStorage() = default;
+	VectorStorage(T a, T b) : x(std::move(a)), y(std::move(b)) {}
 };
-
-template <typename T> struct Vector<T, 4>
+template <typename T> struct VectorStorage<T, 3>
 {
-	T x, y, z, w;
-	using value_type = T;
-
-	Vector() = default;
-	Vector(T const &a, T const &b, T const &c, T const &d)
-	    : x(a), y(b), z(c), w(d)
+	union
+	{
+		T elements_[3];
+		struct
+		{
+			T x, y, z;
+		};
+		struct
+		{
+			T r, g, b;
+		};
+	};
+	VectorStorage() = default;
+	VectorStorage(T a, T b, T c)
+	    : x(std::move(a)), y(std::move(b)), z(std::move(c))
 	{}
-
-	T &operator[](size_t i)
+};
+template <typename T> struct VectorStorage<T, 4>
+{
+	union
 	{
-		assert(i < 4);
-		return (&x)[i];
-	}
+		T elements_[4];
+		struct
+		{
+			T x, y, z, w;
+		};
+		struct
+		{
+			T r, g, b, a;
+		};
+	};
+	VectorStorage() = default;
+	VectorStorage(T a, T b, T c, T d)
+	    : x(std::move(a)), y(std::move(b)), z(std::move(c)), w(std::move(d))
+	{}
+};
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
+template <typename T, size_t N> struct Vector : VectorStorage<T, N>
+{
+	using VectorStorage<T, N>::VectorStorage;
+
+	T &operator[](size_t i) { return VectorStorage<T, N>::elements_[i]; }
 	T const &operator[](size_t i) const
 	{
-		assert(i < 4);
-		return (&x)[i];
+		return VectorStorage<T, N>::elements_[i];
 	}
+	T *data() { return VectorStorage<T, N>::elements_; }
+	T const *data() const { return VectorStorage<T, N>::elements_; }
+	span<T> flat() { return span<T>(data(), N); }
+	span<const T> flat() const { return span<const T>(data(), N); }
 };
 
 #define UTIL_DEFINE_VECTOR_OPERATOR(op)                                        \
@@ -182,9 +209,6 @@ UTIL_DEFINE_VECTOR_OPERATOR(/)
 
 #undef UTIL_DEFINE_VECTOR_OPERATOR
 
-/**
- * Geometrical functions with naming convention as in GLSL/GLM.
- */
 template <typename T, typename U, size_t N>
 auto dot(Vector<T, N> const &a, Vector<U, N> const &b) -> decltype(a[0] * b[0])
 {
@@ -192,6 +216,16 @@ auto dot(Vector<T, N> const &a, Vector<U, N> const &b) -> decltype(a[0] * b[0])
 	for (size_t i = 1; i < N; ++i)
 		r += a[i] * b[i];
 	return r;
+}
+template <typename T, typename U, size_t N>
+auto dot(Vector<complex<T>, N> const &a, Vector<U, N> const &b)
+    -> decltype(a[0] * b[0])
+{
+	// This function is somewhat error-prone due to different conventions:
+	// GLSL/GLM: no complex numbers at all
+	// numpy: 'vdot' does complex conjugation, 'dot' does not
+	assert(false && "dot(...) does not support complex numbers. "
+	                "Use innerProduct(...) instead.");
 }
 template <typename T, typename U>
 auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b)
@@ -203,12 +237,20 @@ auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b)
 	r[2] = a[0] * b[1] - a[1] * b[0];
 	return r;
 }
-template <typename T, size_t N> T length(Vector<T, N> const &a)
+template <typename T, size_t N> auto norm2(Vector<T, N> const &a)
 {
-	return sqrt(dot(a, a));
+	auto r = norm2(a[0]);
+	for (size_t i = 1; i < N; ++i)
+		r += norm2(a[i]);
+	return r;
+}
+template <typename T, size_t N> auto length(Vector<T, N> const &a)
+{
+	return sqrt(norm2(a));
 }
 template <typename T, size_t N> Vector<T, N> normalize(Vector<T, N> const &a)
 {
+	// TODO: there should be a slightly faster way to compute 1/sqrt(x)
 	return a * (T(1) / length(a));
 }
 template <typename T, typename U, size_t N>
@@ -217,47 +259,51 @@ Vector<T, N> reflect(Vector<T, N> const &a, Vector<U, N> const &normal)
 	return a - 2 * dot(normal, a) * normal;
 }
 
-/**
- * Geometrical functions with naming convention as in Lattice QCD.
- */
 template <typename T, typename U, size_t N>
-auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b)
+auto innerProduct(Vector<T, N> const &a, Vector<U, N> const &b)
     -> decltype(a[0] * b[0])
 {
-	return dot(a, b);
-}
-template <typename T, size_t N> T norm2(Vector<T, N> const &a)
-{
-	return inner_product(a, a);
+	decltype(a[0] * b[0]) r = conj(a[0]) * b[0];
+	for (size_t i = 1; i < N; ++i)
+		r += conj(a[i]) * b[i];
+	return r;
 }
 
 template <typename T, size_t N> class Matrix
 {
 	/** only square matrices (yet) */
-	std::array<T, N * N> data_;
+	Vector<T, N> data_[N];
 
   public:
 	Matrix() = default;
 	Matrix(T const &a)
 	{
-		data_.fill(T(0));
 		for (size_t i = 0; i < N; ++i)
-			data_[i * (N + 1)] = a;
+			for (size_t j = 0; j < N; ++j)
+				data_[i][j] = i == j ? a : T(0);
 	}
+
+	static Matrix identity() { return Matrix(T(1)); }
 
 	T &operator()(size_t i, size_t j)
 	{
 		assert(i < N && j < N);
-		return data_[i * N + j];
+		return data_[i][j];
 	}
 	T const &operator()(size_t i, size_t j) const
 	{
 		assert(i < N && j < N);
-		return data_[i * N + j];
+		return data_[i][j];
 	}
 
-	T *data() { return data_.data(); }
-	T const *data() const { return data_.data(); }
+	Vector<T, N> &operator()(size_t i) { return data_[i]; }
+	Vector<T, N> const &operator()(size_t i) const { return data_[i]; }
+
+	T *data() { return data_[0].data(); }
+	T const *data() const { return data_[0].data(); }
+
+	span<T> flat() { return util::span<T>(data(), N * N); }
+	span<const T> flat() const { return util::span<const T>(data(), N * N); }
 };
 
 /** matrix <-> scalar multiplication/division */
@@ -295,6 +341,28 @@ auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b)
 	return r;
 }
 
+template <typename T, typename U, size_t N>
+auto operator+(Matrix<T, N> const &a, Matrix<U, N> const &b)
+    -> Matrix<decltype(a(0, 0) + b(0, 0)), N>
+{
+	Matrix<decltype(a(0, 0) + b(0, 0)), N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = a(i, j) + b(i, j);
+	return r;
+}
+
+template <typename T, typename U, size_t N>
+auto operator-(Matrix<T, N> const &a, Matrix<U, N> const &b)
+    -> Matrix<decltype(a(0, 0) - b(0, 0)), N>
+{
+	Matrix<decltype(a(0, 0) - b(0, 0)), N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = a(i, j) - b(i, j);
+	return r;
+}
+
 /** matrix <-> matrix multiplication */
 template <typename T, typename U, size_t N>
 auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
@@ -311,6 +379,24 @@ auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
 	return r;
 }
 
+/** inplace operations */
+template <typename T, typename U, size_t N>
+Matrix<T, N> &operator+=(Matrix<T, N> &a, Matrix<U, N> const &b)
+{
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			a(i, j) += b(i, j);
+	return a;
+}
+template <typename T, typename U, size_t N>
+Matrix<T, N> &operator-=(Matrix<T, N> &a, Matrix<U, N> const &b)
+{
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			a(i, j) -= b(i, j);
+	return a;
+}
+
 template <typename T, size_t N> Matrix<T, N> transpose(Matrix<T, N> const &a)
 {
 	Matrix<T, N> r;
@@ -320,12 +406,54 @@ template <typename T, size_t N> Matrix<T, N> transpose(Matrix<T, N> const &a)
 	return r;
 }
 
+template <typename T, size_t N> Matrix<T, N> conj(Matrix<T, N> const &a)
+{
+	Matrix<T, N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = conj(a(i, j));
+	return r;
+}
+
+template <typename T, size_t N> Matrix<T, N> adj(Matrix<T, N> const &a)
+{
+	Matrix<T, N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = conj(a(j, i));
+	return r;
+}
+
+template <typename T, size_t N>
+Matrix<T, N> antiHermitianTraceless(Matrix<T, N> const &a)
+{
+	// TODO: optimize
+	auto r = (a - adj(a)) / real_t<T>(2);
+	return r - Matrix<T, N>{trace(r) / real_t<T>(N)};
+}
+
+template <typename T, size_t N> T trace(Matrix<T, N> const &a)
+{
+	T r = a(0, 0);
+	for (size_t i = 1; i < N; ++i)
+		r += a(i, i);
+	return r;
+}
+
+template <typename T> T determinant(Matrix<T, 2> const &a)
+{
+	return a(0, 0) * a(1, 1) - a(0, 1) * a(1, 0);
+}
+
+template <typename T> T determinant(Matrix<T, 3> const &a)
+{
+	return a(0, 0) * (a(1, 1) * a(2, 2) - a(2, 1) * a(1, 2)) -
+	       a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) +
+	       a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+}
+
 template <typename T> Matrix<T, 3> inverse(Matrix<T, 3> const &a)
 {
-	T det = a(0, 0) * (a(1, 1) * a(2, 2) - a(2, 1) * a(1, 2)) -
-	        a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) +
-	        a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
-
 	Matrix<T, 3> b;
 	b(0, 0) = a(1, 1) * a(2, 2) - a(2, 1) * a(1, 2);
 	b(0, 1) = a(0, 2) * a(2, 1) - a(0, 1) * a(2, 2);
@@ -337,7 +465,45 @@ template <typename T> Matrix<T, 3> inverse(Matrix<T, 3> const &a)
 	b(2, 1) = a(2, 0) * a(0, 1) - a(0, 0) * a(2, 1);
 	b(2, 2) = a(0, 0) * a(1, 1) - a(1, 0) * a(0, 1);
 
-	return b * (T(1) / det);
+	return b * (T(1) / determinant(a));
+}
+
+template <typename T, size_t N> auto norm2(Matrix<T, N> const &a)
+{
+	auto r = norm2(a(0));
+	for (size_t i = 1; i < N; ++i)
+		r += norm2(a(i));
+	return r;
+}
+
+template <typename T, size_t N> Matrix<T, N> gramSchmidt(Matrix<T, N> a)
+{
+	for (size_t i = 0; i < N; ++i)
+	{
+		for (size_t j = 0; j < i; ++j)
+			a(i) -= a(j) * innerProduct(a(j), a(i));
+		a(i) = normalize(a(i));
+	}
+	return a;
+}
+
+template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
+{
+	// use exp(A) = exp(A/16)^16 with 12th-order Taylor
+	// TODO (ideas):
+	//    * handle the trace of a separately (and exactly)
+	//    * choose the expansion order depending on the norm of a
+	//    * use exact formulas for small N
+	auto b = a / real_t<T>(16);
+	auto r = Matrix<T, N>::identity() + b;
+	for (int n = 2; n <= 12; ++n)
+	{
+		b = a * b * (T(1) / real_t<T>(n * 16));
+		r += b;
+	}
+	for (int i = 0; i < 4; ++i)
+		r = r * r;
+	return r;
 }
 
 /**
@@ -416,3 +582,33 @@ class exponential_sphere_distribution<Vector<RealType, 3>>
 };
 
 } // namespace util
+
+namespace fmt {
+template <typename T, size_t N>
+struct formatter<util::Matrix<T, N>> : formatter<T>
+{
+	// NOTE: parse() is inherited from formatter<T>
+
+	template <typename FormatContext>
+	auto format(const util::Matrix<T, N> &a, FormatContext &ctx)
+	    -> decltype(ctx.out())
+	{
+		format_to(ctx.out(), "[[");
+		for (size_t i = 0; i < N; ++i)
+		{
+			for (size_t j = 0; j < N; ++j)
+			{
+				if (j != 0)
+					format_to(ctx.out(), ", ");
+				formatter<T>::format(a(i, j), ctx);
+			}
+
+			if (i + 1 == N)
+				format_to(ctx.out(), "]]");
+			else
+				format_to(ctx.out(), "],\n [");
+		}
+		return ctx.out();
+	}
+};
+} // namespace fmt

@@ -1,12 +1,11 @@
-#ifndef UTIL_TENSOR_H
-#define UTIL_TENSOR_H
+#pragma once
 
 #include "util/span.h"
 
 namespace util {
 
 /** n-dimensional array */
-template <typename T, size_t N> class tensor
+template <typename T, size_t N> class ndarray
 {
 	static_assert(std::is_trivially_copyable_v<T>);
 	static_assert(N > 0);
@@ -23,8 +22,8 @@ template <typename T, size_t N> class tensor
 	using size_type = size_t;
 
 	/** default/explicit constructors */
-	tensor() = default;
-	explicit tensor(index_type shape)
+	ndarray() = default;
+	explicit ndarray(index_type shape)
 	{
 		size_t ss = 1;
 		for (size_t s : shape)
@@ -33,19 +32,32 @@ template <typename T, size_t N> class tensor
 		span_ = ndspan(buf, shape);
 	}
 
-	/** copy/move constructors */
-	tensor(const tensor &other) = delete;
-	tensor(tensor &&other) = delete;
-
-	/** copy/move assigment */
-	tensor &operator=(const tensor &other) = delete;
-	tensor &operator=(tensor &&other) = delete;
-
-	~tensor()
+	ndarray(const ndarray &other)
+	    : span_{ndspan(span(new T[other.size()], other.size()), other.shape())}
 	{
-		if (span_.data() != nullptr)
-			delete[] span_.data();
+		std::memcpy(data(), other.data(), size() * sizeof(T));
 	}
+	ndarray(ndarray &&other) : span_{other.span_} { other.span_ = {}; }
+	ndarray &operator=(const ndarray &other)
+	{
+		if (size() == other.size())
+			span_ = span_.reshape(other.shape());
+		else
+		{
+			delete[] data();
+			auto buf = span(new T[other.size()], other.size());
+			span_ = ndspan(buf, other.shape());
+		}
+		std::memcpy(data, other.data(), size() * sizeof(T));
+		return *this;
+	}
+	ndarray &operator=(ndarray &&other)
+	{
+		std::swap(span_, other.span_);
+		return *this;
+	}
+
+	~ndarray() { delete[] span_.data(); }
 
 	/** field access */
 	T *data() { return span_.data(); }
@@ -60,6 +72,15 @@ template <typename T, size_t N> class tensor
 	/** element access */
 	T &operator[](index_type i) { return span_[i]; }
 	const T &operator[](index_type i) const { return span_[i]; }
+
+	ndspan<T, N> slice(size_t axis, size_t a, size_t b)
+	{
+		return span_.slice(axis, a, b);
+	}
+	ndspan<const T, N> slice(size_t axis, size_t a, size_t b) const
+	{
+		return span_.slice(axis, a, b);
+	}
 
 	template <typename... Is>
 	auto operator()(Is &&... is) -> decltype(span_(std::forward<Is>(is)...))
@@ -83,5 +104,3 @@ template <typename T, size_t N> class tensor
 };
 
 } // namespace util
-
-#endif

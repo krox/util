@@ -159,8 +159,7 @@ erase_if(std::vector<T, Alloc> &c, Pred pred)
 
 /** forward declarations */
 template <typename, size_t> class ndspan;
-template <size_t N, typename F, typename... Ts>
-void map(F &&, ndspan<Ts, N> const &...);
+template <typename F, size_t N, typename... Ts> void map(F, ndspan<Ts, N>...);
 
 /** wildcard index */
 class
@@ -272,12 +271,14 @@ template <typename T, size_t N> class ndspan
 	}
 
 	/** "const ndspan<T>" to "ndspan<const T>" conversion */
-	ndspan(ndspan<value_type, N> const &v)
+	template <typename U>
+	ndspan(ndspan<U, N> const &v)
 	    : data_(v.data()), shape_(v.shape()), stride_(v.stride())
 	{}
+	ndspan(ndspan const &v) = default;
 
 	/** shallow assigment, i.e. "a = ..." */
-	void operator=(ndspan other) &
+	void operator=(ndspan<value_type, N> const &other) &
 	{
 		data_ = other.data_;
 		shape_ = other.shape_;
@@ -285,7 +286,11 @@ template <typename T, size_t N> class ndspan
 	}
 
 	/** element-wise assigment, i.e. "a(...) = ..." */
-	void operator=(ndspan const &other) const &&
+	void operator=(ndspan<const T, N> const &other) const &&
+	{
+		map([](T &a, T const &b) { a = b; }, *this, other);
+	}
+	void operator=(ndspan<value_type, N> const &other) const &&
 	{
 		map([](T &a, T const &b) { a = b; }, *this, other);
 	}
@@ -343,6 +348,17 @@ template <typename T, size_t N> class ndspan
 		}
 
 		return ndspan<T, N>(new_data, count, stride_);
+	}
+
+	/** take a [a,b) slice in one dimension */
+	ndspan<T, N> slice(size_t axis, size_t a, size_t b) const
+	{
+		assert(axis < N);
+		assert(0 <= a && a <= b && b <= shape_[axis]);
+		ndspan<T, N> r = *this;
+		r.data_ += a * stride_[axis];
+		r.shape_[axis] = b - a;
+		return r;
 	}
 
 	/** internal helper, dont use directly */
@@ -483,8 +499,8 @@ ndspan(C, std::array<size_t, N>) -> ndspan<typename C::value_type, N>;
 template <typename T, size_t N>
 ndspan(T *, std::array<size_t, N>, std::array<size_t, N>) -> ndspan<T, N>;
 
-template <size_t N, typename F, typename... Ts>
-void map_impl(F &&f, size_t *shape, ndspan<Ts, N> const &... as)
+template <typename F, size_t N, typename... Ts>
+void map_impl(F f, size_t *shape, ndspan<Ts, N>... as)
 {
 	if constexpr (N == 1)
 	{
@@ -498,13 +514,18 @@ void map_impl(F &&f, size_t *shape, ndspan<Ts, N> const &... as)
 	}
 }
 
-template <size_t N, typename F, typename... Ts>
-void map(F &&f, ndspan<Ts, N> const &... as)
+template <typename F, size_t N, typename... Ts>
+void map(F f, ndspan<Ts, N>... as)
 {
 	std::array<std::array<size_t, N>, sizeof...(Ts)> shapes = {as.shape()...};
 	for (size_t i = 1; i < sizeof...(Ts); ++i)
 		assert(shapes[i] == shapes[0]);
 	map_impl(f, shapes[0].data(), as...);
+}
+
+template <typename F, typename... Cs> void map(F f, Cs &&... cs)
+{
+	map(std::move(f), cs()...);
 }
 
 } // namespace util

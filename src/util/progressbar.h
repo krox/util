@@ -49,7 +49,39 @@ class ProgressBar
 		fmt::print("\n");
 	}
 	void update(size_t ticks) { ticks_ = ticks; }
-	void operator++() { ticks_++; }
+	void operator++() { ++ticks_; }
+	size_t total() const { return total_; }
+};
+
+/** allows iteration as `for(size_t i : ProgressRange(100))` */
+class ProgressRange
+{
+	struct iterator
+	{
+		ProgressRange &pr;
+		size_t current;
+
+		iterator(ProgressRange &p, int c) : pr(p), current(c){};
+		size_t operator*() const { return current; }
+		void operator++()
+		{
+			++current;
+			++pr.pb;
+			pr.pb.show();
+		}
+		bool operator!=(iterator const &other)
+		{
+			assert(&pr == &other.pr);
+			return current != other.current;
+		}
+	};
+	ProgressBar pb;
+
+  public:
+	ProgressRange(size_t total) : pb(total) { pb.show(); }
+	~ProgressRange() { pb.finish(); }
+	iterator begin() { return iterator(*this, 0); }
+	iterator end() { return iterator(*this, pb.total()); }
 };
 
 } // namespace util

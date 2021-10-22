@@ -37,7 +37,10 @@ template <typename T, size_t N> class ndarray
 	{
 		std::memcpy(data(), other.data(), size() * sizeof(T));
 	}
-	ndarray(ndarray &&other) : span_{other.span_} { other.span_ = {}; }
+	ndarray(ndarray &&other) : span_{other.span_}
+	{
+		other.span_ = ndspan<T, N>();
+	}
 	ndarray &operator=(const ndarray &other)
 	{
 		if (size() == other.size())

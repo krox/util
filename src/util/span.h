@@ -593,6 +593,26 @@ struct formatter<util::ndspan<T, N>> : formatter<T>
 	}
 };
 
+template <typename T>
+struct formatter<util::span<T>> : formatter<std::decay_t<T>>
+{
+	// NOTE: parse() is inherited from formatter<T>
+
+	template <typename FormatContext>
+	auto format(util::span<T> const &a, FormatContext &ctx)
+	    -> decltype(ctx.out())
+	{
+		fmt::format_to(ctx.out(), "{{");
+		for (size_t i = 0; i < a.size(); ++i)
+		{
+			if (i != 0)
+				fmt::format_to(ctx.out(), ", ");
+			formatter<std::decay_t<T>>::format(a[i], ctx);
+		}
+		return fmt::format_to(ctx.out(), "}}");
+	}
+};
+
 } // namespace fmt
 
 #endif

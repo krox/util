@@ -269,12 +269,11 @@ auto innerProduct(Vector<T, N> const &a, Vector<U, N> const &b)
 	return r;
 }
 
-template <typename T, size_t N> class Matrix
+template <typename T, size_t N> struct Matrix
 {
 	/** only square matrices (yet) */
 	Vector<T, N> data_[N];
 
-  public:
 	Matrix() = default;
 	Matrix(T const &a)
 	{
@@ -504,6 +503,72 @@ template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
 	for (int i = 0; i < 4; ++i)
 		r = r * r;
 	return r;
+}
+
+// overloads for (horizontal) simd
+
+template <typename T, size_t N> auto vsum(Vector<T, N> const &a)
+{
+	Vector<decltype(vsum(a[0])), N> r;
+	for (size_t i = 0; i < N; ++i)
+		r[i] = vsum(a[i]);
+	return r;
+}
+template <typename T, size_t N, typename U>
+Vector<T, N> vshuffle(Vector<T, N> const &a, U const &mask)
+{
+	Vector<T, N> r;
+	for (size_t i = 0; i < N; ++i)
+		r[i] = vshuffle(a[i], mask);
+	return r;
+}
+template <typename T, size_t N>
+auto vextract(Vector<T, N> const &a, size_t lane)
+{
+	Vector<decltype(vsum(a[0])), N> r;
+	for (size_t i = 0; i < N; ++i)
+		r[i] = vextract(a[i], lane);
+	return r;
+}
+template <typename T, typename U, size_t N>
+void vinsert(Vector<T, N> &a, size_t lane, Vector<U, N> const &b)
+{
+	for (size_t i = 0; i < N; ++i)
+		vinsert(a[i], lane, b[i]);
+}
+
+template <typename T, size_t N> auto vsum(Matrix<T, N> const &a)
+{
+	Matrix<decltype(vsum(a(0, 0))), N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = vsum(a(i, j));
+	return r;
+}
+template <typename T, size_t N, typename U>
+Matrix<T, N> vshuffle(Matrix<T, N> const &a, U const &mask)
+{
+	Matrix<T, N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = vshuffle(a(i, j), mask);
+	return r;
+}
+template <typename T, size_t N>
+auto vextract(Matrix<T, N> const &a, size_t lane)
+{
+	Matrix<decltype(vsum(a(0, 0))), N> r;
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			r(i, j) = vextract(a(i, j), lane);
+	return r;
+}
+template <typename T, typename U, size_t N>
+void vinsert(Matrix<T, N> &a, size_t lane, Matrix<U, N> const &b)
+{
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			vinsert(a(i, j), lane, b(i, j));
 }
 
 /**

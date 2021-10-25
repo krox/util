@@ -282,6 +282,7 @@ template <typename T, size_t N> struct Matrix
 				data_[i][j] = i == j ? a : T(0);
 	}
 
+	static Matrix zero() { return Matrix(T(0)); }
 	static Matrix identity() { return Matrix(T(1)); }
 
 	T &operator()(size_t i, size_t j)

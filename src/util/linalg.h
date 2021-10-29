@@ -279,11 +279,11 @@ template <typename T, size_t N> struct Matrix
 	{
 		for (size_t i = 0; i < N; ++i)
 			for (size_t j = 0; j < N; ++j)
-				data_[i][j] = i == j ? a : T(0);
+				data_[i][j] = i == j ? a : T(real_t<T>(0));
 	}
 
-	static Matrix zero() { return Matrix(T(0)); }
-	static Matrix identity() { return Matrix(T(1)); }
+	static Matrix zero() { return Matrix(T(real_t<T>(0))); }
+	static Matrix identity() { return Matrix(T(real_t<T>(1))); }
 
 	T &operator()(size_t i, size_t j)
 	{
@@ -494,11 +494,11 @@ template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
 	//    * handle the trace of a separately (and exactly)
 	//    * choose the expansion order depending on the norm of a
 	//    * use exact formulas for small N
-	auto b = a / real_t<T>(16);
+	auto b = a * (1.0 / 16.0);
 	auto r = Matrix<T, N>::identity() + b;
 	for (int n = 2; n <= 12; ++n)
 	{
-		b = a * b * (T(1) / real_t<T>(n * 16));
+		b = a * b * (1.0 / (16.0 * n));
 		r += b;
 	}
 	for (int i = 0; i < 4; ++i)
@@ -513,14 +513,6 @@ template <typename T, size_t N> auto vsum(Vector<T, N> const &a)
 	Vector<decltype(vsum(a[0])), N> r;
 	for (size_t i = 0; i < N; ++i)
 		r[i] = vsum(a[i]);
-	return r;
-}
-template <typename T, size_t N, typename U>
-Vector<T, N> vshuffle(Vector<T, N> const &a, U const &mask)
-{
-	Vector<T, N> r;
-	for (size_t i = 0; i < N; ++i)
-		r[i] = vshuffle(a[i], mask);
 	return r;
 }
 template <typename T, size_t N>
@@ -544,15 +536,6 @@ template <typename T, size_t N> auto vsum(Matrix<T, N> const &a)
 	for (size_t i = 0; i < N; ++i)
 		for (size_t j = 0; j < N; ++j)
 			r(i, j) = vsum(a(i, j));
-	return r;
-}
-template <typename T, size_t N, typename U>
-Matrix<T, N> vshuffle(Matrix<T, N> const &a, U const &mask)
-{
-	Matrix<T, N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
-			r(i, j) = vshuffle(a(i, j), mask);
 	return r;
 }
 template <typename T, size_t N>

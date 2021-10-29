@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/simd.h" // for supporting direct complex<simd<T>> <-> T ops
 #include <cmath>
 #include <utility>
 
@@ -102,7 +103,7 @@ auto operator/(complex<T> const &a, complex<U> const &b)
 	return (a * conj(b)) / norm(b);
 }
 
-// mixed complex <-> real operations
+// binary complex <-> real
 
 template <typename T> complex<T> operator+(complex<T> const &a, T const &b)
 {
@@ -120,8 +121,7 @@ template <typename T> complex<T> operator-(T const &a, complex<T> const &b)
 {
 	return {a - b.re, -b.im};
 }
-template <typename T, typename U>
-auto operator*(complex<T> const &a, U const &b) -> complex<decltype(a.re * b)>
+template <typename T> complex<T> operator*(complex<T> const &a, T const &b)
 {
 	return {a.re * b, a.im * b};
 }
@@ -134,6 +134,49 @@ template <typename T> complex<T> operator/(complex<T> const &a, T const &b)
 	return {a.re / b, a.im / b};
 }
 template <typename T> complex<T> operator/(T const &a, complex<T> const &b)
+{
+	return a * inverse(b);
+}
+
+// binary complex<simd> <-> scalar real
+
+template <typename T, size_t W>
+complex<simd<T, W>> operator+(complex<simd<T, W>> const &a, T const &b)
+{
+	return {a.re + b, a.im};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator+(T const &a, complex<simd<T, W>> const &b)
+{
+	return {a + b.re, b.im};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator-(complex<simd<T, W>> const &a, T const &b)
+{
+	return {a.re - b, a.im};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator-(T const &a, complex<simd<T, W>> const &b)
+{
+	return {a - b.re, -b.im};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator*(complex<simd<T, W>> const &a, T const &b)
+{
+	return {a.re * b, a.im * b};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator*(T const &a, complex<simd<T, W>> const &b)
+{
+	return {a * b.re, a * b.im};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator/(complex<simd<T, W>> const &a, T const &b)
+{
+	return {a.re / b, a.im / b};
+}
+template <typename T, size_t W>
+complex<simd<T, W>> operator/(T const &a, complex<simd<T, W>> const &b)
 {
 	return a * inverse(b);
 }
@@ -271,11 +314,6 @@ template <typename T> using complex_t = typename ComplexType<T>::type;
 template <typename T> auto vsum(complex<T> const &a)
 {
 	return complex(vsum(a.re), vsum(a.im));
-}
-template <typename T, typename U>
-auto vshuffle(complex<T> const &a, U const &mask)
-{
-	return complex(vshuffle(a.re, mask), vshuffle(a.im, mask));
 }
 template <typename T> auto vextract(complex<T> const &a, size_t lane)
 {

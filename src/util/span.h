@@ -114,7 +114,9 @@ template <typename T> class gspan
 	gspan(std::vector<T> &v) : data_(v.data()), size_(v.size()) {}
 	gspan(std::vector<value_type> const &v) : data_(v.data()), size_(v.size())
 	{}
-	gspan(span<T> &v) : data_(v.data()), size_(v.size()) {}
+	template <typename U>
+	gspan(span<U> const &v) : data_(v.data()), size_(v.size())
+	{}
 	gspan(gspan<value_type> const &v)
 	    : data_(v.data()), size_(v.size()), stride_(v.stride())
 	{}

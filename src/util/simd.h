@@ -20,6 +20,7 @@ namespace util {
  */
 
 #define UTIL_SIMD_GCC_BUILTIN
+
 // static constexpr size_t simd_register_size = 16; // 128 bit (SSE)
 static constexpr size_t simd_register_size = 32; // 256 bit (AVX, AVX2)
 // static constexpr size_t simd_register_size = 64; // 512 bit (AVX512)
@@ -28,19 +29,44 @@ using std::sin, std::cos, std::tan, std::exp, std::log, std::sqrt;
 
 #define UTIL_SIMD_FOR(i, w) for (size_t i = 0; i < w; ++i)
 
+template <typename T, size_t W = simd_register_size / sizeof(T)>
+struct alignas(sizeof(T) * W) simd;
+
+template <size_t size> struct IntType;
+template <> struct IntType<1>
+{
+	using type = int8_t;
+};
+template <> struct IntType<2>
+{
+	using type = int16_t;
+};
+template <> struct IntType<4>
+{
+	using type = int32_t;
+};
+template <> struct IntType<8>
+{
+	using type = int64_t;
+};
+
 #ifdef UTIL_SIMD_GCC_BUILTIN
 
-template <typename T, size_t W = simd_register_size / sizeof(T)>
-struct alignas(sizeof(T) * W) simd
+template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 {
 	static_assert(W > 0 && (W & (W - 1)) == 0); // W has to be a power of two
+
+	// simd<integer> type of the same size/width
+	using int_type = simd<typename IntType<sizeof(T)>::type, W>;
 
 	typedef T Vec_ __attribute__((vector_size(W * sizeof(T))));
 	Vec_ v_;
 
 	simd() = default;
 
-	simd(T v) { UTIL_SIMD_FOR(i, W) v_[i] = v; }
+	explicit simd(T v) { UTIL_SIMD_FOR(i, W) v_[i] = v; }
+
+	static constexpr size_t size() { return W; }
 
 	T &operator[](size_t i) { return v_[i]; }
 	T operator[](size_t i) const { return v_[i]; }
@@ -117,47 +143,21 @@ UTIL_DEFINE_SIMD_FUNCTION(sqrt)
 #undef UTIL_DEFINE_SIMD_FUNCTION
 #undef UTIL_SIMD_FOR
 
-// operations that dont act independently accross SIMD lanes
-//     * prefixed with 'v' in order not to clash with parallel instructions
-//     * can be overloaded for horizontal SIMD i.e. things like
-//         vsum(Matrix<simd<double>>) -> Matrix<double>
-
-template <typename T, size_t W> T vsum(simd<T, W> a)
-{
-	T r = a[0];
-	for (size_t i = 1; i < W; ++i)
-		r += a[i];
-	return r;
-}
-template <typename T, size_t W>
-simd<T, W> vshuffle(simd<T, W> a, simd<int, W> mask)
-{
-	simd<T, W> r;
-	for (size_t i = 0; i < W; ++i)
-		r[i] = a[mask[i]];
-	return r;
-}
-template <typename T, size_t W> T vextract(simd<T, W> a, size_t lane)
-{
-	// assert(i < W);
-	return a[lane];
-}
-template <typename T, size_t W> void vinsert(simd<T, W> &a, size_t lane, T b)
-{
-	a[lane] = b;
-}
-
 #else
 
-template <typename T, size_t W = simd_register_size / sizeof(T)>
-struct alignas(sizeof(T) * W) simd
+template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 {
 	static_assert(W > 0 && (W & (W - 1)) == 0); // W has to be a power of two
+
+	// simd<integer> type of the same size/width
+	using int_type = simd<typename IntType<sizeof(T)>::type, W>;
 
 	T elements[W];
 
 	simd() = default;
-	simd(T value) { UTIL_SIMD_FOR(i, W) elements[i] = value; }
+	explicit simd(T value) { UTIL_SIMD_FOR(i, W) elements[i] = value; }
+
+	static constexpr size_t size() { return W; }
 
 	T &operator[](size_t i) { return elements[i]; }
 	T operator[](size_t i) const { return elements[i]; }
@@ -234,24 +234,41 @@ UTIL_DEFINE_SIMD_FUNCTION(sqrt)
 #undef UTIL_DEFINE_SIMD_FUNCTION
 #undef UTIL_SIMD_FOR
 
+#endif
+
 // operations that dont act independently accross SIMD lanes
 //     * prefixed with 'v' in order not to clash with parallel instructions
 //     * can be overloaded for horizontal SIMD i.e. things like
 //         vsum(Matrix<simd<double>>) -> Matrix<double>
 
-template <typename T, size_t W> T vsum(simd<T, W> a)
+#ifdef UTIL_SIMD_GCC_BUILTIN
+
+template <typename T, size_t W>
+simd<T, W> vshuffle(simd<T, W> a, typename simd<T, W>::int_type mask)
 {
-	T r = a[0];
-	for (size_t i = 1; i < W; ++i)
-		r += a[i];
+	simd<T, W> r;
+	r.v_ = __builtin_shuffle(a.v_, mask.v_);
 	return r;
 }
+
+#else
+
 template <typename T, size_t W>
 simd<T, W> vshuffle(simd<T, W> a, simd<int, W> mask)
 {
 	simd<T, W> r;
 	for (size_t i = 0; i < W; ++i)
 		r[i] = a[mask[i]];
+	return r;
+}
+
+#endif
+
+template <typename T, size_t W> T vsum(simd<T, W> a)
+{
+	T r = a[0];
+	for (size_t i = 1; i < W; ++i)
+		r += a[i];
 	return r;
 }
 template <typename T, size_t W> T vextract(simd<T, W> a, size_t lane)
@@ -263,7 +280,5 @@ template <typename T, size_t W> void vinsert(simd<T, W> &a, size_t lane, T b)
 {
 	a[lane] = b;
 }
-
-#endif
 
 } // namespace util

@@ -276,6 +276,25 @@ std::array<std::byte, 32> sha256(span<const std::byte> data)
 	return ret;
 }
 
+uint32_t fnv1a_32(span<const std::byte> data)
+{
+	const uint32_t p = 16777619;
+	uint32_t hash = 2166136261;
+
+	for (std::byte a : data)
+		hash = (hash ^ (uint8_t)a) * p;
+	return hash;
+}
+
+uint64_t fnv1a_64(span<const std::byte> data)
+{
+	const uint64_t p = 1099511628211ULL;
+	uint64_t hash = 14695981039346656037ULL;
+	for (std::byte a : data)
+		hash = (hash ^ (uint8_t)a) * p;
+	return hash;
+}
+
 std::string hex_string(span<const std::byte> h)
 {
 	static const char digits[] = "0123456789abcdef";

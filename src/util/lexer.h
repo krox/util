@@ -6,6 +6,8 @@
  * enough to support some programming languages (or at least JSON and the like)
  */
 
+#include <climits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -16,6 +18,38 @@ class ParseError : public std::runtime_error
   public:
 	ParseError(std::string const &what) : std::runtime_error(what) {}
 };
+
+inline int parse_int(std::string_view s)
+{
+	int r = 0;
+	for (size_t i = 0; i < s.size(); ++i)
+	{
+		if (!('0' <= s[i] && s[i] <= '9'))
+			throw ParseError(
+			    fmt::format("unexpected character '{}' in integer", s[i]));
+		if (r > (INT_MAX - 9) / 10) // not exactly tight
+			throw ParseError(
+			    fmt::format("integer overflow while parsing in '{}'", s));
+		r = 10 * r + (s[i] - '0');
+	}
+	return r;
+}
+
+inline int64_t parse_int64(std::string_view s)
+{
+	int64_t r = 0;
+	for (size_t i = 0; i < s.size(); ++i)
+	{
+		if (!('0' <= s[i] && s[i] <= '9'))
+			throw ParseError(
+			    fmt::format("unexpected character '{}' in integer", s[i]));
+		if (r > (INT64_MAX - 9) / 10) // not exactly tight
+			throw ParseError(
+			    fmt::format("integer overflow while parsing in '{}'", s));
+		r = 10 * r + (s[i] - '0');
+	}
+	return r;
+}
 
 enum class Tok
 {

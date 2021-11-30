@@ -36,6 +36,7 @@ template <typename T> struct complex
 	T re, im;
 
 	complex() = default;
+	explicit complex(int r) : re(r), im(0) {}
 	complex(T r) : re(std::move(r)), im(0) {}
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
 	template <typename U>
@@ -237,6 +238,15 @@ template <typename T, typename U> complex<T> &operator/=(complex<T> &a, U b)
 	a.re /= b;
 	a.im /= b;
 	return a;
+}
+
+template <typename T> bool operator==(complex<T> const &a, complex<T> const &b)
+{
+	return a.re == b.re && a.im == b.im;
+}
+template <typename T> bool operator==(complex<T> const &a, T const &b)
+{
+	return a.im == 0 && a.re == b;
 }
 
 // exponentials and trigonometry

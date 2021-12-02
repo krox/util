@@ -274,16 +274,16 @@ template <typename T> complex<T> cosh(complex<T> const &a)
 
 // dummy operations to simplify templates that work with either real or complex
 
-float conj(float a) { return a; }
-float norm(float a) { return a * a; }
-float norm2(float a) { return a * a; }
-float real(float a) { return a; }
-float imag([[maybe_unused]] float a) { return 0; }
-double conj(double a) { return a; }
-double norm(double a) { return a * a; }
-double norm2(double a) { return a * a; }
-double real(double a) { return a; }
-double imag([[maybe_unused]] double a) { return 0; }
+inline float conj(float a) { return a; }
+inline float norm(float a) { return a * a; }
+inline float norm2(float a) { return a * a; }
+inline float real(float a) { return a; }
+inline float imag([[maybe_unused]] float a) { return 0; }
+inline double conj(double a) { return a; }
+inline double norm(double a) { return a * a; }
+inline double norm2(double a) { return a * a; }
+inline double real(double a) { return a; }
+inline double imag([[maybe_unused]] double a) { return 0; }
 
 // type traits to convert real <-> complex types
 // NOTE: we do NOT define the default cases

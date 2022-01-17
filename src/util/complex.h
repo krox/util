@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fmt/format.h"
 #include "util/simd.h" // for supporting direct complex<simd<T>> <-> T ops
 #include <cmath>
 #include <utility>

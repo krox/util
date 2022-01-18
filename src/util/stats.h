@@ -1,23 +1,83 @@
-#ifndef UTIL_STATS_H
-#define UTIL_STATS_H
+#pragma once
 
-/** statistics utilities */
-
-#include <array>
-#include <vector>
+// statistics utilities
 
 #include "util/span.h"
+#include <array>
+#include <cmath>
+#include <vector>
 
 namespace util {
 
-/** simple population mean/variance */
-double mean(gspan<const double> xs);
-double variance(gspan<const double> xs);
+// simple population statistics
+
+// TODO: do something like pair-summation for mean/variance to further improve
+//       numerical stability (and possibly get some vectorization on the way?)
+
+// mean of f(x_i)
+template <typename F> double mean(gspan<const double> xs, F f)
+{
+	double sum = 0;
+	for (size_t i = 0; i < xs.size(); ++i)
+		sum += f(xs[i]);
+	return sum / xs.size();
+}
+
+// variance of f(x_i)
+template <typename F> double variance(gspan<const double> xs, F f)
+{
+	// there are surprisingly many ways to compute the variance:
+	//    * <(x-<x>)^2>:
+	//      numerically stable, but requires two passes over the data
+	//    * <x^2> - <x>^2:
+	//      instable, but only requires one pass
+	//    * "Welford's online algorithm":
+	//      stable, only one pass but somewhat inefficient (division in loop)
+	//    * approximate mean and then run Welford on shifted data:
+	//      slowest version, but numerically essentially perfect. Would be
+	//      cool to encounter an actual usecase.
+	//
+	// Here, we choose Welford's algorithm, because we want to guarantee that
+	// f is only evaluated once for every element, without allocating any
+	// temporary memory. Other than that, stability is more important than
+	// performance.
+	double mean = 0, sum2 = 0;
+	for (size_t i = 0; i < xs.size(); ++i)
+	{
+		double fx = f(xs[i]);
+		double dx = fx - mean;
+		mean += dx / (i + 1);
+		sum2 += dx * (fx - mean);
+	}
+	return sum2 / xs.size();
+}
+
+// mean of x_i
+inline double mean(gspan<const double> xs)
+{
+	return mean(xs, [](double x) { return x; });
+}
+
+// variance of x_i
+inline double variance(gspan<const double> xs)
+{
+	return variance(xs, [](double x) { return x; });
+}
+
+// mean of |x_i|
+inline double mean_abs(gspan<const double> xs)
+{
+	return mean(xs, [](double x) { return fabs(x); });
+}
+
+// variance of |x_i|
+inline double variance_abs(gspan<const double> xs)
+{
+	return variance(xs, [](double x) { return fabs(x); });
+}
+
 double covariance(gspan<const double> xs, gspan<const double> ys);
 double correlation(gspan<const double> xs, gspan<const double> ys);
-
-double mean_abs(gspan<const double> xs);
-double variance_abs(gspan<const double> xs);
 
 /** fit constant function f(x) = a */
 struct ConstantFit
@@ -160,5 +220,3 @@ std::vector<double> autocorrelation(span<const double> xs, size_t m);
 double correlationTime(span<const double> xs);
 
 } // namespace util
-
-#endif

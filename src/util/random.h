@@ -1,5 +1,4 @@
-#ifndef UTIL_RANDOM_H
-#define UTIL_RANDOM_H
+#pragma once
 
 /**
  * Pseudorandom number generators.
@@ -42,7 +41,7 @@ class splitmix64
 /**
  * This is xoshiro256**, version 1.0.
  * Originally written in 2018 by David Blackman and Sebastiano Vigna.
- * public domain, from http://http://xoshiro.di.unimi.it/xoshiro256starstar.c
+ * public domain, from http://xoshiro.di.unimi.it/xoshiro256starstar.c
  */
 class xoshiro256
 {
@@ -107,7 +106,7 @@ class xoshiro256
 	 *     std::uniform_real_distribution<double>(0,1)(*this)
 	 * But faster.
 	 */
-	double uniform()
+	template <typename T = double> T uniform()
 	{
 		// this is the '++' output function. Faster, but weaker than then
 		// the '**' version used in operator(). The weakness is mostly on the
@@ -130,8 +129,8 @@ class xoshiro256
 		// return (result >> 11) * 0x1p-53;
 	}
 
-	/** generate a value with normal/Gaussian distribution (µ=0, σ²=1) */
-	double normal()
+	// generate a value with normal/Gaussian distribution (µ=0, σ²=1)
+	template <typename T = double> T normal()
 	{
 		// tables for the Ziggurat method
 		auto pdf = [](double x) { return std::exp(-0.5 * x * x); };
@@ -545,5 +544,3 @@ class canonical_quartic_exponential_distribution
 };
 
 } // namespace util
-
-#endif

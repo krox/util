@@ -19,6 +19,15 @@ namespace util {
  *     everything is inlined as expected. Also beware of aliasing issues.
  */
 
+// Type trait that just returns the type itself. This can be used to establish
+// "non-deduced contexts", i.e. make some function arguments not participate
+// in template argument deduction. This will be part of C++20.
+template <class T> struct type_identity
+{
+	using type = T;
+};
+template <class T> using type_identity_t = typename type_identity<T>::type;
+
 #define UTIL_SIMD_GCC_BUILTIN
 
 // static constexpr size_t simd_register_size = 16; // 128 bit (SSE)
@@ -94,13 +103,15 @@ template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
 		c.v_ = a.v_ op b.v_;                                                   \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t W> simd<T, W> operator op(simd<T, W> a, T b)  \
+	template <typename T, size_t W>                                            \
+	simd<T, W> operator op(simd<T, W> a, util::type_identity_t<T> b)           \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		c.v_ = a.v_ op b;                                                      \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t W> simd<T, W> operator op(T a, simd<T, W> b)  \
+	template <typename T, size_t W>                                            \
+	simd<T, W> operator op(util::type_identity_t<T> a, simd<T, W> b)           \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		c.v_ = a op b.v_;                                                      \
@@ -112,8 +123,8 @@ template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
 		a.v_ op## = b.v_;                                                      \
 		return a;                                                              \
 	}                                                                          \
-	template <typename T, typename U, size_t W>                                \
-	simd<T, W> &operator op##=(simd<T, W> &a, U b)                             \
+	template <typename T, size_t W>                                            \
+	simd<T, W> &operator op##=(simd<T, W> &a, T b)                             \
 	{                                                                          \
 		a.v_ op## = b;                                                         \
 		return a;                                                              \

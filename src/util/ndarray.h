@@ -51,7 +51,7 @@ template <typename T, size_t N> class ndarray
 			auto buf = span(new T[other.size()], other.size());
 			span_ = ndspan(buf, other.shape());
 		}
-		std::memcpy(data, other.data(), size() * sizeof(T));
+		std::memcpy(data(), other.data(), size() * sizeof(T));
 		return *this;
 	}
 	ndarray &operator=(ndarray &&other)

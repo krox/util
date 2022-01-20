@@ -19,6 +19,13 @@ namespace util {
  *         * explicit (horizontal) vectorization: simd<float>, ...
  *         * high-precision types: MpfrFloat, ddouble, ...
  *         * non-floating point types: int, Rational, ...
+ *     - Allows more flexible complex<->real operations such as
+ *           'complex<float> * double'
+ *       NOTE: this is achieved by modifying template deduction rules and then
+ *             using the implicit double->float conversion. Therefore the result
+ *             always tracks the type of the complex and does NOT perform
+ *             promotion to the bigger type.
+ *
  *     - TODO: Add explicit 'imaginary<T>' type
  *
  * NOTE: beware of different naming conventions for the norm:
@@ -107,35 +114,43 @@ auto operator/(complex<T> const &a, complex<U> const &b)
 
 // binary complex <-> real
 
-template <typename T> complex<T> operator+(complex<T> const &a, T const &b)
+template <typename T>
+complex<T> operator+(complex<T> const &a, util::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
-template <typename T> complex<T> operator+(T const &a, complex<T> const &b)
+template <typename T>
+complex<T> operator+(util::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a + b.re, b.im};
 }
-template <typename T> complex<T> operator-(complex<T> const &a, T const &b)
+template <typename T>
+complex<T> operator-(complex<T> const &a, util::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
-template <typename T> complex<T> operator-(T const &a, complex<T> const &b)
+template <typename T>
+complex<T> operator-(util::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a - b.re, -b.im};
 }
-template <typename T> complex<T> operator*(complex<T> const &a, T const &b)
+template <typename T>
+complex<T> operator*(complex<T> const &a, util::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
-template <typename T> complex<T> operator*(T const &a, complex<T> const &b)
+template <typename T>
+complex<T> operator*(util::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a * b.re, a * b.im};
 }
-template <typename T> complex<T> operator/(complex<T> const &a, T const &b)
+template <typename T>
+complex<T> operator/(complex<T> const &a, util::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
-template <typename T> complex<T> operator/(T const &a, complex<T> const &b)
+template <typename T>
+complex<T> operator/(util::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return a * inverse(b);
 }

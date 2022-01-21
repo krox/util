@@ -158,42 +158,50 @@ complex<T> operator/(util::type_identity_t<T> const &a, complex<T> const &b)
 // binary complex<simd> <-> scalar real
 
 template <typename T, size_t W>
-complex<simd<T, W>> operator+(complex<simd<T, W>> const &a, T const &b)
+complex<simd<T, W>> operator+(complex<simd<T, W>> const &a,
+                              util::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator+(T const &a, complex<simd<T, W>> const &b)
+complex<simd<T, W>> operator+(util::type_identity_t<T> const &a,
+                              complex<simd<T, W>> const &b)
 {
 	return {a + b.re, b.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator-(complex<simd<T, W>> const &a, T const &b)
+complex<simd<T, W>> operator-(complex<simd<T, W>> const &a,
+                              util::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator-(T const &a, complex<simd<T, W>> const &b)
+complex<simd<T, W>> operator-(util::type_identity_t<T> const &a,
+                              complex<simd<T, W>> const &b)
 {
 	return {a - b.re, -b.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator*(complex<simd<T, W>> const &a, T const &b)
+complex<simd<T, W>> operator*(complex<simd<T, W>> const &a,
+                              util::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator*(T const &a, complex<simd<T, W>> const &b)
+complex<simd<T, W>> operator*(util::type_identity_t<T> const &a,
+                              complex<simd<T, W>> const &b)
 {
 	return {a * b.re, a * b.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator/(complex<simd<T, W>> const &a, T const &b)
+complex<simd<T, W>> operator/(complex<simd<T, W>> const &a,
+                              util::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator/(T const &a, complex<simd<T, W>> const &b)
+complex<simd<T, W>> operator/(util::type_identity_t<T> const &a,
+                              complex<simd<T, W>> const &b)
 {
 	return a * inverse(b);
 }

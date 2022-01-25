@@ -41,6 +41,8 @@ class Gnuplot
 	/** plot a function given by a string that gnuplot can understand */
 	Gnuplot &plotFunction(const std::string &fun,
 	                      const std::string &title = "");
+	Gnuplot &plotFunction(const std::string &fun, double min, double max,
+	                      const std::string &title = "");
 
 	/** plot a function given as std::function object */
 	Gnuplot &plotFunction(const std::function<double(double)> &fun, double min,

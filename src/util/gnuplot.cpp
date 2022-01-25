@@ -37,6 +37,16 @@ Gnuplot &Gnuplot::plotFunction(const std::string &fun, const std::string &title)
 	return *this;
 }
 
+Gnuplot &Gnuplot::plotFunction(const std::string &fun, double min, double max,
+                               const std::string &title)
+{
+	fmt::print(pipe, "{} [{}:{}] {} title \"{}\"\n", nplots ? "replot" : "plot",
+	           min, max, fun, (title.size() ? title : fun));
+	fflush(pipe);
+	++nplots;
+	return *this;
+}
+
 Gnuplot &Gnuplot::plotFunction(const std::function<double(double)> &fun,
                                double a, double b, const std::string &title)
 {

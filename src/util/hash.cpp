@@ -1,10 +1,7 @@
-// SHA3 implementation based on (heavily stripped down version of)
-// https://github.com/brainhub/SHA3IUF by Andrey Jivsov (crypto@brainhub.org)
-// public domain
-
-// SHA256 implementation based on (stripped down version of)
+// the SHA256 and SHA3 implementations here are originally based on
 // https://github.com/B-Con/crypto-algorithms by Brad Conte (brad@bradconte.com)
-// public domain
+// https://github.com/brainhub/SHA3IUF by Andrey Jivsov (crypto@brainhub.org)
+// respectively. Both public domain, and modified beyond recognition by now.
 
 #include "util/hash.h"
 
@@ -13,6 +10,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "keccakf() not implemented for big-endian platforms"
+#endif
 
 namespace util {
 
@@ -44,8 +45,9 @@ constexpr int keccakf_rotc[24] = {1,  3,  6,  10, 15, 21, 28, 36,
 
 constexpr int keccakf_piln[24] = {10, 7,  11, 17, 18, 3, 5,  16, 8,  21, 24, 4,
                                   15, 23, 19, 13, 12, 2, 20, 14, 22, 9,  6,  1};
+} // namespace
 
-void keccakf(std::array<uint64_t, 25> &s)
+void keccakf(std::array<uint64_t, 25> &s) noexcept
 {
 	for (int r = 0; r < 24; r++)
 	{
@@ -83,43 +85,6 @@ void keccakf(std::array<uint64_t, 25> &s)
 		// Iota
 		s[0] ^= keccakf_rndc[r];
 	}
-}
-
-} // namespace
-
-std::array<std::byte, 32> sha3_256(span<const std::byte> data)
-{
-	union
-	{
-		std::array<uint64_t, 25> state;          // full state
-		std::array<uint8_t, 25 * 8> state_bytes; // full state
-		std::array<std::byte, 32> ret;           // truncated state for return
-	};
-
-	state.fill(0);
-
-	const uint8_t *buf = (uint8_t *)data.data();
-
-	size_t blocks = data.size() / (8 * 17);
-	size_t tail = data.size() % (8 * 17);
-
-	// process whole blocks
-	for (size_t i = 0; i < blocks; ++i)
-	{
-		for (int k = 0; k < 17; ++k, buf += 8)
-			state[k] ^= *(uint64_t *)buf;
-		keccakf(state);
-	}
-
-	// process last (incomplete) block (which might be empty apart from padding)
-	for (size_t j = 0; j < tail; ++j, buf += 1)
-		state_bytes[j] ^= *buf;
-	state_bytes[tail] ^= (uint8_t)6;
-	state_bytes[17 * 8 - 1] ^= (uint8_t)0x80U;
-	keccakf(state);
-
-	// result = truncated state
-	return ret;
 }
 
 namespace {
@@ -167,7 +132,7 @@ constexpr uint32_t sha256_k[64] = {
 } // namespace
 
 void sha256_transform(std::array<uint32_t, 8> &state,
-                      std::array<uint32_t, 16> const &data)
+                      std::array<uint32_t, 16> const &data) noexcept
 {
 	uint32_t m[64];
 
@@ -209,7 +174,7 @@ void sha256_transform(std::array<uint32_t, 8> &state,
 	state[7] += h;
 }
 
-std::array<std::byte, 32> sha256(span<const std::byte> data)
+std::array<std::byte, 32> sha256(span<const std::byte> data) noexcept
 {
 	union
 	{
@@ -276,7 +241,7 @@ std::array<std::byte, 32> sha256(span<const std::byte> data)
 	return ret;
 }
 
-uint32_t fnv1a_32(span<const std::byte> data)
+uint32_t fnv1a_32(span<const std::byte> data) noexcept
 {
 	const uint32_t p = 16777619;
 	uint32_t hash = 2166136261;
@@ -286,7 +251,7 @@ uint32_t fnv1a_32(span<const std::byte> data)
 	return hash;
 }
 
-uint64_t fnv1a_64(span<const std::byte> data)
+uint64_t fnv1a_64(span<const std::byte> data) noexcept
 {
 	const uint64_t p = 1099511628211ULL;
 	uint64_t hash = 14695981039346656037ULL;

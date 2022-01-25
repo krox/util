@@ -4,6 +4,7 @@
  * Pseudorandom number generators.
  */
 
+#include <cstring>
 #include <random>
 #include <stdint.h>
 #include <tuple>
@@ -57,6 +58,7 @@ class xoshiro256
 	xoshiro256() { seed(0); }
 	explicit xoshiro256(uint64_t x) { seed(x); }
 	explicit xoshiro256(uint64_t x, uint64_t y) { seed(x, y); }
+	explicit xoshiro256(std::array<std::byte, 32> const &v) { seed(v); }
 
 	using result_type = uint64_t;
 	uint64_t min() const { return 0; }
@@ -81,6 +83,15 @@ class xoshiro256
 		s[1] = gen1();
 		s[2] = gen2();
 		s[3] = gen2();
+	}
+
+	// set internal state directly
+	//     * use with care, there are some bad regions (e.g. all/most bits zero)
+	//     * intended to be used as something like
+	//           seed(sha3<256>("human_readable_seed_of_arbitrary_length"))
+	void seed(std::array<std::byte, 32> const &v)
+	{
+		std::memcpy(s, v.data(), 32);
 	}
 
 	/** generate next value in the random sequence */

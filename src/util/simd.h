@@ -11,6 +11,23 @@
 
 namespace util {
 
+// configuration (no auto-detect yet)
+
+#if defined(__clang__)
+// no vector builtin
+//     * TODO: actually, clang does support this, but differs slightly from GCC
+//     * clang auto-vectorizer seems more powerful than GCC, so might be fine
+#elif defined(__GNUC__) || defined(__GNUG__)
+#define UTIL_SIMD_GCC_BUILTIN // use __attribute__((vector_size(...)))
+#endif
+
+#define UTIL_SIMD_INLINE __attribute__((always_inline)) inline // force inline
+//#define UTIL_SIMD_INLINE                                       // dont force
+
+// static constexpr size_t simd_register_size = 16; // 128 bit (SSE)
+static constexpr size_t simd_register_size = 32; // 256 bit (AVX, AVX2)
+// static constexpr size_t simd_register_size = 64; // 512 bit (AVX512)
+
 /**
  * TODO (maybe):
  *   - Compiler-dependent pragmas to ensure vectorization of the inner loops.
@@ -27,12 +44,6 @@ template <class T> struct type_identity
 	using type = T;
 };
 template <class T> using type_identity_t = typename type_identity<T>::type;
-
-#define UTIL_SIMD_GCC_BUILTIN
-
-// static constexpr size_t simd_register_size = 16; // 128 bit (SSE)
-static constexpr size_t simd_register_size = 32; // 256 bit (AVX, AVX2)
-// static constexpr size_t simd_register_size = 64; // 512 bit (AVX512)
 
 using std::sin, std::cos, std::tan, std::exp, std::log, std::sqrt;
 
@@ -65,6 +76,7 @@ template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 {
 	static_assert(W > 0 && (W & (W - 1)) == 0); // W has to be a power of two
 
+	using value_type = T;
 	// simd<integer> type of the same size/width
 	using int_type = simd<typename IntType<sizeof(T)>::type, W>;
 
@@ -77,17 +89,22 @@ template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 
 	static constexpr size_t size() { return W; }
 
-	T &operator[](size_t i) { return v_[i]; }
-	T operator[](size_t i) const { return v_[i]; }
+	UTIL_SIMD_INLINE T &operator[](size_t i) { return ((T *)this)[i]; }
+	UTIL_SIMD_INLINE T operator[](size_t i) const
+	{
+		return ((T const *)this)[i];
+	}
 };
 
-template <typename T, size_t W> simd<T, W> operator+(simd<T, W> a)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE simd<T, W> operator+(simd<T, W> a)
 {
 	simd<T, W> b;
 	b.v_ = +a.v_;
 	return b;
 }
-template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE simd<T, W> operator-(simd<T, W> a)
 {
 	simd<T, W> b;
 	b.v_ = -a.v_;
@@ -96,7 +113,7 @@ template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
 
 #define UTIL_DEFINE_SIMD_OPERATOR(op)                                          \
 	template <typename T, typename U, size_t W>                                \
-	auto operator op(simd<T, W> a, simd<U, W> b)                               \
+	UTIL_SIMD_INLINE auto operator op(simd<T, W> a, simd<U, W> b)              \
 	    ->simd<decltype(a[0] op b[0]), W>                                      \
 	{                                                                          \
 		simd<decltype(a[0] op b[0]), W> c;                                     \
@@ -104,34 +121,38 @@ template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
 		return c;                                                              \
 	}                                                                          \
 	template <typename T, size_t W>                                            \
-	simd<T, W> operator op(simd<T, W> a, util::type_identity_t<T> b)           \
+	UTIL_SIMD_INLINE simd<T, W> operator op(simd<T, W> a,                      \
+	                                        type_identity_t<T> b)              \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		c.v_ = a.v_ op b;                                                      \
 		return c;                                                              \
 	}                                                                          \
 	template <typename T, size_t W>                                            \
-	simd<T, W> operator op(util::type_identity_t<T> a, simd<T, W> b)           \
+	UTIL_SIMD_INLINE simd<T, W> operator op(type_identity_t<T> a,              \
+	                                        simd<T, W> b)                      \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		c.v_ = a op b.v_;                                                      \
 		return c;                                                              \
 	}                                                                          \
 	template <typename T, typename U, size_t W>                                \
-	simd<T, W> &operator op##=(simd<T, W> &a, simd<U, W> b)                    \
+	UTIL_SIMD_INLINE simd<T, W> &operator op##=(simd<T, W> &a, simd<U, W> b)   \
 	{                                                                          \
 		a.v_ op## = b.v_;                                                      \
 		return a;                                                              \
 	}                                                                          \
 	template <typename T, size_t W>                                            \
-	simd<T, W> &operator op##=(simd<T, W> &a, T b)                             \
+	UTIL_SIMD_INLINE simd<T, W> &operator op##=(simd<T, W> &a,                 \
+	                                            type_identity_t<T> b)          \
 	{                                                                          \
 		a.v_ op## = b;                                                         \
 		return a;                                                              \
 	}
 
 #define UTIL_DEFINE_SIMD_FUNCTION(fun)                                         \
-	template <typename T, size_t W> simd<T, W> fun(simd<T, W> a)               \
+	template <typename T, size_t W>                                            \
+	UTIL_SIMD_INLINE simd<T, W> fun(simd<T, W> a)                              \
 	{                                                                          \
 		simd<T, W> b;                                                          \
 		UTIL_SIMD_FOR(i, W) b[i] = fun(a[i]);                                  \
@@ -160,6 +181,7 @@ template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 {
 	static_assert(W > 0 && (W & (W - 1)) == 0); // W has to be a power of two
 
+	using value_type = T;
 	// simd<integer> type of the same size/width
 	using int_type = simd<typename IntType<sizeof(T)>::type, W>;
 
@@ -170,17 +192,19 @@ template <typename T, size_t W> struct alignas(sizeof(T) * W) simd
 
 	static constexpr size_t size() { return W; }
 
-	T &operator[](size_t i) { return elements[i]; }
-	T operator[](size_t i) const { return elements[i]; }
+	UTIL_SIMD_INLINE T &operator[](size_t i) { return elements[i]; }
+	UTIL_SIMD_INLINE T operator[](size_t i) const { return elements[i]; }
 };
 
-template <typename T, size_t W> simd<T, W> operator+(simd<T, W> a)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE simd<T, W> operator+(simd<T, W> a)
 {
 	simd<T, W> b;
 	UTIL_SIMD_FOR(i, W) b[i] = +a[i];
 	return b;
 }
-template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE simd<T, W> operator-(simd<T, W> a)
 {
 	simd<T, W> b;
 	UTIL_SIMD_FOR(i, W) b[i] = -a[i];
@@ -189,40 +213,45 @@ template <typename T, size_t W> simd<T, W> operator-(simd<T, W> a)
 
 #define UTIL_DEFINE_SIMD_OPERATOR(op)                                          \
 	template <typename T, typename U, size_t W>                                \
-	auto operator op(simd<T, W> a, simd<U, W> b)                               \
+	UTIL_SIMD_INLINE auto operator op(simd<T, W> a, simd<U, W> b)              \
 	    ->simd<decltype(a[0] op b[0]), W>                                      \
 	{                                                                          \
 		simd<decltype(a[0] op b[0]), W> c;                                     \
 		UTIL_SIMD_FOR(i, W) c[i] = a[i] op b[i];                               \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t W> simd<T, W> operator op(simd<T, W> a, T b)  \
+	template <typename T, size_t W>                                            \
+	UTIL_SIMD_INLINE simd<T, W> operator op(simd<T, W> a,                      \
+	                                        type_identity_t<T> b)              \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		UTIL_SIMD_FOR(i, W) c[i] = a[i] op b;                                  \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t W> simd<T, W> operator op(T a, simd<T, W> b)  \
+	template <typename T, size_t W>                                            \
+	UTIL_SIMD_INLINE simd<T, W> operator op(type_identity_t<T> a,              \
+	                                        simd<T, W> b)                      \
 	{                                                                          \
 		simd<T, W> c;                                                          \
 		UTIL_SIMD_FOR(i, W) c[i] = a op b[i];                                  \
 		return c;                                                              \
 	}                                                                          \
 	template <typename T, typename U, size_t W>                                \
-	simd<T, W> &operator op##=(simd<T, W> &a, simd<U, W> b)                    \
+	UTIL_SIMD_INLINE simd<T, W> &operator op##=(simd<T, W> &a, simd<U, W> b)   \
 	{                                                                          \
 		UTIL_SIMD_FOR(i, W) a[i] op## = b[i];                                  \
 		return a;                                                              \
 	}                                                                          \
 	template <typename T, typename U, size_t W>                                \
-	simd<T, W> &operator op##=(simd<T, W> &a, U b)                             \
+	UTIL_SIMD_INLINE simd<T, W> &operator op##=(simd<T, W> &a, U b)            \
 	{                                                                          \
 		UTIL_SIMD_FOR(i, W) a[i] op## = b;                                     \
 		return a;                                                              \
 	}
 
 #define UTIL_DEFINE_SIMD_FUNCTION(fun)                                         \
-	template <typename T, size_t W> simd<T, W> fun(simd<T, W> a)               \
+	template <typename T, size_t W>                                            \
+	UTIL_SIMD_INLINE simd<T, W> fun(simd<T, W> a)                              \
 	{                                                                          \
 		simd<T, W> b;                                                          \
 		UTIL_SIMD_FOR(i, W) b[i] = fun(a[i]);                                  \
@@ -255,7 +284,8 @@ UTIL_DEFINE_SIMD_FUNCTION(sqrt)
 #ifdef UTIL_SIMD_GCC_BUILTIN
 
 template <typename T, size_t W>
-simd<T, W> vshuffle(simd<T, W> a, typename simd<T, W>::int_type mask)
+UTIL_SIMD_INLINE simd<T, W> vshuffle(simd<T, W> a,
+                                     typename simd<T, W>::int_type mask)
 {
 	simd<T, W> r;
 	r.v_ = __builtin_shuffle(a.v_, mask.v_);
@@ -265,7 +295,8 @@ simd<T, W> vshuffle(simd<T, W> a, typename simd<T, W>::int_type mask)
 #else
 
 template <typename T, size_t W>
-simd<T, W> vshuffle(simd<T, W> a, simd<int, W> mask)
+UTIL_SIMD_INLINE simd<T, W> vshuffle(simd<T, W> a,
+                                     typename simd<T, W>::int_type mask)
 {
 	simd<T, W> r;
 	for (size_t i = 0; i < W; ++i)
@@ -275,19 +306,22 @@ simd<T, W> vshuffle(simd<T, W> a, simd<int, W> mask)
 
 #endif
 
-template <typename T, size_t W> T vsum(simd<T, W> a)
+template <typename T, size_t W> UTIL_SIMD_INLINE T vsum(simd<T, W> a)
 {
+	// TODO: replace with builtin. as it stands, its not vectorizable
 	T r = a[0];
 	for (size_t i = 1; i < W; ++i)
 		r += a[i];
 	return r;
 }
-template <typename T, size_t W> T vextract(simd<T, W> a, size_t lane)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE T vextract(simd<T, W> a, size_t lane)
 {
 	// assert(i < W);
 	return a[lane];
 }
-template <typename T, size_t W> void vinsert(simd<T, W> &a, size_t lane, T b)
+template <typename T, size_t W>
+UTIL_SIMD_INLINE void vinsert(simd<T, W> &a, size_t lane, T b)
 {
 	a[lane] = b;
 }

@@ -19,6 +19,8 @@ class ProgressBar
 
 	void show() const
 	{
+		using namespace std::chrono;
+
 		auto p = (double)ticks_ / total_;
 		p = std::max(std::min(p, 1.0), 0.0);
 
@@ -30,8 +32,10 @@ class ProgressBar
 		    fmt::format("{:3}% ({} of {}) |", int(p * 100), ticks_, total_);
 		std::string tail =
 		    finished_
-		        ? fmt::format("| elapsed: {:%T}               \r", elapsed)
-		        : fmt::format("| elapsed: {:%T}, ETA: {:%T}\r", elapsed, eta);
+		        ? fmt::format("| elapsed: {:%T}               \r",
+		                      floor<seconds>(elapsed))
+		        : fmt::format("| elapsed: {:%T}, ETA: {:%T}\r",
+		                      floor<seconds>(elapsed), floor<seconds>(eta));
 		fmt::print(head);
 		int width = std::max(10, int(80 - head.size() - tail.size()));
 		int pos = int(width * p);

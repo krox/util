@@ -1,42 +1,46 @@
-#ifndef UTIL_STOPWATCH_H
-#define UTIL_STOPWATCH_H
+#pragma once
 
 #include <cassert>
 #include <chrono>
 
 namespace util {
 
-/** Simple Stopwatch class for performance measruements */
+// Simple Stopwatch class for performance measruements
+//     * .stop() must be called once each call of .start() in order to stop
+//     * .secs() is valid even while running
 class Stopwatch
 {
 	using Clock = std::chrono::steady_clock;
 
-	bool running_ = false;
+	int running_ = 0;
 	typename Clock::time_point last_; // valid if running
 	typename Clock::duration dur_ = Clock::duration::zero();
 
   public:
-	Stopwatch() {}
+	Stopwatch() = default;
 
 	bool running() const { return running_; }
 
 	Stopwatch &start()
 	{
-		if (!running_)
-		{
-			running_ = true;
+		assert(running_ >= 0);
+		if (running_++ == 0)
 			last_ = Clock::now();
-		}
 		return *this;
 	}
 
 	Stopwatch &stop()
 	{
-		if (running_)
-		{
-			running_ = false;
+		assert(running_ >= 0);
+		if (--running_ == 0)
 			dur_ += Clock::now() - last_;
-		}
+		return *this;
+	}
+
+	Stopwatch &reset()
+	{
+		assert(running_ == 0);
+		dur_ = Clock::duration::zero();
 		return *this;
 	}
 
@@ -51,28 +55,17 @@ class Stopwatch
 	}
 };
 
-/** RAII-style scope guard for benchmarking blocks of code */
+// RAII-style scope guard for benchmarking blocks of code
 class StopwatchGuard
 {
-	Stopwatch &sw;
+	Stopwatch &sw_;
 
   public:
-	StopwatchGuard(Stopwatch &sw) : sw(sw)
-	{
-		assert(!sw.running());
-		sw.start();
-	}
-
-	~StopwatchGuard()
-	{
-		assert(sw.running());
-		sw.stop();
-	}
+	StopwatchGuard(Stopwatch &sw) : sw_(sw) { sw_.start(); }
+	~StopwatchGuard() { sw_.stop(); }
 
 	StopwatchGuard(const StopwatchGuard &) = delete;
 	StopwatchGuard &operator=(const StopwatchGuard &) = delete;
 };
 
 } // namespace util
-
-#endif

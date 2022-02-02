@@ -4,6 +4,7 @@
  * Pseudorandom number generators.
  */
 
+#include <cstddef>
 #include <cstring>
 #include <random>
 #include <stdint.h>

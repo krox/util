@@ -65,6 +65,10 @@ class Gnuplot
 	Gnuplot &plotData(gspan<const double> xs, const vector2d<double> &ys,
 	                  const std::string &title = "data");
 
+	/** 3D plot of a 2D grid */
+	Gnuplot &plotData3D(ndspan<const double, 2> zs,
+	                    const std::string &title = "data");
+
 	/** plot a histogram */
 	Gnuplot &plotHistogram(const Histogram &hist,
 	                       const std::string &title = "hist",

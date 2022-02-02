@@ -162,6 +162,26 @@ Gnuplot &Gnuplot::plotData(gspan<const double> xs, const vector2d<double> &ys,
 	return *this;
 }
 
+Gnuplot &Gnuplot::plotData3D(ndspan<const double, 2> zs,
+                             const std::string &title)
+{
+	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
+	std::ofstream file(filename);
+	for (size_t i = 0; i < zs.shape(0); ++i)
+	{
+		for (size_t j = 0; j < zs.shape(1); ++j)
+			file << zs(i, j) << " ";
+		file << "\n";
+	}
+	file.flush();
+	file.close();
+	fmt::print(pipe, "{} '{}' matrix with {} title \"{}\"\n",
+	           (nplots ? "replot" : "splot"), filename, style_, title);
+	fflush(pipe);
+	++nplots;
+	return *this;
+}
+
 Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title,
                                 double scale)
 {

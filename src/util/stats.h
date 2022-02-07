@@ -18,8 +18,8 @@ namespace util {
 template <typename F> double mean(gspan<const double> xs, F f)
 {
 	double sum = 0;
-	for (size_t i = 0; i < xs.size(); ++i)
-		sum += f(xs[i]);
+	for (auto x : xs)
+		sum += f(x);
 	return sum / xs.size();
 }
 
@@ -78,6 +78,22 @@ inline double variance_abs(gspan<const double> xs)
 
 double covariance(gspan<const double> xs, gspan<const double> ys);
 double correlation(gspan<const double> xs, gspan<const double> ys);
+
+inline double min(gspan<const double> xs)
+{
+	double r = std::numeric_limits<double>::infinity();
+	for (auto x : xs)
+		r = std::min(r, x);
+	return r;
+}
+
+inline double max(gspan<const double> xs)
+{
+	double r = -std::numeric_limits<double>::infinity();
+	for (auto x : xs)
+		r = std::max(r, x);
+	return r;
+}
 
 /** fit constant function f(x) = a */
 struct ConstantFit

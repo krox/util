@@ -1,5 +1,4 @@
-#ifndef UTIL_SPAN_H
-#define UTIL_SPAN_H
+#pragma once
 
 #include "fmt/format.h"
 #include <algorithm>
@@ -106,6 +105,47 @@ template <typename T> class gspan
 	using index_type = size_t;
 	// NOTE: don't use T* as iterator
 
+	struct iterator
+	{
+		T *data_;
+		size_t stride_;
+
+		iterator() = default;
+		iterator(T *data, size_t stride) : data_(data), stride_(stride) {}
+
+		bool operator!=(iterator other) const { return data_ != other.data_; }
+		iterator &operator++()
+		{
+			data_ += stride_;
+			return *this;
+		}
+		T &operator*() const { return *data_; }
+		T &operator[](size_t i) const { return data_[i * stride_]; }
+	};
+
+	struct const_iterator
+	{
+		T const *data_;
+		size_t stride_;
+
+		const_iterator() = default;
+		const_iterator(T const *data, size_t stride)
+		    : data_(data), stride_(stride)
+		{}
+
+		bool operator!=(const_iterator other) const
+		{
+			return data_ != other.data_;
+		}
+		const_iterator &operator++()
+		{
+			data_ += stride_;
+			return *this;
+		}
+		T const &operator*() const { return *data_; }
+		T const &operator[](size_t i) const { return data_[i * stride_]; }
+	};
+
 	/** constructors */
 	gspan() = default;
 	gspan(T *data, size_t size, size_t stride)
@@ -129,6 +169,17 @@ template <typename T> class gspan
 	/** element access */
 	T &operator[](size_t i) const { return data_[i * stride_]; }
 	T &operator()(int i) const { return data_[i * stride_]; }
+
+	// iterators
+	const_iterator begin() const { return const_iterator(data_, stride_); }
+	const_iterator end() const
+	{
+		return const_iterator(data_ + stride_ * size_, stride_);
+	}
+	const_iterator cbegin() const { return begin(); }
+	const_iterator cend() const { return end(); }
+	iterator begin() { return iterator(data_, stride_); }
+	iterator end() { return iterator(data_ + stride_ * size_, stride_); }
 
 	/** supspan */
 	gspan<T> slice(size_t a, size_t b) const
@@ -616,5 +667,3 @@ struct formatter<util::span<T>> : formatter<std::decay_t<T>>
 };
 
 } // namespace fmt
-
-#endif

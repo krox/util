@@ -221,6 +221,13 @@ void DataFile::makeGroup(const std::string &name)
 	H5Gclose(group);
 }
 
+bool DataFile::hasAttribute(const std ::string &name)
+{
+	// NOTE: H5Aexists returns negative/zero/positive on fail/no/yes
+	assert(id > 0);
+	return enforce(H5Aexists(id, name.c_str()));
+}
+
 void DataFile::setAttribute(const std::string &name, hid_t type, const void *v)
 {
 	assert(id > 0);

@@ -122,6 +122,9 @@ class DataFile
 	void makeGroup(const std::string &name);
 
 	/** attributes */
+
+	bool hasAttribute(const std::string &name);
+
 	void setAttribute(const std::string &name, double v);
 	void setAttribute(const std::string &name, int v);
 	void setAttribute(const std::string &name, const std::string &v);
@@ -134,7 +137,27 @@ class DataFile
 		setAttribute(name, std::vector<T>(v.begin(), v.end()));
 	}
 
+	template <typename T>
+	void setAttribute(const std::string &name, std::optional<T> const &v)
+	{
+		if (v)
+			setAttribute(name, *v);
+	}
+
 	template <typename T> T getAttribute(const std::string &name);
+	template <typename T> T getAttribute(const std::string &name, T const &def)
+	{
+		return getOptionalAttribute<T>(name).value_or(def);
+	}
+
+	template <typename T>
+	std::optional<T> getOptionalAttribute(const std::string &name)
+	{
+		if (hasAttribute(name))
+			return getAttribute<T>(name);
+		else
+			return std::nullopt;
+	}
 };
 
 } // namespace util

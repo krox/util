@@ -140,6 +140,17 @@ template <typename T, size_t N> class static_vector
 	void shrink_to_fit() {} // do nothing
 };
 
+template <typename T, size_t N, typename U, size_t M>
+bool operator==(static_vector<T, N> const &a, static_vector<U, M> const &b)
+{
+	if (a.size() != b.size())
+		return false;
+	for (size_t i = 0; i < a.size(); ++i)
+		if (!(a[i] == b[i]))
+			return false;
+	return true;
+}
+
 template <typename T, size_t N, typename U>
 size_t erase(static_vector<T, N> &c, const U &value)
 {

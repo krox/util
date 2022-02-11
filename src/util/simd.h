@@ -22,7 +22,7 @@ namespace util {
 #endif
 
 #define UTIL_SIMD_INLINE __attribute__((always_inline)) inline // force inline
-//#define UTIL_SIMD_INLINE                                       // dont force
+//#define UTIL_SIMD_INLINE inline                                // dont force
 
 // static constexpr size_t simd_register_size = 16; // 128 bit (SSE)
 static constexpr size_t simd_register_size = 32; // 256 bit (AVX, AVX2)
@@ -325,5 +325,15 @@ UTIL_SIMD_INLINE void vinsert(simd<T, W> &a, size_t lane, T b)
 {
 	a[lane] = b;
 }
+
+///////
+UTIL_SIMD_INLINE float vshuffle(float a, int32_t) { return a; }
+UTIL_SIMD_INLINE float vsum(float a) { return a; }
+UTIL_SIMD_INLINE float vextract(float a, size_t) { return a; }
+UTIL_SIMD_INLINE void vinsert(float &a, size_t, float b) { a = b; }
+UTIL_SIMD_INLINE double vshuffle(double a, int64_t) { return a; }
+UTIL_SIMD_INLINE double vsum(double a) { return a; }
+UTIL_SIMD_INLINE double vextract(double a, size_t) { return a; }
+UTIL_SIMD_INLINE void vinsert(double &a, size_t, double b) { a = b; }
 
 } // namespace util

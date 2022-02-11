@@ -67,8 +67,14 @@ class DataSet
 		write<T>(row, util::span<const T>(data));
 	}
 
-	void read(util::span<double> data);
-	template <typename T> std::vector<T> read();
+	template <typename T> void read(util::span<T> data);
+	template <typename T> void read(hsize_t row, util::span<T> data);
+	template <typename T> std::vector<T> read()
+	{
+		auto r = std::vector<T>(size);
+		read(r);
+		return r;
+	}
 };
 
 class DataFile

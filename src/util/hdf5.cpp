@@ -36,21 +36,37 @@ void DataSet::close()
 
 DataSet::~DataSet() { close(); }
 
-void DataSet::read(util::span<double> data)
+template <typename T> void DataSet::read(util::span<T> data)
 {
+	assert(id > 0);
 	assert(data.size() == size);
-	enforce(H5Dread(id, H5T_NATIVE_DOUBLE, 0, 0, 0, data.data()));
+	enforce(H5Dread(id, h5_type_id<T>(), 0, 0, 0, data.data()));
 }
 
-template <> std::vector<double> DataSet::read<double>()
+template <typename T> void DataSet::read(hsize_t row, util::span<T> data)
 {
-	auto r = std::vector<double>(size);
-	read(r);
-	return r;
+	assert(id > 0);
+	assert(row < shape[0]);
+	assert(data.size() == size / shape[0]);
+
+	auto offset = std::vector<hsize_t>(rank(), 0);
+	offset[0] = row;
+	auto memspace = enforce(H5Screate_simple(rank() - 1, &shape[1], nullptr));
+	std::vector<hsize_t> rowShape = shape;
+	rowShape[0] = 1;
+	auto space = enforce(H5Dget_space(id));
+	H5Sselect_hyperslab(space, H5S_SELECT_SET, offset.data(), nullptr,
+	                    rowShape.data(), nullptr);
+
+	enforce(H5Dread(id, h5_type_id<T>(), memspace, space, 0, data.data()));
+
+	H5Sclose(memspace);
+	H5Sclose(space);
 }
 
 template <typename T> void DataSet::write(util::span<const T> data)
 {
+	assert(id > 0);
 	assert(data.size() == size);
 	enforce(H5Dwrite(id, h5_type_id<T>(), 0, 0, 0, data.data()));
 }
@@ -357,10 +373,25 @@ template DataSet DataFile::writeData<int16_t>(const std::string &,
                                               std::vector<int16_t> const &);
 template DataSet DataFile::writeData<int32_t>(const std::string &,
                                               std::vector<int32_t> const &);
-template void DataSet::write<float>(util::span<const float> data);
-template void DataSet::write<double>(util::span<const double> data);
-template void DataSet::write<int8_t>(util::span<const int8_t> data);
-template void DataSet::write<int16_t>(util::span<const int16_t> data);
-template void DataSet::write<int32_t>(util::span<const int32_t> data);
+template void DataSet::write<float>(util::span<const float>);
+template void DataSet::write<double>(util::span<const double>);
+template void DataSet::write<int8_t>(util::span<const int8_t>);
+template void DataSet::write<int16_t>(util::span<const int16_t>);
+template void DataSet::write<int32_t>(util::span<const int32_t>);
+template void DataSet::write<float>(hsize_t, util::span<const float>);
+template void DataSet::write<double>(hsize_t, util::span<const double>);
+template void DataSet::write<int8_t>(hsize_t, util::span<const int8_t>);
+template void DataSet::write<int16_t>(hsize_t, util::span<const int16_t>);
+template void DataSet::write<int32_t>(hsize_t, util::span<const int32_t>);
+template void DataSet::read<float>(util::span<float>);
+template void DataSet::read<double>(util::span<double>);
+template void DataSet::read<int8_t>(util::span<int8_t>);
+template void DataSet::read<int16_t>(util::span<int16_t>);
+template void DataSet::read<int32_t>(util::span<int32_t>);
+template void DataSet::read<float>(hsize_t, util::span<float>);
+template void DataSet::read<double>(hsize_t, util::span<double>);
+template void DataSet::read<int8_t>(hsize_t, util::span<int8_t>);
+template void DataSet::read<int16_t>(hsize_t, util::span<int16_t>);
+template void DataSet::read<int32_t>(hsize_t, util::span<int32_t>);
 
 } // namespace util

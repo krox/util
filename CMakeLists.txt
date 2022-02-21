@@ -25,15 +25,18 @@ install(FILES ${files_h} DESTINATION include)
 
 # unittests
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-	include(CTest)
 	include(FetchContent)
-	FetchContent_Declare(catch GIT_REPOSITORY https://github.com/catchorg/Catch2.git GIT_TAG v2.13.7)
-	FetchContent_MakeAvailable(catch)
 
-	add_executable(testutil tests/testutil.cpp)
-	target_compile_features(testutil PRIVATE cxx_std_17)
-	target_include_directories(testutil PUBLIC src)
-	target_link_libraries(testutil PRIVATE util Catch2::Catch2)
-	add_test(NAME testlibtest COMMAND testutil) # Command can be a target
+	FetchContent_Declare(
+	  Catch2
+	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+	  GIT_TAG        v3.0.0-preview3
+	)
+
+	FetchContent_MakeAvailable(Catch2)
+
+	add_executable(tests tests/testutil.cpp)
+	target_compile_features(tests PRIVATE cxx_std_17)
+	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 
 endif()

@@ -53,7 +53,7 @@ template <int bit_rate, uint8_t domain> class Sha3
 		auto buf = (uint8_t const *)data;
 		for (size_t i = 0; i < len; ++i)
 		{
-			state_bytes_[pos_++] = *buf++;
+			state_bytes_[pos_++] ^= *buf++;
 			if (pos_ == byte_rate)
 			{
 				keccakf(state_);

@@ -35,7 +35,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
 	FetchContent_MakeAvailable(Catch2)
 
-	add_executable(tests tests/testutil.cpp)
+	add_executable(tests tests/hash_map.cpp tests/hash.cpp tests/random.cpp)
 	target_compile_features(tests PRIVATE cxx_std_17)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 

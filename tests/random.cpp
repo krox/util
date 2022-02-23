@@ -10,7 +10,7 @@ TEST_CASE("random number generators")
 {
 	xoshiro256 rng = {};
 	std::vector<double> values;
-	size_t n = 100000;
+	size_t n = 1000000;
 	values.reserve(n);
 
 	while (values.size() < n)
@@ -27,4 +27,36 @@ TEST_CASE("random number generators")
 	CHECK(min(values) > -10.);
 	CHECK(max(values) < +10.);
 	CHECK(variance(values) == Catch::Approx(1.0).epsilon(0.01));
+
+	values.clear();
+	while (values.size() < n)
+		values.push_back(rng.bernoulli());
+	CHECK(mean(values) == Catch::Approx(0.5).epsilon(0.01));
+	CHECK(variance(values) == Catch::Approx(0.25).epsilon(0.01));
+
+	values.clear();
+	while (values.size() < n)
+		values.push_back(rng.bernoulli(0.3));
+	CHECK(mean(values) == Catch::Approx(0.3).epsilon(0.01));
+	CHECK(variance(values) == Catch::Approx(0.3 * (1 - 0.3)).epsilon(0.01));
+
+	values.clear();
+	while (values.size() < n)
+		values.push_back(rng.exponential(1.5));
+	CHECK(mean(values) == Catch::Approx(1 / 1.5).epsilon(0.01));
+	CHECK(variance(values) == Catch::Approx(1 / (1.5 * 1.5)).epsilon(0.01));
+
+	values.clear();
+	while (values.size() < n)
+		values.push_back(rng.poisson(1.5));
+	CHECK(mean(values) == Catch::Approx(1.5).epsilon(0.01));
+	CHECK(variance(values) == Catch::Approx(1.5).epsilon(0.01));
+
+	values.clear();
+	while (values.size() < n)
+		values.push_back(rng.binomial(5, 0.3));
+	CHECK(mean(values) == Catch::Approx(5 * 0.3).epsilon(0.01));
+	CHECK(min(values) == 0);
+	CHECK(max(values) == 5);
+	CHECK(variance(values) == Catch::Approx(5 * 0.3 * (1 - 0.3)).epsilon(0.01));
 }

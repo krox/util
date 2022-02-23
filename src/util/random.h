@@ -1,7 +1,15 @@
 #pragma once
 
 /**
- * Pseudorandom number generators.
+ * Pseudorandom number generators and distributions.
+ *     - Compatible with generators and distributions from <random> header.
+ *     - Implement some more convenience functions like calling '.uniform()'
+ *       (and some other distributions) directly on the generator, without
+ *       explicitly creating a distribution object.
+ *     - Slight biases in the distributions are acceptable for the sake of
+ *       performance as long as no simulation of practical scale can detect it.
+ *     - TODO: should be able to produce multiple independent samples using
+ *             util::simd<double> and alike
  */
 
 #include <cstddef>
@@ -208,6 +216,47 @@ class xoshiro256
 				return normal();
 		}
 		return (u & n) ? x : -x;
+	}
+
+	// returns true with probability p
+	//     * if p is outside [0,1], it is clamped
+	bool bernoulli(double p) { return uniform() < p; }
+
+	// bernoulli with p=1/2
+	bool bernoulli() { return (*this)() & (1UL << 63); }
+
+	// exponential distribution ~ e^λx
+	template <typename T = double> T exponential(double lambda)
+	{
+		return -log(uniform<T>()) / lambda;
+	}
+
+	// exponential distibution (λ = 1)
+	template <typename T = double> T exponential()
+	{
+		return -log(uniform<T>());
+	}
+
+	template <typename T = int> T binomial(T t = 1, double p = 0.5)
+	{
+		T count = 0;
+		for (T i = 0; i < t; ++i)
+			if (bernoulli(p))
+				++count;
+		return count;
+	}
+
+	template <typename T = int> T poisson(double lambda)
+	{
+		double L = exp(-lambda);
+		double p = uniform();
+		double k = 0;
+		while (p > L)
+		{
+			p *= uniform();
+			k += 1;
+		}
+		return k;
 	}
 
 	/** start a new generator, seeded by values from this one */

@@ -229,6 +229,50 @@ template <size_t dim> class Estimator
 	void clear();
 };
 
+/** special case of 1D estimator that also tracks skewness and kurtosis */
+template <> class Estimator<1>
+{
+	double n = 0;
+	double m = 0;                  // mean
+	double m2 = 0, m3 = 0, m4 = 0; // sum of (x_i - m)^k
+
+  public:
+	Estimator() = default;
+
+	void add(double x)
+	{
+		n += 1;
+
+		auto d = x - m;
+		auto d_n = d / n;
+		auto d_n2 = d_n * d_n;
+		auto tmp = d_n * d * (n - 1);
+
+		m += d_n;
+		m4 += d_n2 * tmp * (n * n - 3 * n + 3) + 6 * d_n2 * m2 - 4 * d_n * m3;
+		m3 += d_n * tmp * (n - 2) - 3 * d_n * m2;
+		m2 += tmp;
+	}
+
+	// TODO: not really sure about the bias-correction factors of skew/kurtosis
+
+	double mean() const { return m; }
+
+	double variance() const { return m2 / (n - 1); }
+
+	double skewness() const { return m3 / n / pow(variance(), 1.5); }
+
+	double kurtosis() const
+	{
+		double k4 = n * (n + 1) / (n - 1) * m4 / (m2 * m2) - 3;
+		k4 *= (n - 1) * (n - 1) / ((n - 2) * (n - 3));
+		return k4;
+	}
+
+	// reset everything
+	void clear() { n = m = m2 = m3 = m4 = 0; }
+};
+
 /** autocorrelation coefficients */
 std::vector<double> autocorrelation(span<const double> xs, size_t m);
 

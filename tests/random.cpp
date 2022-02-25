@@ -11,15 +11,20 @@ using namespace util;
 template <typename Dist> void test_distribution(Dist dist)
 {
 	xoshiro256 rng = {};
-	std::vector<double> values;
 	size_t n = 1000000;
-	values.reserve(n);
-	while (values.size() < n)
-		values.push_back(dist(rng));
-	CHECK(mean(values) == Catch::Approx(dist.mean()).epsilon(0.01));
-	CHECK(variance(values) == Catch::Approx(dist.variance()).epsilon(0.01));
-	CHECK(min(values) >= dist.min());
-	CHECK(max(values) <= dist.max());
+	Estimator<1> est;
+
+	for (size_t i = 0; i < n; ++i)
+		est.add(dist(rng));
+	CHECK(est.mean() == Catch::Approx(dist.mean()).epsilon(0.01).margin(0.01));
+	CHECK(est.variance() ==
+	      Catch::Approx(dist.variance()).epsilon(0.01).margin(0.01));
+	CHECK(est.skewness() ==
+	      Catch::Approx(dist.skewness()).epsilon(0.01).margin(0.01));
+	CHECK(est.kurtosis() ==
+	      Catch::Approx(dist.kurtosis()).epsilon(0.01).margin(0.01));
+	// CHECK(min(values) >= dist.min());
+	// CHECK(max(values) <= dist.max());
 
 	// Gnuplot().plotHistogram(Histogram(values, 50));
 }

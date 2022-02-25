@@ -2,16 +2,28 @@
 
 /**
  * Pseudorandom number generators and distributions.
- *     - Compatible with generators and distributions from <random> header.
- *     - Implement some more convenience functions like calling '.uniform()'
- *       (and some other distributions) directly on the generator, without
- *       explicitly creating a distribution object.
- *     - Slight biases in the distributions are acceptable for the sake of
- *       performance as long as no simulation of practical scale can detect it.
- *     - TODO: should be able to produce multiple independent samples using
- *             util::simd<double> and alike
+ *
+ * Similar overall design to <random> header, but not fully compatible
+ *
+ *     - using a generator from here with a std distribution works, the other
+ *       way around does not
+ *     - can call '.uniform()', '.normal()', and '.bernoulli()' directly on the
+ *       generator, without explicitly creating a distribution object
+ *     - distributions provide additional information about themselves, such as
+ *       '.mean()', '.variance()', ...
+ *     - slight biases in the distributions are acceptable for the sake of
+ *       performance as long as no simulation of practical scale can detect it
+ *     - distributions are not templated, real numbers are fixed as 'double'
+ *           * just being able to switch between 'float' and 'double' does
+ *             not seem overly useful (this would change if simd<float/double>
+ *             were supported)
+ *           * in more complicated situations, it is unclear (to me) whether
+ *             we want to template the parameter type or the result type
+ *
+ * TODO: should be able to produce multiple independent samples using SIMD
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <random>
@@ -26,10 +38,10 @@ namespace util {
  */
 class splitmix64
 {
-	uint64_t s; // all values are allowed
+	uint64_t s = 0; // all values are allowed
 
   public:
-	splitmix64() : s(0) {}
+	splitmix64() = default;
 	explicit splitmix64(uint64_t x) : s(x) {}
 
 	using result_type = uint64_t;
@@ -103,12 +115,8 @@ class xoshiro256
 		std::memcpy(s, v.data(), 32);
 	}
 
-	/** generate next value in the random sequence */
-	uint64_t operator()()
+	void advance()
 	{
-		// this is the '**' output function
-		uint64_t result = rotl(s[1] * 5, 7) * 9;
-
 		uint64_t t = s[1] << 17;
 		s[2] ^= s[0];
 		s[3] ^= s[1];
@@ -116,9 +124,27 @@ class xoshiro256
 		s[0] ^= s[3];
 		s[2] ^= t;
 		s[3] = rotl(s[3], 45);
+	}
 
+	// this is the '**' output function
+	uint64_t generate()
+	{
+		uint64_t result = rotl(s[1] * 5, 7) * 9;
+		advance();
 		return result;
 	}
+
+	// this is the '++' output function. Slightly faster than '**', but with
+	// a slight statistical weakness in the lowest few bits, which
+	uint64_t generate_fast()
+	{
+		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
+		advance();
+		return result;
+	}
+
+	// generate next value in the random sequence
+	uint64_t operator()() { return generate(); }
 
 	/**
 	 * generate uniform value in [0,1].
@@ -128,25 +154,15 @@ class xoshiro256
 	 */
 	template <typename T = double> T uniform()
 	{
-		// this is the '++' output function. Faster, but weaker than then
-		// the '**' version used in operator(). The weakness is mostly on the
-		// low bits of result, which are usually not used when converting to a
-		// floating point number.
-		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
-
-		const uint64_t t = s[1] << 17;
-		s[2] ^= s[0];
-		s[3] ^= s[1];
-		s[1] ^= s[2];
-		s[0] ^= s[3];
-		s[2] ^= t;
-		s[3] = rotl(s[3], 45);
+		// NOTE: the statistical weakness of generate_fast() is mostly in the
+		//       low bits, which are typically not used when converting to a
+		//       floating point number, so this is okay here.
 
 		// this version can return 1.0 (depending on rounding mode)
-		return result * 0x1p-64;
+		return generate_fast() * 0x1p-64;
 
 		// this version is strictly in [0,1) (independent of rounding mode)
-		// return (result >> 11) * 0x1p-53;
+		// return (generate_fast() >> 11) * 0x1p-53;
 	}
 
 	// generate a value with normal/Gaussian distribution (µ=0, σ²=1)
@@ -218,46 +234,8 @@ class xoshiro256
 		return (u & n) ? x : -x;
 	}
 
-	// returns true with probability p
-	//     * if p is outside [0,1], it is clamped
-	bool bernoulli(double p) { return uniform() < p; }
-
 	// bernoulli with p=1/2
-	bool bernoulli() { return (*this)() & (1UL << 63); }
-
-	// exponential distribution ~ e^λx
-	template <typename T = double> T exponential(double lambda)
-	{
-		return -log(uniform<T>()) / lambda;
-	}
-
-	// exponential distibution (λ = 1)
-	template <typename T = double> T exponential()
-	{
-		return -log(uniform<T>());
-	}
-
-	template <typename T = int> T binomial(T t = 1, double p = 0.5)
-	{
-		T count = 0;
-		for (T i = 0; i < t; ++i)
-			if (bernoulli(p))
-				++count;
-		return count;
-	}
-
-	template <typename T = int> T poisson(double lambda)
-	{
-		double L = exp(-lambda);
-		double p = uniform();
-		double k = 0;
-		while (p > L)
-		{
-			p *= uniform();
-			k += 1;
-		}
-		return k;
-	}
+	bool bernoulli() { return generate_fast() & (1UL << 63); }
 
 	/** start a new generator, seeded by values from this one */
 	xoshiro256 split()
@@ -299,27 +277,236 @@ class xoshiro256
 	}
 };
 
-template <class RealType = double> class truncated_normal_distribution
+class uniform_distribution
+{
+	double a_ = 0.0, b_ = 1.0, w_ = 1.0;
+
+  public:
+	using result_type = double;
+
+	// constructors
+	uniform_distribution() = default;
+	uniform_distribution(double a, double b) : a_(a), b_(b), w_(b - a)
+	{
+		assert(a <= b);
+	}
+
+	// parameters
+	double a() const { return a_; }
+	double b() const { return b_; }
+
+	// properties
+	double min() const { return a_; }
+	double max() const { return b_; }
+	double mean() const { return 0.5 * (a_ + b_); }
+	double variance() const { return (1. / 12.) * (b_ - a_) * (b_ - a_); }
+	double skewness() const { return 0.; }
+	double kurtosis() const { return -6. / 5.; }
+
+	// generator
+	template <class Rng> double operator()(Rng &rng)
+	{
+		return a_ + rng.uniform() * w_;
+	}
+};
+
+class bernoulli_distribution
+{
+	double p_ = 0.5; // values outside [0,1] are allowed and clamped implicitly
+
+  public:
+	using result_type = bool;
+
+	// constructors
+	bernoulli_distribution() = default;
+	explicit bernoulli_distribution(double p) : p_(p) {}
+
+	// parameters
+	double p() const { return std::clamp(p_, 0.0, 1.0); }
+	double q() const { return 1 - p(); }
+
+	// properties
+	double min() const { return 0; }
+	double max() const { return 1; }
+	double mean() const { return p(); }
+	double variance() const { return p() * q(); }
+	double skewness() const { return (q() - p()) / std::sqrt(p() * q()); }
+	double kurtosis() const { return (1 - 6 * p() * q()) / (p() * q()); }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		return rng.uniform() <= p_;
+	}
+};
+
+class normal_distribution
+{
+	double mu_ = 0.0, sigma_ = 1.0;
+
+  public:
+	using result_type = double;
+
+	// constuctors
+	normal_distribution() = default;
+	normal_distribution(double mu, double sigma) : mu_(mu), sigma_(sigma)
+	{
+		assert(sigma > 0);
+	}
+
+	// parameters
+	double mu() const { return mu_; }
+	double sigma() const { return sigma_; }
+
+	// properties
+	double min() const { return -std::numeric_limits<double>::infinity(); }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const { return mu_; }
+	double variance() const { return sigma_ * sigma_; }
+	double skewness() const { return 0.0; }
+	double kurtosis() const { return 0.0; }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		return rng.normal() * sigma_ + mu_;
+	}
+};
+
+class exponential_distribution
+{
+	double lambda_ = 1.0;
+
+  public:
+	using result_type = double;
+
+	// constructors
+	exponential_distribution() = default;
+	explicit exponential_distribution(double lambda) : lambda_(lambda)
+	{
+		assert(lambda > 0);
+	}
+
+	// parameters
+	double lambda() const { return lambda_; }
+
+	// properties
+	double min() const { return 0.0; }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const { return 1.0 / lambda_; }
+	double variance() const { return 1.0 / (lambda_ * lambda_); }
+	double skewness() const { return 2.0; }
+	double kurtosis() const { return 6.0; }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		return -std::log(rng.uniform()) / lambda_;
+	}
+};
+
+class binomial_distribution
+{
+	int n_ = 1;
+	double p_ = 0.5;
+
+  public:
+	using result_type = int;
+
+	// constructors
+	binomial_distribution() = default;
+	binomial_distribution(int n, double p) : n_(n), p_(p)
+	{
+		assert(n >= 0);
+		assert(0 <= p && p <= 1.0);
+	}
+
+	// parameters
+	int n() const { return n_; }
+	double p() const { return p_; }
+	double q() const { return 1.0 - p_; }
+
+	// properties
+	double min() const { return 0; }
+	double max() const { return n(); }
+	double mean() const { return n() * p(); }
+	double variance() const { return n() * p() * q(); }
+	double skewness() const { return (q() - p()) / std::sqrt(variance()); }
+	double kurtosis() const { return (1.0 - 6 * p() * q()) / variance(); }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		// TODO: this is not really a reasonable algorithm...
+		int count = 0;
+		for (int i = 0; i < n_; ++i)
+			if (rng.uniform() <= p_)
+				++count;
+		return count;
+	}
+};
+
+class poisson_distribution
+{
+	double lambda_ = 1.0;
+
+  public:
+	using result_type = int;
+
+	// constructors
+	poisson_distribution() = default;
+	explicit poisson_distribution(double lambda) : lambda_(lambda)
+	{
+		assert(lambda > 0);
+	}
+
+	// parameters
+	double lambda() const { return lambda_; }
+
+	// properties
+	double min() const { return 0; }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const { return lambda(); }
+	double variance() const { return lambda(); }
+	double skewness() const { return 1.0 / std::sqrt(lambda()); }
+	double kurtosis() const { return 1.0 / lambda(); }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		double L = exp(-lambda_);
+		double p = rng.uniform();
+		int k = 0;
+		while (p > L)
+		{
+			p *= rng.uniform();
+			k += 1;
+		}
+		return k;
+	}
+};
+
+class truncated_normal_distribution
 {
 	// TODO: performance can break down if the two limits are close together or
 	//       if sampling far into the tail. Fallback could be a simple
 	//       exponential proposal
 
 	// parameters of the distribution
-	RealType mean_, stddev_;
-	RealType low_, high_; // normalized to mean/stddev
+	double mean_, stddev_;
+	double low_, high_; // normalized to mean/stddev
 
-	std::uniform_real_distribution<RealType> uniform;
-	std::exponential_distribution<RealType> exponential;
+	std::uniform_real_distribution<double> uniform;
+	std::exponential_distribution<double> exponential;
 
 	// performance statistics
 	int64_t nSamples = 0, nTries = 0;
 
 	// (x,f(x)) pairs of f(x)=e^(-x^2/2), such that the 2*N+2 upper
-	// approximations (2N x rectangles + 2 x exponential) have the same area.
-	// should yield ~96% acceptance (~90% without evaluating f)
+	// approximations (2N x rectangles + 2 x exponential) have the same
+	// area. should yield ~96% acceptance (~90% without evaluating f)
 	static constexpr int N = 32;
-	static constexpr RealType table_x[2 * N + 1] = {
+	static constexpr double table_x[2 * N + 1] = {
 	    -2.2088991613469996798555088, -1.9464639554256921438020565,
 	    -1.7605321487820659728268064, -1.6150755480872587551731726,
 	    -1.4944865272660961059472554, -1.3906700366261811710537086,
@@ -353,7 +540,7 @@ template <class RealType = double> class truncated_normal_distribution
 	    1.4944865272660961059472554,  1.6150755480872587551731726,
 	    1.7605321487820659728268064,  1.9464639554256921438020565,
 	    2.2088991613469996798555088};
-	static constexpr RealType table_low[2 * N] = {
+	static constexpr double table_low[2 * N] = {
 	    0.0871941748480579986507079, 0.1504144244397940443049223,
 	    0.2123038610981274593794731, 0.2713801935617592170277299,
 	    0.3273435689467415081331061, 0.3802290003069655597718239,
@@ -386,7 +573,7 @@ template <class RealType = double> class truncated_normal_distribution
 	    0.3802290003069655597718239, 0.3273435689467415081331061,
 	    0.2713801935617592170277299, 0.2123038610981274593794731,
 	    0.1504144244397940443049223, 0.0871941748480579986507079};
-	static constexpr RealType table_high[2 * N] = {
+	static constexpr double table_high[2 * N] = {
 	    0.1504144244397940443049223, 0.2123038610981274593794731,
 	    0.2713801935617592170277299, 0.3273435689467415081331061,
 	    0.3802290003069655597718239, 0.4301685062972002231898738,
@@ -421,15 +608,14 @@ template <class RealType = double> class truncated_normal_distribution
 	    0.2123038610981274593794731, 0.1504144244397940443049223};
 
   public:
-	using result_type = RealType;
+	using result_type = double;
 
 	/** constructors */
 	truncated_normal_distribution()
 	    : truncated_normal_distribution(0.0, 1.0, -1.0, 1.0)
 	{}
-	explicit truncated_normal_distribution(RealType mean, RealType stddev = 1.0,
-	                                       RealType low = -1.0,
-	                                       RealType high = 1.0)
+	explicit truncated_normal_distribution(double mean, double stddev = 1.0,
+	                                       double low = -1.0, double high = 1.0)
 	    : mean_(mean), stddev_(stddev), low_((low - mean) / stddev),
 	      high_((high - mean) / stddev), uniform(0.0, 1.0),
 	      exponential(table_x[2 * N])
@@ -439,20 +625,20 @@ template <class RealType = double> class truncated_normal_distribution
 	}
 
 	/** parameters */
-	RealType mean() const { return mean_; }
-	RealType stddev() const { return stddev_; }
-	RealType low() const { return low_ * stddev_ + mean_; }
-	RealType high() const { return high_ * stddev_ + mean_; }
+	double mean() const { return mean_; }
+	double stddev() const { return stddev_; }
+	double low() const { return low_ * stddev_ + mean_; }
+	double high() const { return high_ * stddev_ + mean_; }
 
 	/** support of distribution */
-	RealType min() const { return low(); }
-	RealType max() const { return high(); }
+	double min() const { return low(); }
+	double max() const { return high(); }
 
 	/** acceptance rate so far */
 	double acceptance() const { return (double)nSamples / nTries; }
 
 	/** (non-normalized) probability distribution function */
-	RealType pdf(RealType x) const
+	double pdf(double x) const
 	{
 		x = (x - mean_) / stddev_;
 		if (x < low_ || x > high_)
@@ -461,7 +647,7 @@ template <class RealType = double> class truncated_normal_distribution
 	}
 
 	/** upper approximation of pdf(x) */
-	RealType pdf_upper(RealType x) const
+	double pdf_upper(double x) const
 	{
 		x = (x - mean_) / stddev_;
 		if (x < low_ || x > high_)
@@ -495,7 +681,7 @@ template <class RealType = double> class truncated_normal_distribution
 			int reg = std::uniform_int_distribution<int>(reg_min, reg_max)(rng);
 			if (reg == -1 || reg == 2 * N)
 			{
-				RealType x = exponential(rng);
+				double x = exponential(rng);
 
 				if (uniform(rng) <= std::exp(-0.5 * x * x))
 				{
@@ -509,11 +695,11 @@ template <class RealType = double> class truncated_normal_distribution
 			}
 			else
 			{
-				RealType x = table_x[reg] +
-				             uniform(rng) * (table_x[reg + 1] - table_x[reg]);
+				double x = table_x[reg] +
+				           uniform(rng) * (table_x[reg + 1] - table_x[reg]);
 				if (x < low_ || x > high_)
 					continue;
-				RealType y = uniform(rng) * table_high[reg];
+				double y = uniform(rng) * table_high[reg];
 				if (y <= table_low[reg] || y <= std::exp(-0.5 * x * x))
 					return x * stddev_ + mean_;
 			}
@@ -525,68 +711,53 @@ template <class RealType = double> class truncated_normal_distribution
  * Random numbers with "canonical quartic exponential" distribution
  * P(x) = const * exp(-x^4 - alpha*x^2 - beta*x)
  */
-template <class RealType = double>
 class canonical_quartic_exponential_distribution
 {
-	// parameters of the distribution
-	RealType alpha_ = 0.0, beta_ = 0.0;
 
-	// statistics on the rejection-sampling
-	int64_t nAccept = 0, nReject = 0; // for performance statistics
-
-	// internal helpers
-	RealType sigma;
-	std::uniform_real_distribution<RealType> uniform;
-	std::normal_distribution<RealType> normal;
+	double alpha_ = 0.0, beta_ = 0.0; // parameters of the distribution
+	int64_t nAccept = 0, nReject = 0; // statistics on the rejection-sampling
 
   public:
-	/** types */
-	using result_type = RealType;
-	using param_type = std::tuple<RealType, RealType>;
+	using result_type = double;
 
-	/** constructors */
-	canonical_quartic_exponential_distribution()
-	    : canonical_quartic_exponential_distribution(0, 0)
+	// constuctors
+	canonical_quartic_exponential_distribution() = default;
+	canonical_quartic_exponential_distribution(double alpha, double beta)
+	    : alpha_(alpha), beta_(beta)
 	{}
 
-	explicit canonical_quartic_exponential_distribution(RealType alpha = 0,
-	                                                    RealType beta = 0)
-	    : alpha_(alpha), beta_(beta), uniform(0.0, 1.0)
-	{}
+	// parameters
+	double alpha() const { return alpha_; }
+	double beta() const { return beta_; }
 
-	explicit canonical_quartic_exponential_distribution(
-	    const param_type &params)
-	    : canonical_quartic_exponential_distribution(std::get<0>(params),
-	                                                 std::get<1>(params))
-	{}
+	// properties
+	double min() const { return -std::numeric_limits<double>::infinity(); }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const { return 0.0 / 0.0; }
+	double variance() const { return 0.0 / 0.0; }
+	double skewness() const { return 0.0 / 0.0; }
+	double kurtosis() const { return 0.0 / 0.0; }
 
-	/** get back parameters of the distribution */
-	RealType alpha() const { return alpha_; }
-	RealType beta() const { return beta_; }
-
-	/** acceptance rate so far (hopefully not much below 1.0) */
-	double acceptance() const { return (double)nAccept / (nAccept + nReject); }
-
-	/** generate the next random value */
-	template <class Generator> result_type operator()(Generator &rng)
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
 	{
 		// this parameter is optimal in the case delta=0, for any gamma_
-		sigma = 0.5 * std::sqrt((std::sqrt(alpha_ * alpha_ + 4) - alpha_));
-		RealType mu = -beta_ * sigma * sigma;
-		normal = std::normal_distribution<RealType>(mu, sigma);
+		double sigma =
+		    0.5 * std::sqrt((std::sqrt(alpha_ * alpha_ + 4) - alpha_));
+		double mu = -beta_ * sigma * sigma;
 
 		// idea: sample a normal distribution with carefully chosen
 		// parameters and do accept/reject to get precise distribution.
-		RealType tmp = alpha_ - 1.0 / (2 * sigma * sigma); // gamma' in notes
+		double tmp = alpha_ - 1.0 / (2 * sigma * sigma); // gamma' in notes
 
 		while (true)
 		{
-			RealType x = normal(rng);
-			RealType p =
+			double x = rng.normal() * mu + sigma;
+			double p =
 			    std::exp(-x * x * x * x - tmp * x * x - 0.25 * tmp * tmp);
 
 			assert(p <= 1.0);
-			if (uniform(rng) <= p)
+			if (rng.uniform() <= p)
 			{
 				nAccept += 1;
 				return x;
@@ -597,11 +768,14 @@ class canonical_quartic_exponential_distribution
 	}
 
 	/** non-normalized probability distribution function */
-	RealType pdf(RealType x)
+	double pdf(double x)
 	{
 		auto x2 = x * x;
 		return std::exp(-x2 * x2 - alpha_ * x2 - beta_ * x);
 	}
+
+	/** acceptance rate so far (hopefully not much below 1.0) */
+	double acceptance() const { return (double)nAccept / (nAccept + nReject); }
 };
 
 } // namespace util

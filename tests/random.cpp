@@ -4,59 +4,32 @@
 #include "util/random.h"
 #include "util/stats.h"
 
+//#include "util/gnuplot.h"
+
 using namespace util;
 
-TEST_CASE("random number generators")
+template <typename Dist> void test_distribution(Dist dist)
 {
 	xoshiro256 rng = {};
 	std::vector<double> values;
 	size_t n = 1000000;
 	values.reserve(n);
-
 	while (values.size() < n)
-		values.push_back(rng.uniform());
-	CHECK(mean(values) == Catch::Approx(0.5).epsilon(0.01));
-	CHECK(min(values) == Catch::Approx(0.0).margin(0.01));
-	CHECK(max(values) == Catch::Approx(1.0).margin(0.01));
-	CHECK(variance(values) == Catch::Approx(1. / 12.).epsilon(0.01));
+		values.push_back(dist(rng));
+	CHECK(mean(values) == Catch::Approx(dist.mean()).epsilon(0.01));
+	CHECK(variance(values) == Catch::Approx(dist.variance()).epsilon(0.01));
+	CHECK(min(values) >= dist.min());
+	CHECK(max(values) <= dist.max());
 
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.normal());
-	CHECK(mean(values) == Catch::Approx(0.0).margin(0.01));
-	CHECK(min(values) > -10.);
-	CHECK(max(values) < +10.);
-	CHECK(variance(values) == Catch::Approx(1.0).epsilon(0.01));
+	// Gnuplot().plotHistogram(Histogram(values, 50));
+}
 
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.bernoulli());
-	CHECK(mean(values) == Catch::Approx(0.5).epsilon(0.01));
-	CHECK(variance(values) == Catch::Approx(0.25).epsilon(0.01));
-
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.bernoulli(0.3));
-	CHECK(mean(values) == Catch::Approx(0.3).epsilon(0.01));
-	CHECK(variance(values) == Catch::Approx(0.3 * (1 - 0.3)).epsilon(0.01));
-
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.exponential(1.5));
-	CHECK(mean(values) == Catch::Approx(1 / 1.5).epsilon(0.01));
-	CHECK(variance(values) == Catch::Approx(1 / (1.5 * 1.5)).epsilon(0.01));
-
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.poisson(1.5));
-	CHECK(mean(values) == Catch::Approx(1.5).epsilon(0.01));
-	CHECK(variance(values) == Catch::Approx(1.5).epsilon(0.01));
-
-	values.clear();
-	while (values.size() < n)
-		values.push_back(rng.binomial(5, 0.3));
-	CHECK(mean(values) == Catch::Approx(5 * 0.3).epsilon(0.01));
-	CHECK(min(values) == 0);
-	CHECK(max(values) == 5);
-	CHECK(variance(values) == Catch::Approx(5 * 0.3 * (1 - 0.3)).epsilon(0.01));
+TEST_CASE("random number generators")
+{
+	test_distribution(uniform_distribution(1.5, 4.8));
+	test_distribution(normal_distribution(-2.1, 0.8));
+	test_distribution(exponential_distribution(1.7));
+	test_distribution(bernoulli_distribution(0.15));
+	test_distribution(binomial_distribution(20, 0.3));
+	// test_distribution(canonical_quartic_exponential_distribution(1.0, 2.0));
 }

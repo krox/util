@@ -778,4 +778,67 @@ class canonical_quartic_exponential_distribution
 	double acceptance() const { return (double)nAccept / (nAccept + nReject); }
 };
 
+// Auto regressive model AR(p) providing the same interface as the distributions
+template <size_t p> class Autoregressive
+{
+	normal_distribution noise_ = {0.0, 1.0};
+	size_t pos = 0;
+	std::array<double, p> hist_ = {};
+	std::array<double, p> ws_ = {};
+
+  public:
+	using result_type = double;
+
+	// constructors
+	Autoregressive() = default;
+	Autoregressive(std::array<double, p> const &ws) : ws_(ws) {}
+	Autoregressive(std::array<double, p> const &ws,
+	               normal_distribution const &noise)
+	    : noise_(noise), ws_(ws)
+	{}
+
+	// parameters
+	std::array<double, p> const &weights() const { return ws_; }
+
+	// properties
+	double min() const { return -std::numeric_limits<double>::infinity(); }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const
+	{
+		double s = 0;
+		for (size_t i = 0; i < p; ++i)
+			s += ws_[i];
+		return noise_.mean() / (1 - s);
+	}
+	double variance() const
+	{
+		if (p == 0)
+			return noise_.variance();
+		else if (p == 1)
+			return noise_.variance() / (1 - ws_[0] * ws_[0]);
+		else
+			return 0.0 / 0.0;
+		// TODO: should be easy enough to derive the general expression
+		//       (maybe also kurtosis?)
+	}
+	double skewness() const { return 0.0; }
+	double kurtosis() const { return 0.0 / 0.0; }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		double r = noise_(rng);
+		for (size_t i = 0; i < p; ++i)
+			r += ws_[i] * hist_[(pos - i - 1 + p) % p];
+		hist_[(pos++) % p] = r;
+		return r;
+	}
+};
+
+// deduction guideline
+template <size_t N> Autoregressive(double const (&ws)[N])->Autoregressive<N>;
+template <size_t N>
+Autoregressive(double const (&ws)[N], normal_distribution const &)
+    ->Autoregressive<N>;
+
 } // namespace util

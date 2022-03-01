@@ -1,8 +1,9 @@
-#ifndef UTIL_SMALL_VECTOR_H
-#define UTIL_SMALL_VECTOR_H
+#pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <type_traits>
 
 namespace util {
@@ -39,23 +40,23 @@ template <typename T, size_t N> class small_vector
 	using iterator = T *;
 	using const_iterator = const T *;
 
-	/** constructor/destructor */
-	small_vector(){};
+	// constructors
+	small_vector() = default;
 	explicit small_vector(size_t count) { resize(count); }
 	small_vector(size_t count, const T &value) { resize(count, value); }
+
+	// special member functions
 	~small_vector()
 	{
 		if (!is_small())
 			delete[] data_;
 	}
-
-	/** copy/move constructor/assignment */
-	small_vector(const small_vector &other)
+	small_vector(small_vector const &other)
 	{
 		resize(other.size());
 		std::memcpy(data(), other.data(), sizeof(T) * size_);
 	}
-	small_vector(small_vector &&other)
+	small_vector(small_vector &&other) noexcept
 	{
 		std::memcpy(this, &other, sizeof(small_vector));
 		other.size_ = 0;
@@ -67,35 +68,54 @@ template <typename T, size_t N> class small_vector
 		std::memcpy(data(), other.data(), sizeof(T) * size_);
 		return *this;
 	}
-	small_vector &operator=(small_vector &&other)
+	small_vector &operator=(small_vector &&other) noexcept
 	{
-		if (!is_small())
-			delete[] data_;
-		std::memcpy(this, &other, sizeof(small_vector));
-		other.size_ = 0;
-		other.capacity_ = (uint32_t)N;
+		swap(*this, other);
+		return *this;
+	}
+	friend void swap(small_vector &a, small_vector &b) noexcept
+	{
+		constexpr size_t s = sizeof(small_vector);
+		uint8_t buf[s];
+		std::memcpy(buf, &a, s);
+		std::memcpy(&a, &b, s);
+		std::memcpy(&b, buf, a);
 	}
 
-	/** size_metrics */
+	// size_metrics
 	bool empty() const { return size_ == 0; }
 	size_t size() const { return size_; }
 	size_t max_size() const { return UINT32_MAX; }
 	size_t capacity() const { return capacity_; }
 	bool is_small() const { return capacity_ == N; }
 
-	/** element access */
+	// element access
 	T &operator[](size_t i) { return data()[i]; }
-	const T &operator[](size_t i) const { return data()[i]; }
+	T const &operator[](size_t i) const { return data()[i]; }
+	T &at(size_t i)
+	{
+		if (i >= size_)
+			throw std::out_of_range("small_vector index out of range");
+		return data()[i];
+	}
+	T const &at(size_t i) const
+	{
+		if (i >= size_)
+			throw std::out_of_range("small_vector index out of range");
+		return data()[i];
+	}
 	T &front() { return data()[0]; }
-	const T &front() const { return data()[0]; }
+	T const &front() const { return data()[0]; }
 	T &back() { return data()[size_ - 1]; }
-	const T &back() const { return data()[size_ - 1]; }
+	T const &back() const { return data()[size_ - 1]; }
 
 	/** iterators and raw data access */
 	T *begin() { return data(); }
 	const T *begin() const { return data(); }
+	const T *cbegin() const { return data(); }
 	T *end() { return data() + size_; }
 	const T *end() const { return data() + size_; }
+	const T *cend() const { return data() + size_; }
 	T *data()
 	{
 		if (is_small())
@@ -111,8 +131,8 @@ template <typename T, size_t N> class small_vector
 			return data_;
 	}
 
-	/** add/remove elements */
-	void push_back(const T &value)
+	// add/remove at the back
+	void push_back(T const &value)
 	{
 		if (size_ == capacity_)
 			reserve(capacity_ * 2);
@@ -121,23 +141,53 @@ template <typename T, size_t N> class small_vector
 	}
 	void pop_back() { size_ -= 1; }
 
-	void erase(size_t i)
+	// insert at arbitrary position
+	iterator insert(size_t pos, T const &value)
 	{
-		std::memmove(data() + i, data() + i + 1, (size_ - i - 1) * sizeof(T));
-		size_ -= 1;
+		if (size_ == capacity_)
+			reserve(capacity_ * 2);
+		std::move_backward(begin() + pos, end(), end() + 1);
+		(*this)[pos] = value;
+		size_ += 1;
+		return begin() + pos;
 	}
-	void erase(const T *a)
+	template <typename It> iterator insert(size_t pos, It first, It last)
 	{
-		std::memmove((T *)a, (T *)a + 1, (end() - a - 1) * sizeof(T));
-		size_ -= 1;
+		size_t count = std::distance(first, last);
+		if (size_ + count > capacity())
+			reserve(std::max(capacity() * 2, size_ + count));
+		std::move_backward(begin() + pos, end(), end() + count);
+		std::copy(first, last, begin() + pos);
+		size_ += count;
+		return begin() + pos;
 	}
-	void erase(const T *a, const T *b)
+	iterator insert(size_t pos, std::initializer_list<T> ilist)
 	{
-		std::memmove((T *)a, b, (end() - b) * sizeof(T));
-		size_ -= b - a;
+		return insert(pos, ilist.begin(), ilist.end());
+	}
+	iterator insert(const_iterator pos, T const &value)
+	{
+		return insert(std::distance(cbegin(), pos), value);
+	}
+	template <typename It>
+	iterator insert(const_iterator pos, It first, It last)
+	{
+		return insert(std::distance(cbegin(), pos), first, last);
+	}
+	iterator insert(const_iterator pos, std::initializer_list<T> ilist)
+	{
+		return insert(std::distance(cbegin(), pos), ilist);
 	}
 
-	/** other operations */
+	// erase at arbitrary position
+	void erase(iterator first, iterator last)
+	{
+		std::move(last, end(), first);
+		size_ -= std::distance(last - first);
+	}
+	void erase(iterator pos) { erase(pos, pos + 1); }
+
+	// other operators
 	void reserve(size_t new_cap)
 	{
 		assert(new_cap < max_size());
@@ -150,7 +200,7 @@ template <typename T, size_t N> class small_vector
 		capacity_ = new_cap;
 		data_ = new_data;
 	}
-	void clear() { resize(0); }
+	void clear() noexcept { resize(0); }
 	void resize(size_t new_size, const T &value = T())
 	{
 		if (new_size > size_)
@@ -182,19 +232,3 @@ size_t erase_if(small_vector<T, N> &c, Pred pred)
 }
 
 } // namespace util
-
-namespace std {
-template <typename T, size_t N>
-inline void swap(util::small_vector<T, N> &a, util::small_vector<T, N> &b)
-{
-	a.swap(b);
-	constexpr size_t s = sizeof(util::small_vector<T, N>);
-	uint8_t buf[s];
-	std::memcpy(buf, &a, s);
-	std::memcpy(&a, &b, s);
-	std::memcpy(&b, buf, a);
-}
-
-} // namespace std
-
-#endif

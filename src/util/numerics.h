@@ -46,4 +46,13 @@ double solve(function_t f, double a, double b);
 double integrate(function_t f, double a, double b);
 double integrate(function_t f, double a, double b, double eps, int maxCalls);
 
+/**
+ * Integrate f(x) for x in (-∞,∞).
+ * Implemented using Gauss-Hermite quadrature
+ *   - assumes f(x) ~ exp(-x^r) for large values of |x|, with r = 2,4,6,...
+ */
+double integrate_hermite_15(function_t f);
+double integrate_hermite_31(function_t f);
+double integrate_hermite_63(function_t f);
+
 } // namespace util

@@ -1,7 +1,8 @@
 #pragma once
 
 /**
- * Associative map implemented as a closed hash table.
+ * Associative map implemented as hash table
+ * (open adressing / closed hashing)
  *
  * compared to std::unordered_map
  *     - Does not guarantee any pointer or iterator stability accross rehashing,
@@ -13,8 +14,13 @@
  *       memory allocation overhead and defragmentation.
  *
  * TODO (maybe):
+ *     - max_probe_length should be dynamic around O(log(n))
  *     - use SIMD for checking the control bytes (this would be important in
  *       order to actually beat std::unordered_map for efficiency)
+ *     - remove the hash-mixer in favor of good default hash function
+ *     - allocate max_probe_length additional slots in the end, so no more
+ *       wrap-around necessary
+ *     - robin-hood hashing sounds good to remove the need for tombstones
  *     - a lot of functions are missing compared to std::unordered_map
  *           * emplace, try_emplace
  *           * overloads for heterogeneous lookup
@@ -165,7 +171,7 @@ class hash_map
 		return *this;
 	}
 
-	~hash_map() noexcept
+	~hash_map()
 	{
 		clear();
 		std::free(control_);
@@ -211,6 +217,20 @@ class hash_map
 
 	bool contains(Key const &key) const { return find_pos(key) != (size_t)-1; }
 	size_t count(Key const &key) const { return contains(key); }
+	iterator find(Key const &key)
+	{
+		if (auto i = find_pos(key); i != (size_t)-1)
+			return iterator(this, i);
+		else
+			return end();
+	}
+	const_iterator find(Key const &key) const
+	{
+		if (auto i = find_pos(key); i != (size_t)-1)
+			return const_iterator(this, i);
+		else
+			return end();
+	}
 
 	std::pair<iterator, bool> insert(value_type const &value)
 	{
@@ -312,7 +332,7 @@ class hash_map
 		return insert({key, T()}).first->second;
 	}
 
-	friend void swap(hash_map &a, hash_map &b)
+	friend void swap(hash_map &a, hash_map &b) noexcept
 	{
 		using std::swap;
 		swap(a.size_, b.size_);

@@ -1,9 +1,10 @@
 #pragma once
 
+#include "util/hash_map.h"
+#include <cstring>
 #include <map>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 /**
@@ -25,8 +26,6 @@
  *     hash<string> or hash<string_view>.
  *
  * TODO:
- *   - Should really use a more efficient allocator for the storage. This is
- *     a perfect usecase for a simple bump allocator.
  *   - std::unordered_map is probably not a perfect choice of container here
  *   - A std::string_view takes 16 bytes, which is larger than most strings
  *     in the usecases I have in mind, so some small-buffer-optimization
@@ -57,14 +56,17 @@ class StringPool
 {
 	// very crude datastructures, causing a lot more fragmentation and
 	// allocation overhead than neccessary...
-	std::unordered_map<std::string_view, string_id> lookup_;
-	std::vector<std::string> table_;
+	util::hash_map<std::string_view, string_id> lookup_;
+	std::vector<std::string_view> table_;
+
+	MonotoneMemoryPool memory_pool_ = {};
+	MonotoneAllocator<char> alloc_;
 
   public:
-	StringPool()
+	StringPool() : alloc_(memory_pool_)
 	{
-		table_.emplace_back("");
-		lookup_[table_[0]] = string_id(0);
+		auto empty_id = id("");
+		assert(empty_id.id() == 0);
 	}
 
 	// convert string->id, either looking up an existing id, or making a new one
@@ -72,15 +74,28 @@ class StringPool
 	{
 		if (auto it = lookup_.find(s); it != lookup_.end())
 			return it->second;
+		if (table_.size() == UINT16_MAX)
+			throw std::runtime_error("StringPool overflow");
+
+		// copy string data to internal storage (adding 0-terminator)
+		char *p = alloc_.allocate(s.size() + 1);
+		std::memcpy(p, s.data(), s.size());
+		p[s.size()] = '\0';
+
+		// add internalized string to tables
 		auto r = string_id((int)table_.size());
-		table_.emplace_back(s);
+		table_.emplace_back(p, s.size());
 		lookup_[table_.back()] = r;
 		return r;
 	}
 
 	// convert id->string
 	std::string_view str(string_id i) const { return table_[i.id()]; }
-	char const *c_str(string_id i) const { return table_[i.id()].c_str(); }
+	char const *c_str(string_id i) const
+	{
+		// we guarantee all strings to already be stored with 0-terminator
+		return table_[i.id()].data();
+	}
 
 	// overload the call operator to save some typing
 	string_id operator()(std::string_view s) { return id(s); }

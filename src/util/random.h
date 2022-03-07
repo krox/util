@@ -24,6 +24,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <random>
@@ -836,9 +837,9 @@ template <size_t p> class Autoregressive
 };
 
 // deduction guideline
-template <size_t N> Autoregressive(double const (&ws)[N])->Autoregressive<N>;
+template <size_t N> Autoregressive(double const (&ws)[N]) -> Autoregressive<N>;
 template <size_t N>
 Autoregressive(double const (&ws)[N], normal_distribution const &)
-    ->Autoregressive<N>;
+    -> Autoregressive<N>;
 
 } // namespace util

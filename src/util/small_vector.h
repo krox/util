@@ -183,7 +183,7 @@ template <typename T, size_t N> class small_vector
 	void erase(iterator first, iterator last)
 	{
 		std::move(last, end(), first);
-		size_ -= std::distance(last - first);
+		size_ -= std::distance(first, last);
 	}
 	void erase(iterator pos) { erase(pos, pos + 1); }
 

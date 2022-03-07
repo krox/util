@@ -9,15 +9,15 @@
  *       which can happen at any insertion (no guaranteed capacity)
  *     - Does not proide strong exception guarantees (if the value type can
  *       throw on move, or allocation fails, things are really broken)
- *     - Implemented with closed hashing an linear probing. This produces a
+ *     - Implemented with closed hashing and linear probing. This produces a
  *       higher number of collisions, but is good for cache locality and avoids
  *       memory allocation overhead and defragmentation.
+ *     - by default uses util::hash instead of std::hash
  *
  * TODO (maybe):
  *     - max_probe_length should be dynamic around O(log(n))
  *     - use SIMD for checking the control bytes (this would be important in
  *       order to actually beat std::unordered_map for efficiency)
- *     - remove the hash-mixer in favor of good default hash function
  *     - allocate max_probe_length additional slots in the end, so no more
  *       wrap-around necessary
  *     - robin-hood hashing sounds good to remove the need for tombstones
@@ -27,14 +27,6 @@
  *           * some overloads taking Key&&
  *           * insert_or_assign()
  *           * ...
- *     - allow a seed for the hash-mixer
- *           * could provide some security against complexity attacks
- *           * make it harder for usercode to (accidentally) rely on a fixed
- *             order of elements
- *           * changing the seed could compensate occasional bad luck by
- *             rehashing without actually enlarging the table
- *           * atually randomizing in the constructor is not reasonable though,
- *             reproducibility is still important
  *     - check excepetion safety. pretty sure everything is broken if the copy-
  *       (or move-) constructor of the value_type ever fails.
  *
@@ -42,10 +34,8 @@
  *     - 7-bit hashes per entry are stored for fast linear scanning
  *       (inspired by abseil::flat_hash_map)
  *     - full hash is not stored, thus has to be recomputed on rehashes
- *     - given hash function is mixed internally, so using the identity function
- *       for integer keys should typically be okay
- *     - internal capacity is always a power-of-two (thanks to the mixing, this
- *       should not lead to increased collisions)
+ *     - internal capacity is always a power-of-two (with a good default hash,
+ *       this should not lead to an increased number of collisions)
  */
 
 #include "util/hash.h"
@@ -58,8 +48,7 @@
 
 namespace util {
 
-template <typename Key, typename T, typename Hash = std::hash<Key>>
-class hash_map
+template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 {
   public:
 	using key_type = Key;
@@ -67,15 +56,13 @@ class hash_map
 	using value_type = std::pair<const Key, T>;
 	using hasher = Hash;
 
-	class iterator
+	class iterator : public std::iterator<std::forward_iterator_tag, value_type>
 	{
 		hash_map *map_ = nullptr;
 		size_t index_ = 0;
 
 	  public:
-		explicit iterator(hash_map *map, size_t index)
-		    : map_(map), index_(index)
-		{}
+		iterator(hash_map *map, size_t index) : map_(map), index_(index) {}
 		value_type &operator*() const { return map_->values_[index_]; }
 		value_type *operator->() const { return &map_->values_[index_]; }
 		bool operator!=(iterator other) const { return index_ != other.index_; }
@@ -89,12 +76,13 @@ class hash_map
 	};
 
 	class const_iterator
+	    : public std::iterator<std::forward_iterator_tag, const value_type>
 	{
 		hash_map const *map_ = nullptr;
 		size_t index_ = 0;
 
 	  public:
-		explicit const_iterator(hash_map const *map, size_t index)
+		const_iterator(hash_map const *map, size_t index)
 		    : map_(map), index_(index)
 		{}
 		value_type const &operator*() const { return map_->values_[index_]; }
@@ -112,16 +100,23 @@ class hash_map
 		}
 	};
 
-	hash_map() = default;
+	hash_map() noexcept : hasher_(){};
 
-	template <typename It> hash_map(It first, It last) { insert(first, last); }
+	explicit hash_map(Hash const &h) : hasher_(h) {}
 
-	hash_map(std::initializer_list<value_type> ilist)
+	template <typename It>
+	hash_map(It first, It last, Hash const &h = Hash()) : hasher_(h)
+	{
+		insert(first, last);
+	}
+
+	hash_map(std::initializer_list<value_type> ilist, Hash const &h = Hash())
+	    : hasher_(h)
 	{
 		insert(ilist.begin(), ilist.end());
 	}
 
-	hash_map(hash_map const &other)
+	hash_map(hash_map const &other) : hasher_(other.hasher_)
 	{
 		// We just copy everything over, including tombstones.
 		// Alternatively, we could clean out tombstones, but that would
@@ -139,7 +134,7 @@ class hash_map
 				new (&values_[i])(value_type)(other.values_[i]);
 	}
 
-	hash_map(hash_map &&other) noexcept
+	hash_map(hash_map &&other) noexcept : hasher(other.hasher_)
 	{
 		size_ = other.size_;
 		capacity_ = other.capacity_;
@@ -153,6 +148,7 @@ class hash_map
 
 	hash_map &operator=(hash_map const &other)
 	{
+		hasher_ = other.hasher_;
 		clear();
 		insert(other.begin(), other.end());
 		return *this;
@@ -160,6 +156,7 @@ class hash_map
 
 	hash_map &operator=(hash_map &&other) noexcept
 	{
+		hasher_ = other.hasher_;
 		swap(*this, other);
 		return *this;
 	}
@@ -339,6 +336,7 @@ class hash_map
 		swap(a.capacity_, b.capacity_);
 		swap(a.contol_, b.control_);
 		swap(a.values_, b.values_);
+		swap(a.hasher_, b.hasher_);
 	}
 
   private:
@@ -364,18 +362,19 @@ class hash_map
 	// rehash everything and double the size of table
 	void rehash()
 	{
+		// Throwing an exception is preferrable to segfaulting on a (very) bad
+		// hash function. Especially since we are allowed to throw (bad_alloc)
+		// here anyway.
+		if (capacity_ > std::max(size_ * 16, (size_t)1024))
+			throw std::runtime_error("Too many collisions in util::hash_map. "
+			                         "Probably the hash function is broken.");
+
 		auto capacity_old = capacity_;
 		auto control_old = control_;
 		auto values_old = values_;
 
-		// There is no clean answer what to do with truly degenerate hash
-		// functions (a least here. A higher-level structure could fall back
-		// to a different data structure of course). Terminating with a
-		// human-readable message seems the most reasonable.
 		capacity_ = capacity_ ? 2 * capacity_ : 16;
-		if (capacity_ > std::max(size_ * 16, (size_t)1024 * 1024))
-			throw std::runtime_error("Too many collisions in util::hash_map. "
-			                         "Probably a broken a hash function)");
+
 		control_ = (uint8_t *)std::calloc(capacity_, 1);
 		values_ = (value_type *)std::aligned_alloc(
 		    alignof(value_type), sizeof(value_type) * capacity_);
@@ -396,16 +395,6 @@ class hash_map
 	{
 		uint64_t h = hasher_(k);
 
-		// this is the finalizer of the Murmur3 hash function, so the constants
-		// are probably quite good (though slightly better ones have been found
-		// since). Maybe in the future we could incorporate a (user-supplied or
-		// random) seed here.
-		h ^= (h >> 33);
-		h *= 0xff51afd7ed558ccd;
-		h ^= (h >> 33);
-		h *= 0xc4ceb9fe1a85ec53;
-		h ^= (h >> 33);
-
 		// Split into position and control byte.
 		// Need to make sure the control byte does not collide with the 'Empty'
 		// or 'Tombstone' values. The '|128' is the fastest way to do this,
@@ -425,7 +414,7 @@ class hash_map
 	size_t capacity_ = 0;
 	uint8_t *control_ = nullptr;
 	value_type *values_ = nullptr;
-	[[no_unique_address]] hasher hasher_ = {}; // usually a stateless functor
+	[[no_unique_address]] hasher hasher_; // usually a stateless functor
 };
 
 } // namespace util

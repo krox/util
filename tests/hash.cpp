@@ -52,3 +52,19 @@ TEST_CASE("sha2/sha3 hash function test vectors", "[hash]")
 	      "abb54ee3af0f51d44fc8f066028a1571ea23c2f348398d56defc5d2c2006e5cb"
 	      "7c38eab0837ddd274f42181da5971427a05e2029f2ad28adf0cff1d3d7f53479");
 }
+
+TEST_CASE("non-cryptographic hashes", "[hash]")
+{
+	CHECK(is_contiguously_hashable_v<int> == true);
+	CHECK(is_contiguously_hashable_v<int *> == true);
+	CHECK(is_contiguously_hashable_v<std::vector<int>> == false);
+	CHECK(is_contiguously_hashable_v<std::pair<int, int>> == true);
+	CHECK(is_contiguously_hashable_v<std::pair<char, int>> == false);
+
+	std::pair<char, int> x;
+	CHECK(hash<int>()(5) != 5);
+	CHECK(hash<std::pair<char, int>>()({1, 2}) !=
+	      hash<std::pair<int, int>>()({1, 2}));
+
+	CHECK(seeded_hash<int>(1)(5) != seeded_hash<int>(2)(5));
+}

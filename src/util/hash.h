@@ -115,19 +115,24 @@ template <int d> auto sha3(std::string_view s)
 	return sha3<d>(span<const std::byte>((std::byte *)s.data(), s.size()));
 }
 
-// non-cryptographic hash function "FNV-1a" (for use in hash-tables and such)
-uint32_t fnv1a_32(span<const std::byte>) noexcept;
-uint64_t fnv1a_64(span<const std::byte>) noexcept;
-
 // convenience function for pretty printing hash sums
 std::string hex_string(span<const std::byte>);
 
-class fnv1a
+// FNV by Fowler, Noll, Vo. This is the "FNV-1a", 64 bit version.
+// public domain code adapted from
+//     isthe.com/chongo/tech/comp/fnv/index.html
+class Fnv1a
 {
 	uint64_t state_ = 14695981039346656037u;
 
   public:
-	using result_type = uint64_t;
+	Fnv1a() = default;
+	explicit Fnv1a(uint64_t seed) noexcept
+	{
+		// NOTE: afaik, the authors of FNV do not discuss seeding, but this is
+		//       the obvious 'not wrong' way to do it.
+		operator()(&seed, sizeof(seed));
+	}
 
 	void operator()(void const *buf, size_t size) noexcept
 	{
@@ -139,6 +144,147 @@ class fnv1a
 
 	explicit operator uint64_t() noexcept { return state_; }
 };
+
+// MurmurHash3 by Austin Appleby. This is the 128-bit, x64 version.
+// public domain code adapted from
+//     github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+class Murmur3
+{
+	union // hash state
+	{
+		std::array<uint64_t, 2> h_ = {0, 0};
+		std::array<std::byte, 16> ret_;
+	};
+	size_t len_ = 0; // bytes taken in so for
+	union            // incomplete not-yet-processed data
+	{
+		std::array<uint64_t, 2> block_ = {0, 0};
+		std::array<uint8_t, 16> block_bytes_;
+	};
+
+	static constexpr uint64_t c1 = 0x87c37b91114253d5u;
+	static constexpr uint64_t c2 = 0x4cf5ad432745937fu;
+
+	static constexpr uint64_t rotl(uint64_t x, int y)
+	{
+		return (x << y) | (x >> (64 - y));
+	}
+
+	static constexpr uint64_t fmix64(uint64_t k)
+	{
+		k ^= k >> 33;
+		k *= 0xff51afd7ed558ccdu;
+		k ^= k >> 33;
+		k *= 0xc4ceb9fe1a85ec53u;
+		k ^= k >> 33;
+		return k;
+	}
+
+  public:
+	Murmur3() = default;
+
+	explicit Murmur3(uint64_t seed) noexcept : h_{seed, seed}
+	{
+		// NOTE: this seeding is suggested by the author of MurmurHash, though
+		//       it only allows 32 bit seeds (dont know why, presumably only
+		//       for the sake of uniformity with the 32 bit version)
+	}
+
+	void operator()(void const *buf, size_t size) noexcept
+	{
+		auto data = (uint8_t const *)buf;
+
+		if (len_ & 15) // previous incomplete block
+		{
+			size_t head = 16 - (len_ & 15); // bytes needed to complete block
+
+			if (size < head)
+			{
+				for (size_t i = 0; i < size; ++i)
+					block_bytes_[(len_ & 15) + i] = data[i];
+				len_ += size;
+				return;
+			}
+
+			// finish previous block
+			for (size_t i = 0; i < head; ++i)
+				block_bytes_[(len_ & 15) + i] = data[i];
+			h_[0] ^= rotl(block_[0] * c1, 31) * c2;
+			h_[0] = (rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
+			h_[1] ^= rotl(block_[1] * c2, 33) * c1;
+			h_[1] = (rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
+
+			len_ += head;
+			size -= head;
+			data += head;
+
+			assert((len_ & 15) == 0);
+		}
+
+		len_ += size;
+		auto blocks = (uint64_t const *)data;
+		size_t nblocks = size / 16;
+		auto tail = data + nblocks * 16;
+
+		for (size_t i = 0; i < nblocks; i++)
+		{
+			h_[0] ^= rotl(blocks[2 * i] * c1, 31) * c2;
+			h_[0] = (rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
+			h_[1] ^= rotl(blocks[2 * i + 1] * c2, 33) * c1;
+			h_[1] = (rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
+		}
+
+		// std::array<uint64_t, 2> k = {0, 0};
+		assert((size & 15) == (len_ & 15));
+		std::memcpy(&block_, tail, size & 15);
+	}
+
+	void finalize() noexcept
+	{
+		// last block can be partially/completely empty, then this is a no-op
+		for (size_t i = (len_ & 15); i < 16; ++i)
+			block_bytes_[i] = 0;
+		h_[0] ^= rotl(block_[0] * c1, 31) * c2;
+		h_[1] ^= rotl(block_[1] * c2, 33) * c1;
+
+		h_[0] ^= len_;
+		h_[1] ^= len_;
+
+		h_[0] += h_[1];
+		h_[1] += h_[0];
+
+		h_[0] = fmix64(h_[0]);
+		h_[1] = fmix64(h_[1]);
+
+		h_[0] += h_[1];
+		h_[1] += h_[0];
+	}
+
+	explicit operator uint64_t() noexcept
+	{
+		finalize();
+		return h_[0];
+	}
+
+	explicit operator std::array<std::byte, 16>() noexcept
+	{
+		finalize();
+		return ret_;
+	}
+};
+
+inline std::array<std::byte, 16> murmur3_128(span<const std::byte> data)
+{
+	Murmur3 m;
+	m(data.data(), data.size());
+	return (std ::array<std::byte, 16>)m;
+}
+
+// convenience overload for strings
+inline auto murmur3_128(std::string_view s)
+{
+	return murmur3_128(span<const std::byte>((std::byte *)s.data(), s.size()));
+}
 
 // alternative to std::hash:
 //     * is non-trivial by default even for basic integer types, so
@@ -224,7 +370,7 @@ void hash_append(HashAlgorithm &h, std::string_view x) noexcept
 	h(x.data(), x.size() * sizeof(x[0]));
 }
 
-template <class T, class HashAlgorithm = fnv1a> struct hash
+template <class T, class HashAlgorithm = Fnv1a> struct hash
 {
 	size_t operator()(T const &x) const noexcept
 	{
@@ -234,7 +380,7 @@ template <class T, class HashAlgorithm = fnv1a> struct hash
 	}
 };
 
-template <class T, class HashAlgorithm = fnv1a> class seeded_hash
+template <class T, class HashAlgorithm = Fnv1a> class seeded_hash
 {
 	size_t seed_;
 
@@ -242,8 +388,7 @@ template <class T, class HashAlgorithm = fnv1a> class seeded_hash
 	seeded_hash(size_t seed) : seed_(seed) {}
 	size_t operator()(T const &x) const noexcept
 	{
-		HashAlgorithm h;
-		hash_append(h, seed_);
+		HashAlgorithm h(seed_);
 		hash_append(h, x);
 		return static_cast<size_t>(h);
 	}

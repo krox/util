@@ -4,7 +4,7 @@
 
 using namespace util;
 
-TEST_CASE("sha2/sha3 hash function test vectors", "[hash]")
+TEST_CASE("sha2/sha3 hash function test vectors", "[hash][sha]")
 {
 	auto msg = as_bytes("");
 	CHECK(hex_string(sha256(msg)) ==
@@ -53,7 +53,68 @@ TEST_CASE("sha2/sha3 hash function test vectors", "[hash]")
 	      "7c38eab0837ddd274f42181da5971427a05e2029f2ad28adf0cff1d3d7f53479");
 }
 
-TEST_CASE("non-cryptographic hashes", "[hash]")
+TEST_CASE("murmur3 test vectors", "[hash][murmur]")
+{
+	// data is processed in 16-byte blocks, so tests up to 17 bytes seem
+	// reasonable. Tested against https://asecuritysite.com/hash/mur
+	CHECK(hex_string(murmur3_128("")) == "00000000000000000000000000000000");
+	CHECK(hex_string(murmur3_128("f")) == "afa3664e2d13439221e8d041382a4dc1");
+	CHECK(hex_string(murmur3_128("fo")) == "f26f7ee42441a01803ce13963177a269");
+	CHECK(hex_string(murmur3_128("foo")) == "6145f501578671e2877dba2be487af7e");
+	CHECK(hex_string(murmur3_128("foob")) ==
+	      "f8ea585d207f74d2fabe264b60dbbdfa");
+	CHECK(hex_string(murmur3_128("fooba")) ==
+	      "19f951bfdd2f21f26642dda789509842");
+	CHECK(hex_string(murmur3_128("foobar")) ==
+	      "455ac81671aed2bdafd6f8bae055a274");
+	CHECK(hex_string(murmur3_128("foobar1")) ==
+	      "acfbfffbb8ce0ed0e50b31f794cb76d1");
+	CHECK(hex_string(murmur3_128("foobar12")) ==
+	      "98707f421e62fdf0d5e8c9e7dfc5d65d");
+	CHECK(hex_string(murmur3_128("foobar123")) ==
+	      "6953c4b62e251b6c24b91c657bffe0ac");
+	CHECK(hex_string(murmur3_128("foobar1234")) ==
+	      "e701463ab5401598133ca33065627f7e");
+	CHECK(hex_string(murmur3_128("foobar12345")) ==
+	      "e6f35c3cf32a97a50f173814482a959c");
+	CHECK(hex_string(murmur3_128("foobar123456")) ==
+	      "61095035d45820dd452ff1d7eccbbb5b");
+	CHECK(hex_string(murmur3_128("foobar1234567")) ==
+	      "9ec2350eca8190cf106d1b86a2d3ae22");
+	CHECK(hex_string(murmur3_128("foobar12345678")) ==
+	      "c49a31f2ed6ab5bc6bcd5efba65819fc");
+	CHECK(hex_string(murmur3_128("foobar123456789")) ==
+	      "f66c91af62d680b90dc4992bf9e7e99c");
+	CHECK(hex_string(murmur3_128("foobar1234567890")) ==
+	      "87765c1243d0e61a88304e6b6f6ef810");
+	CHECK(hex_string(murmur3_128("foobar1234567890x")) ==
+	      "190510f5490855d9c904ad00a7381c41");
+
+	// "official" test vector from https://github.com/aappleby/smhasher/issues/6
+	CHECK(hex_string(
+	          murmur3_128("The quick brown fox jumps over the lazy dog")) ==
+	      "6c1b07bc7bbc4be347939ac4a93c437a");
+
+	// "incremental" interface
+	{
+		Murmur3 m;
+		m(nullptr, 0);
+		m("foo", 3);
+		m("bar", 3);
+		CHECK(((std::array<std::byte, 16>)m == murmur3_128("foobar")));
+	}
+
+	{
+		Murmur3 m;
+		m("The quick brown f", 17);
+		m("ox jumps over the", 17);
+		m(" lazy dog", 9);
+		CHECK((static_cast<std::array<std::byte, 16>>(m) ==
+		       murmur3_128("The quick brown fox jumps over the lazy dog")));
+	}
+}
+
+TEST_CASE("util::hash", "[hash]")
 {
 	CHECK(is_contiguously_hashable_v<int> == true);
 	CHECK(is_contiguously_hashable_v<int *> == true);

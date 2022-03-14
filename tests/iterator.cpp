@@ -1,9 +1,41 @@
 #include "catch2/catch_test_macros.hpp"
 
+#include "fmt/format.h"
 #include "util/iterator.h"
+#include <iostream>
 #include <vector>
 
-#include <iostream>
+TEST_CASE("reverse iterator", "[iterator]")
+{
+	SECTION("basic usage")
+	{
+		auto v = std::vector{1, 2, 3, 4, 5};
+		std::vector<int> r;
+		for (auto x : util::reverse(v))
+			r.push_back(x);
+		CHECK(r == std::vector{5, 4, 3, 2, 1});
+	}
+}
+
+TEST_CASE("transform iterator", "[iterator]")
+{
+	SECTION("basic usage")
+	{
+		auto v = std::vector{1, 2, 3};
+		std::vector<int> r;
+		for (auto x : util::transform(v, [](auto x) { return 2 * x; }))
+			r.push_back(x);
+		CHECK(r == std::vector{2, 4, 6});
+	}
+
+	SECTION("writable member")
+	{
+		auto v = std::vector<std::pair<int, int>>{{1, 1}, {2, 2}, {3, 3}};
+		for (auto &x : util::transform(v, &std::pair<int, int>::second))
+			x *= 2;
+		CHECK(v == std::vector<std::pair<int, int>>{{1, 2}, {2, 4}, {3, 6}});
+	}
+}
 
 TEST_CASE("filter_iterator", "[iterator]")
 {

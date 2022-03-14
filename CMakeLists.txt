@@ -11,7 +11,7 @@ add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/numerics.cpp sr
 target_compile_features(util PUBLIC cxx_std_17)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt)
-target_compile_options(util PRIVATE -Wall -Wextra -Werror -pedantic -Wnoexcept)
+target_compile_options(util PRIVATE -Wall -Wextra -Werror -pedantic)
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)
@@ -39,6 +39,6 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_executable(tests tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/small_vector.cpp )
 	target_compile_features(tests PRIVATE cxx_std_17)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PRIVATE -Wall -Wextra -Werror -Wnoexcept -Wno-parentheses -g)
+	target_compile_options(tests PRIVATE -Wall -Wextra -Werror -g)
 
 endif()

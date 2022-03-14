@@ -436,7 +436,7 @@ template <typename T, size_t N> class ndspan
 			assert(index < shape_[start]);
 			T *new_data = data_ + stride_[start] * index;
 			std::array<size_t, N - 1> new_shape, new_stride;
-			for (size_t i = 0; i < start; ++i)
+			for (size_t i = 0; (int)i < (int)start; ++i)
 			{
 				new_shape[i] = shape_[i];
 				new_stride[i] = stride_[i];

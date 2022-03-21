@@ -65,6 +65,13 @@ template <typename T> class span
 	size_t size_bytes() const { return size_ * sizeof(T); }
 
 	/** supspan */
+	span<T> subspan(size_t a, size_t len = (size_t)-1) const
+	{
+		if (len == (size_t)-1)
+			return span<T>(data_ + a, data_ + size_);
+		else
+			return span<T>(data_ + a, data_ + a + len);
+	}
 	span<T> slice(size_t a, size_t b) const
 	{
 		return span<T>(data_ + a, data_ + b);

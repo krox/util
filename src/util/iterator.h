@@ -37,6 +37,42 @@ template <class C> auto reverse(C &&c)
 	return iterator_pair(rbegin(c), rend(c));
 }
 
+template <class T, class = std::enable_if_t<
+                       std::is_same_v<T, std::remove_cv_t<T>> &&
+                       std::is_integral_v<T> && !std::is_same_v<T, bool>>>
+class iota_iterator
+{
+	T value_;
+
+  public:
+	using value_type = T;
+	using reference = T const &;
+	using pointer = T const *;
+	using difference_type = std::make_signed_t<T>;
+	using iterator_category = std::forward_iterator_tag;
+
+	iota_iterator() = default;
+	explicit iota_iterator(T value) : value_(value) {}
+
+	reference operator*() const { return value_; }
+	pointer operator->() const { return &value_; }
+	bool operator!=(iota_iterator other) const
+	{
+		return value_ != other.value_;
+	}
+
+	iota_iterator &operator++()
+	{
+		value_++;
+		return *this;
+	}
+};
+
+template <typename T> auto iota_view(T a, T b)
+{
+	return iterator_pair(iota_iterator<T>(a), iota_iterator<T>(b));
+}
+
 // Iterator adaptor that skips elements for which a predicate is false.
 // (essentiall the same as boost::filter_iterator I think)
 //

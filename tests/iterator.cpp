@@ -17,6 +17,25 @@ TEST_CASE("reverse iterator", "[iterator]")
 	}
 }
 
+TEST_CASE("iota iterator", "[iterator]")
+{
+	SECTION("basic usage")
+	{
+		std::vector<int> r;
+		for (auto x : util::iota_view(1, 5))
+			r.push_back(x);
+		CHECK(r == std::vector{1, 2, 3, 4});
+	}
+	SECTION("combination")
+	{
+		std::vector<int> r;
+		for (auto x : util::transform(util::iota_view(1, 5),
+		                              [](auto x) { return 2 * x; }))
+			r.push_back(x);
+		CHECK(r == std::vector{2, 4, 6, 8});
+	}
+}
+
 TEST_CASE("transform iterator", "[iterator]")
 {
 	SECTION("basic usage")

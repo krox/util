@@ -56,24 +56,6 @@ struct Foo
 	}
 };
 
-TEST_CASE("memory")
-{
-	{
-		MonotoneMemoryPool pool;
-		auto a = std::vector<Foo, MonotoneAllocator<Foo>>(
-		    MonotoneAllocator<Foo>(pool));
-		a.resize(1);
-		a.resize(0);
-
-		for (int i = 1; i <= 20; ++i)
-		{
-			a.push_back(Foo());
-			REQUIRE(Foo::registry.size() == a.size());
-		}
-	}
-	REQUIRE(Foo::registry.size() == 0);
-}
-
 TEST_CASE("string_id")
 {
 	StringPool pool;

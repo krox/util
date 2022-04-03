@@ -3,6 +3,7 @@
 #include "util/hash_map.h"
 #include <cstring>
 #include <map>
+#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -26,7 +27,6 @@
  *     hash<string> or hash<string_view>.
  *
  * TODO:
- *   - std::unordered_map is probably not a perfect choice of container here
  *   - A std::string_view takes 16 bytes, which is larger than most strings
  *     in the usecases I have in mind, so some small-buffer-optimization
  *     seems very reasonable here in order to minimize memory usage.
@@ -59,11 +59,11 @@ class StringPool
 	util::hash_map<std::string_view, string_id> lookup_;
 	std::vector<std::string_view> table_;
 
-	MonotoneMemoryPool memory_pool_ = {};
-	MonotoneAllocator<char> alloc_;
+	std::pmr::monotonic_buffer_resource memory_pool_;
+	std::pmr::polymorphic_allocator<char> alloc_{&memory_pool_};
 
   public:
-	StringPool() : alloc_(memory_pool_)
+	StringPool()
 	{
 		auto empty_id = id("");
 		assert(empty_id.id() == 0);

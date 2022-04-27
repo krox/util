@@ -46,8 +46,8 @@ class splitmix64
 	explicit splitmix64(uint64_t x) : s(x) {}
 
 	using result_type = uint64_t;
-	uint64_t min() const { return 0; }
-	uint64_t max() const { return UINT64_MAX; }
+	static constexpr uint64_t min() { return 0; }
+	static constexpr uint64_t max() { return UINT64_MAX; }
 
 	void seed(uint64_t x) { s = x; }
 
@@ -83,8 +83,8 @@ class xoshiro256
 	explicit xoshiro256(std::array<std::byte, 32> const &v) { seed(v); }
 
 	using result_type = uint64_t;
-	uint64_t min() const { return 0; }
-	uint64_t max() const { return UINT64_MAX; }
+	static constexpr uint64_t min() { return 0; }
+	static constexpr uint64_t max() { return UINT64_MAX; }
 
 	/** set the internal state using a 64 bit seed */
 	void seed(uint64_t x)

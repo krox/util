@@ -3,11 +3,68 @@
 #include "util/hash_map.h"
 #include "util/random.h"
 #include <unordered_map>
+#include <unordered_set>
+
+// wrapper around int that tracks all special members
+struct Foo
+{
+	uint64_t id;
+
+	int data = 0;
+
+	static inline uint64_t global = 0;
+	static inline std::unordered_set<uint64_t> registry;
+
+	Foo() : id(global++)
+	{
+		auto [it, ok] = registry.insert(id);
+		assert(ok);
+	}
+	Foo(int x) : id(global++), data(x)
+	{
+		auto [it, ok] = registry.insert(id);
+		assert(ok);
+	}
+	operator int() const { return data; }
+	~Foo()
+	{
+		auto ok = registry.erase(id);
+		assert(ok);
+	}
+	Foo(Foo const &) : id(global++)
+	{
+		auto [it, ok] = registry.insert(id);
+		assert(ok);
+	}
+	Foo(Foo &&) noexcept : id(global++)
+	{
+		auto [it, ok] = registry.insert(id);
+		assert(ok);
+	}
+	Foo &operator=(Foo const &)
+	{
+		auto ok = registry.erase(id);
+		assert(ok);
+		id = global++;
+		auto [it, ok2] = registry.insert(id);
+		assert(ok2);
+		return *this;
+	}
+	Foo &operator=(Foo &&) noexcept
+	{
+		auto ok = registry.erase(id);
+		assert(ok);
+		id = global++;
+		auto [it, ok2] = registry.insert(id);
+		assert(ok2);
+		return *this;
+	}
+};
 
 TEST_CASE("hash map fuzzer", "[hash_map]")
 {
-	util::hash_map<int, int> a;
-	std::unordered_map<int, int> b;
+	util::hash_map<int, Foo> a;
+	std::unordered_map<int, Foo> b;
 	auto rng = util::xoshiro256();
 	for (int i = 0; i < 10000; ++i)
 	{
@@ -52,6 +109,10 @@ TEST_CASE("hash map fuzzer", "[hash_map]")
 		REQUIRE(a.count(k));
 		REQUIRE(a[k] == v);
 	}
+
+	a.clear();
+	b.clear();
+	REQUIRE(Foo::registry.empty());
 }
 
 TEST_CASE("hash map with pattern in the keys", "[hash_map][hash]")

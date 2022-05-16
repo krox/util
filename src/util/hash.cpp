@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <utility>
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error "keccakf() not implemented for big-endian platforms"
@@ -253,5 +254,16 @@ std::string hex_string(span<const std::byte> h)
 	}
 	return r;
 }
+
+static_assert(std::is_same_v<in_param<int>, int>);
+static_assert(std::is_same_v<in_param<int *>, int *>);
+static_assert(std::is_same_v<in_param<std::string>, std::string_view>);
+static_assert(
+    std::is_same_v<in_param<std::vector<int>>, std::vector<int> const &>);
+static_assert(std::is_same_v<in_param<std::string_view>, std::string_view>);
+
+// counterintuitivley, std::pair<int,int> is not std::trivially_copyable
+// static_assert(
+//  std::is_same_v<in_param<std::pair<int, int>>, std::pair<int, int>>);
 
 } // namespace util

@@ -286,6 +286,31 @@ inline auto murmur3_128(std::string_view s)
 	return murmur3_128(span<const std::byte>((std::byte *)s.data(), s.size()));
 }
 
+// helper type trait for 'in' parameters in generic code. For example:
+// T           -> T const&
+// int         -> int
+// std::string -> std::string_view
+template <class T> struct in_param_type
+{
+  private:
+	// NOTE: 'trivial=true' should roughly mean that it can be passed in
+	//       register(s). Though making this precise depends on platform and
+	//       calling conventions of course.
+	static constexpr bool trivial = std::is_trivially_copyable_v<T> &&
+	                                std::is_trivially_destructible_v<T> &&
+	                                sizeof(T) <= 2 * sizeof(size_t);
+
+  public:
+	using type = std::conditional_t<trivial, T, T const &>;
+};
+
+template <> struct in_param_type<std::string>
+{
+	using type = std::string_view;
+};
+
+template <class T> using in_param = typename in_param_type<T>::type;
+
 // alternative to std::hash:
 //     * is non-trivial by default even for basic integer types, so
 //           unordered_map<int, hash<int>>
@@ -372,12 +397,14 @@ void hash_append(HashAlgorithm &h, std::string_view x) noexcept
 
 template <class T, class HashAlgorithm = Fnv1a> struct hash
 {
-	size_t operator()(T const &x) const noexcept
+	size_t operator()(in_param<T> x) const noexcept
 	{
 		HashAlgorithm h;
 		hash_append(h, x);
 		return static_cast<size_t>(h);
 	}
+
+	bool operator==(hash const &) const noexcept { return true; }
 };
 
 template <class T, class HashAlgorithm = Fnv1a> class seeded_hash
@@ -385,12 +412,18 @@ template <class T, class HashAlgorithm = Fnv1a> class seeded_hash
 	size_t seed_;
 
   public:
-	seeded_hash(size_t seed) : seed_(seed) {}
-	size_t operator()(T const &x) const noexcept
+	seeded_hash() noexcept : seed_(0) {}
+	seeded_hash(size_t seed) noexcept : seed_(seed) {}
+	size_t operator()(in_param<T> x) const noexcept
 	{
 		HashAlgorithm h(seed_);
 		hash_append(h, x);
 		return static_cast<size_t>(h);
+	}
+
+	bool operator==(seeded_hash const &other) const noexcept
+	{
+		return seed_ == other.seed_;
 	}
 };
 

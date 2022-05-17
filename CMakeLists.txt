@@ -7,7 +7,7 @@ find_package(HDF5 REQUIRED)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 
 # main library
-add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/numerics.cpp src/util/sampler.cpp src/util/stats.cpp)
+add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_17)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt)

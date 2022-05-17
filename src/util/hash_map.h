@@ -467,8 +467,8 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 
 	size_t size_ = 0;
 	size_t mask_ = 0;
-	unique_memory_ptr<uint8_t> control_ = {};
-	unique_memory_ptr<value_type> values_ = {};
+	memory_ptr<uint8_t> control_ = {};
+	memory_ptr<value_type> values_ = {};
 	[[no_unique_address]] hasher hasher_ = {}; // usually a stateless functor
 };
 

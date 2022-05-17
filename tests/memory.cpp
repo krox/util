@@ -2,59 +2,10 @@
 #include "catch2/catch_test_macros.hpp"
 
 #include "util/memory.h"
+#include "util/random.h"
 #include "util/string_id.h"
-#include <unordered_set>
-#include <vector>
 
 using namespace util;
-
-// testing class that tracks all special member functions
-struct Foo
-{
-	uint64_t id;
-
-	static inline uint64_t global = 0;
-	static inline std::unordered_set<uint64_t> registry;
-
-	Foo() : id(global++)
-	{
-		auto [it, ok] = registry.insert(id);
-		assert(ok);
-	}
-	~Foo()
-	{
-		auto ok = registry.erase(id);
-		assert(ok);
-	}
-	Foo(Foo const &) : id(global++)
-	{
-		auto [it, ok] = registry.insert(id);
-		assert(ok);
-	}
-	Foo(Foo &&) noexcept : id(global++)
-	{
-		auto [it, ok] = registry.insert(id);
-		assert(ok);
-	}
-	Foo &operator=(Foo const &)
-	{
-		auto ok = registry.erase(id);
-		assert(ok);
-		id = global++;
-		auto [it, ok2] = registry.insert(id);
-		assert(ok2);
-		return *this;
-	}
-	Foo &operator=(Foo &&) noexcept
-	{
-		auto ok = registry.erase(id);
-		assert(ok);
-		id = global++;
-		auto [it, ok2] = registry.insert(id);
-		assert(ok2);
-		return *this;
-	}
-};
 
 TEST_CASE("string_id")
 {
@@ -64,4 +15,26 @@ TEST_CASE("string_id")
 	CHECK(pool("foo").id() == 1);
 	CHECK(pool("").id() == 0);
 	CHECK((pool(pool("foobar")) == "foobar"));
+}
+
+TEST_CASE("lazy allocation", "[memory]")
+{
+	// allocate huge amount of memory and do some random read/write
+	size_t length = 1LL << 40;
+	auto mem = lazy_allocate<int>(length);
+	xoshiro256 rng;
+
+	rng.seed(0);
+	for (int i = 0; i < 1000; ++i)
+	{
+		auto pos = rng() % length;
+		mem[pos] = (int)rng();
+	}
+
+	rng.seed(0);
+	for (int i = 0; i < 1000; ++i)
+	{
+		auto pos = rng() % length;
+		CHECK(mem[pos] == (int)rng());
+	}
 }

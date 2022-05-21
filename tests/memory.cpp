@@ -38,3 +38,14 @@ TEST_CASE("lazy allocation", "[memory]")
 		CHECK(mem[pos] == (int)rng());
 	}
 }
+
+struct Foo
+{
+	Foo(Foo const &){};
+};
+
+static_assert(is_trivially_relocatable_v<int>);
+static_assert(is_trivially_relocatable_v<int *>);
+static_assert(is_trivially_relocatable_v<std::string_view>);
+static_assert(!is_trivially_relocatable_v<std::string>);
+static_assert(!is_trivially_relocatable_v<Foo>);

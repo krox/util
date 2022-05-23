@@ -134,3 +134,18 @@ struct alignas(32) Foo
 {};
 static_assert(sizeof(util::small_vector<Foo, 1>) == 2 * 32);
 static_assert(alignof(util::small_vector<Foo, 1>) == 32);
+
+TEST_CASE("tiny_map", "[vector][tiny_map]")
+{
+	util::tiny_map<std::string, int> a;
+	CHECK(a.size() == 0);
+	CHECK(a.empty());
+	a["one"] = 1;
+	CHECK(a.size() == 1);
+	a["two"] = 2;
+	a["one"] = 3;
+	CHECK(a.size() == 2);
+	CHECK(a["two"] == 2);
+	CHECK(a["foo"] == 0);
+	CHECK(a.size() == 3);
+}

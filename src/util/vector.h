@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/hash.h"
 #include "util/iterator.h"
 #include "util/memory.h"
 #include <algorithm>
@@ -543,5 +544,96 @@ using static_vector = Vector<T, detail::StaticStorage<T, N>>;
 // be willing to give us in a single mmap()).
 template <typename T, size_t N = (1LL << 36) / sizeof(T)>
 using stable_vector = Vector<T, detail::MmapStorage<T, N>>;
+
+// Associative container implemented as unsorted vector. For sufficiently small
+// datasets this should be the most efficient datastructure. Furthermore:
+//     * needs neither a hash nor a total ordering, only equality comparisons
+//     * elements are kept in order of insertion
+//     * TODO: make it actually work with util::vector and friends
+template <class Key, class T,
+          class Container = std::vector<std::pair<const Key, T>>>
+class tiny_map
+{
+	Container values_;
+
+  public:
+	// types
+	using container_type = Container;
+	using key_type = Key;
+	using mapped_type = T;
+	using value_type = std::pair<const Key, T>;
+	using size_type = size_t;
+	using difference_type = ptrdiff_t;
+	using reference = value_type &;
+	using const_reference = value_type const &;
+	using pointer = value_type *;
+	using const_pointer = value_type const *;
+	using iterator = typename container_type::iterator;
+	using const_iterator = typename container_type::const_iterator;
+	static_assert(
+	    std::is_same_v<typename container_type::value_type, value_type>);
+
+	// metrics
+	bool empty() const noexcept { return values_.empty(); }
+	size_t size() const noexcept { return values_.size(); }
+	size_t capacity() const noexcept { return values_.capacity(); }
+	size_t max_size() const noexcept { return values_.max_size(); }
+	void reserve(size_t cap) { values_.reserve(cap); }
+
+	// iterators
+	iterator begin() noexcept { return values_.begin(); }
+	const_iterator begin() const noexcept { return values_.begin(); }
+	const_iterator cbegin() const noexcept { return values_.begin(); }
+	iterator end() noexcept { return values_.end(); }
+	const_iterator end() const noexcept { return values_.end(); }
+	const_iterator cend() const noexcept { return values_.end(); }
+
+	// element access
+	T &at(in_param<Key> key)
+	{
+		if (auto it = find(key); it != end())
+			return it->second;
+		throw std::out_of_range("key not found in util::hash_map");
+	}
+	T const &at(in_param<Key> key) const
+	{
+		if (auto it = find(key); it != end())
+			return it->second;
+		throw std::out_of_range("key not found in util::hash_map");
+	}
+	T &operator[](in_param<Key> key)
+	{
+		if (auto it = find(key); it != end())
+			return it->second;
+		values_.emplace_back(key, T());
+		return values_.back().second;
+	}
+	T const &operator[](in_param<Key> key) const noexcept
+	{
+		return find(key)->second;
+	}
+
+	// lookup
+	iterator find(in_param<Key> key)
+	{
+		return std::find_if(begin(), end(),
+		                    [&](auto &a) { return a.first == key; });
+	}
+	const_iterator find(in_param<Key> key) const
+	{
+		return std::find_if(begin(), end(),
+		                    [&](auto &a) { return a.first == key; });
+	}
+	bool contains(in_param<Key> key) const noexcept
+	{
+		return find(key) != end();
+	}
+	size_t count(in_param<Key> key) const noexcept { return contains(key); }
+
+	// misc
+	void clear() noexcept { values_.clear(); }
+	void swap(tiny_map &other) noexcept { values_.swap(other.values_); };
+	friend void swap(tiny_map &a, tiny_map &b) { a.swap(b); }
+};
 
 } // namespace util

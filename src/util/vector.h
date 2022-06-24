@@ -237,6 +237,7 @@ template <class T, class Impl> class Vector
 	{
 		clear(); // not obvious what is reasonable here
 		swap(other);
+		return *this;
 	}
 
 	Vector &operator=(std::initializer_list<T> ilist)
@@ -501,6 +502,12 @@ template <typename T, class Impl, typename T2, class Impl2>
 bool operator!=(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 {
 	return !(a == b);
+}
+
+template <typename T, class Impl, typename T2, class Impl2>
+bool operator<(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
+{
+	return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
 }
 
 template <class T, class Impl, class U>

@@ -120,6 +120,17 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		a.clear();
 		REQUIRE(Int::registry.empty());
 	}
+
+	SECTION("comparison")
+	{
+		auto a = TestType{};
+		auto b = TestType{1};
+		auto c = TestType{1, 2};
+		auto d = TestType{2};
+		CHECK((a == a && b == b && c == c && d == d));
+		CHECK((a != b && a != c && a != d && b != c && b != d && c != d));
+		CHECK((a < b && a < c && a < d && b < c && b < d && c < d));
+	}
 }
 
 // small_vector should optimally only store buffer + 4 bytes, but not screw up

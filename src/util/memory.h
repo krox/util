@@ -69,8 +69,8 @@ constexpr T *construct_at(T *p, Args &&...args)
 // for reasonable automatic deduction
 template <class T> struct is_trivially_relocatable
 {
-	static constexpr bool value =
-	    std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
+	static constexpr bool value = std::is_trivially_copy_constructible_v<T> &&
+	                              std::is_trivially_destructible_v<T>;
 };
 template <class T>
 inline constexpr bool is_trivially_relocatable_v =

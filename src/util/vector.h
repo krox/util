@@ -165,8 +165,6 @@ template <typename T, size_t N> class MmapStorage
 	T const *data() const noexcept { return data_.get(); }
 };
 
-} // namespace detail
-
 template <class T, class Impl> class Vector
 {
 	// No strange types allowed in current implementation. If necessary, use
@@ -528,8 +526,11 @@ size_t erase_if(Vector<T, Impl> &c, Pred pred)
 	return r;
 }
 
+} // namespace detail
+
 // malloc-based vector, essentially equivalent to std::vector
-template <typename T> using vector = Vector<T, detail::MallocStorage<T>>;
+template <typename T>
+using vector = detail::Vector<T, detail::MallocStorage<T>>;
 
 // vector with "small buffer optimization"
 //   - sizes <= N are stored inline without any heap allocation
@@ -537,11 +538,11 @@ template <typename T> using vector = Vector<T, detail::MallocStorage<T>>;
 //   - buffer shares space with the data pointer and capacity. This is in
 //     contrast to many other small-vector implementations like LLVM and Boost.
 template <typename T, size_t N>
-using small_vector = Vector<T, detail::SboStorage<T, N>>;
+using small_vector = detail::Vector<T, detail::SboStorage<T, N>>;
 
 // fixed capacity of N, no dynamic memory allocation at all
 template <typename T, size_t N>
-using static_vector = Vector<T, detail::StaticStorage<T, N>>;
+using static_vector = detail::Vector<T, detail::StaticStorage<T, N>>;
 
 // vector with stable pointers and iterators (except for end()), implemented
 // with lazy/over-commited memory allocation using mmap(). The size (2^36 bytes)
@@ -550,7 +551,7 @@ using static_vector = Vector<T, detail::StaticStorage<T, N>>;
 // "only" 2^48 bytes on many 64bit platforms (and not sure how much the OS would
 // be willing to give us in a single mmap()).
 template <typename T, size_t N = (1LL << 36) / sizeof(T)>
-using stable_vector = Vector<T, detail::MmapStorage<T, N>>;
+using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
 
 // Associative container implemented as unsorted vector. For sufficiently small
 // datasets this should be the most efficient datastructure. Furthermore:

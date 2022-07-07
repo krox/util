@@ -9,9 +9,10 @@ add_subdirectory(fmt EXCLUDE_FROM_ALL)
 # main library
 add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_17)
+set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt)
-target_compile_options(util PRIVATE -Wall -Wextra -Werror -pedantic)
+target_compile_options(util PRIVATE -Wall -Wextra -Werror)
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)

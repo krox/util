@@ -43,7 +43,7 @@ class splitmix64
 
   public:
 	splitmix64() = default;
-	explicit splitmix64(uint64_t x) : s(x) {}
+	explicit constexpr splitmix64(uint64_t x) noexcept : s(x) {}
 
 	using result_type = uint64_t;
 	static constexpr uint64_t min() { return 0; }
@@ -51,7 +51,7 @@ class splitmix64
 
 	void seed(uint64_t x) { s = x; }
 
-	uint64_t operator()()
+	constexpr uint64_t operator()() noexcept
 	{
 		s += 0x9e3779b97f4a7c15;
 		uint64_t z = s;
@@ -68,26 +68,32 @@ class splitmix64
  */
 class xoshiro256
 {
-	uint64_t s[4]; // should not be all zeroes
+	uint64_t s[4] = {}; // should not be all zeroes
 
-	static inline uint64_t rotl(uint64_t x, int k)
+	static inline constexpr uint64_t rotl(uint64_t x, int k) noexcept
 	{
 		// NOTE: compiler will optimize this to a single instruction
 		return (x << k) | (x >> (64 - k));
 	}
 
   public:
-	xoshiro256() { seed(0); }
-	explicit xoshiro256(uint64_t x) { seed(x); }
-	explicit xoshiro256(uint64_t x, uint64_t y) { seed(x, y); }
-	explicit xoshiro256(std::array<std::byte, 32> const &v) { seed(v); }
+	constexpr xoshiro256() noexcept { seed(0); }
+	constexpr explicit xoshiro256(uint64_t x) noexcept { seed(x); }
+	constexpr explicit xoshiro256(uint64_t x, uint64_t y) noexcept
+	{
+		seed(x, y);
+	}
+	explicit xoshiro256(std::array<std::byte, 32> const &v) noexcept
+	{
+		seed(v);
+	}
 
 	using result_type = uint64_t;
 	static constexpr uint64_t min() { return 0; }
 	static constexpr uint64_t max() { return UINT64_MAX; }
 
 	/** set the internal state using a 64 bit seed */
-	void seed(uint64_t x)
+	constexpr void seed(uint64_t x) noexcept
 	{
 		splitmix64 gen(x);
 		s[0] = gen();
@@ -97,7 +103,7 @@ class xoshiro256
 	}
 
 	/** set the internal state using a 128 bit seed */
-	void seed(uint64_t x, uint64_t y)
+	constexpr void seed(uint64_t x, uint64_t y) noexcept
 	{
 		splitmix64 gen1(x);
 		splitmix64 gen2(y);
@@ -111,12 +117,12 @@ class xoshiro256
 	//     * use with care, there are some bad regions (e.g. all/most bits zero)
 	//     * intended to be used as something like
 	//           seed(sha3<256>("human_readable_seed_of_arbitrary_length"))
-	void seed(std::array<std::byte, 32> const &v)
+	void seed(std::array<std::byte, 32> const &v) noexcept
 	{
 		std::memcpy(s, v.data(), 32);
 	}
 
-	void advance()
+	constexpr void advance() noexcept
 	{
 		uint64_t t = s[1] << 17;
 		s[2] ^= s[0];
@@ -128,7 +134,7 @@ class xoshiro256
 	}
 
 	// this is the '**' output function
-	uint64_t generate()
+	constexpr uint64_t generate() noexcept
 	{
 		uint64_t result = rotl(s[1] * 5, 7) * 9;
 		advance();
@@ -136,8 +142,8 @@ class xoshiro256
 	}
 
 	// this is the '++' output function. Slightly faster than '**', but with
-	// a slight statistical weakness in the lowest few bits, which
-	uint64_t generate_fast()
+	// a slight statistical weakness in the lowest few bits
+	constexpr uint64_t generate_fast() noexcept
 	{
 		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
 		advance();
@@ -145,16 +151,46 @@ class xoshiro256
 	}
 
 	// generate next value in the random sequence
-	uint64_t operator()() { return generate(); }
+	constexpr uint64_t operator()() noexcept { return generate(); }
 
-	/**
-	 * generate uniform value in [0,1].
-	 * Essentially equivalent to
-	 *     std::uniform_real_distribution<double>(0,1)(*this)
-	 * But faster.
-	 */
-	template <typename T = double> T uniform()
+	// generate uniform value in [a,b].
+	template <typename T> constexpr T uniform(T a, T b) noexcept
 	{
+		assert(a <= b);
+
+		if constexpr (std::is_floating_point_v<T>)
+			return a + uniform<T>() * (b - a);
+
+		else if constexpr (std::is_integral_v<T>)
+		{
+			if constexpr (sizeof(T) <= 4)
+			{
+				auto x = generate() & UINT32_MAX;
+				auto r =
+				    uint64_t(a) + ((x * (uint64_t(b) - uint64_t(a)) + x) >> 32);
+				return T(r);
+			}
+			else
+			{
+				assert(sizeof(T) <= 8);
+				auto x = __int128(generate());
+				auto r =
+				    __int128(a) + ((x * (__int128(b) - __int128(a)) + x) >> 64);
+				return T(r);
+			}
+		}
+
+		else
+			assert(false);
+	}
+
+	// generate uniform value in [0,1].
+	// Essentially equivalent to
+	//     std::uniform_real_distribution<double>(0,1)(*this)
+	// But faster.
+	template <typename T = double> constexpr T uniform() noexcept
+	{
+		static_assert(std::is_floating_point_v<T>);
 		// NOTE: the statistical weakness of generate_fast() is mostly in the
 		//       low bits, which are typically not used when converting to a
 		//       floating point number, so this is okay here.
@@ -236,10 +272,13 @@ class xoshiro256
 	}
 
 	// bernoulli with p=1/2
-	bool bernoulli() { return generate_fast() & (1UL << 63); }
+	constexpr bool bernoulli() noexcept
+	{
+		return generate_fast() & (1UL << 63);
+	}
 
-	/** start a new generator, seeded by values from this one */
-	xoshiro256 split()
+	// start a new generator, seeded by values from this one
+	constexpr xoshiro256 split() noexcept
 	{
 		// This splitting method was not really well studied/tested for
 		// statistical robustness. But using a 128 bit seed with some scrambling
@@ -248,11 +287,11 @@ class xoshiro256
 		return xoshiro256((*this)(), (*this)());
 	}
 
-	/** discards 2^128 values of the random sequence */
-	void jump()
+	// discards 2^128 values of the random sequence
+	constexpr void jump() noexcept
 	{
-		static const uint64_t JUMP[] = {0x180ec6d33cfd0aba, 0xd5a61266f0c9392c,
-		                                0xa9582618e03fc9aa, 0x39abdc4529b1661c};
+		constexpr uint64_t JUMP[] = {0x180ec6d33cfd0aba, 0xd5a61266f0c9392c,
+		                             0xa9582618e03fc9aa, 0x39abdc4529b1661c};
 
 		uint64_t s0 = 0;
 		uint64_t s1 = 0;

@@ -35,7 +35,7 @@ template <typename Dist> void test_distribution(Dist dist, int l = 4)
 	// Gnuplot().plotHistogram(Histogram(values, 50));
 }
 
-TEST_CASE("random number distributions")
+TEST_CASE("random number distributions", "[random]")
 {
 	test_distribution(uniform_distribution(1.5, 4.8));
 	test_distribution(normal_distribution(-2.1, 0.8));
@@ -48,4 +48,34 @@ TEST_CASE("random number distributions")
 	test_distribution(Autoregressive({0.5, -0.3}, {10., 3}), 1);
 	test_distribution(Autoregressive({-0.1, 0.2}, {-6, 1}), 1);
 	// test_distribution(canonical_quartic_exponential_distribution(1.0, 2.0));
+}
+
+template <typename T> void test_int_dist(T a, T b)
+{
+	xoshiro256 rng = {};
+	T min = b;
+	T max = a;
+	for (size_t i = 0; i < 50 * size_t(b - a + 1); ++i)
+	{
+		T x = rng.uniform<T>(a, b);
+		CHECK(a <= x);
+		CHECK(x <= b);
+		min = std::min(min, x);
+		max = std::max(max, x);
+	}
+
+	CHECK(min == a);
+	CHECK(max == b);
+}
+
+TEST_CASE("integer unifom distribution", "[random]")
+{
+	test_int_dist<int>(-19, -1);
+	test_int_dist<int>(-3, 5);
+	test_int_dist<int>(2, 17);
+	test_int_dist<int64_t>(-19, -1);
+	test_int_dist<int64_t>(-3, 5);
+	test_int_dist<int64_t>(2, 17);
+	test_int_dist<uint8_t>(0, 255);
+	test_int_dist<int8_t>(-128, 127);
 }

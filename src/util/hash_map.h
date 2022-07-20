@@ -440,6 +440,7 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 			// NOTE: thanks to the power-of-two (nominal) capacity, rehashing
 			//       cannot fail. I.e. if the elements fit before, they will fit
 			//       after. In other schemes that might not always be true.
+			(void)success;
 			assert(success);
 		}
 

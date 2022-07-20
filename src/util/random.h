@@ -23,6 +23,7 @@
  * TODO: should be able to produce multiple independent samples using SIMD
  */
 
+#include "util/bits.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -152,6 +153,17 @@ class xoshiro256
 
 	// generate next value in the random sequence
 	constexpr uint64_t operator()() noexcept { return generate(); }
+
+	// uniform [0, m], completely no bias
+	constexpr uint64_t uniform(uint64_t m) noexcept
+	{
+		if (!m)
+			return 0;
+		// rejection sampling with >= 50% acceptance
+		while (true)
+			if (uint64_t r = generate() >> clz(m); r <= m)
+				return r;
+	}
 
 	// generate uniform value in [a,b].
 	template <typename T> constexpr T uniform(T a, T b) noexcept

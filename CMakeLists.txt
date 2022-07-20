@@ -40,7 +40,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/memory.cpp tests/misc.cpp tests/numerics.cpp tests/random.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_17)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PRIVATE -Wall -Wextra -Werror -g -Wno-parentheses)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/bits.h"
 #include "util/span.h"
 #include <cstring>
 
@@ -92,15 +93,15 @@ class bit_vector
 
 	/** constructor / destructor*/
 	bit_vector() = default;
-	bit_vector(size_t size)
+	explicit bit_vector(size_t size, bool value = false)
 	    : size_(size), data_(new limb_t[size_limbs()]),
 	      capacity_limbs_(size_limbs())
 	{
-		std::memset(data(), 0, size_limbs() * sizeof(limb_t));
+		clear(value);
 	}
 	~bit_vector()
 	{
-		if (data_ != nullptr)
+		if (data_)
 			delete[] data_;
 	}
 
@@ -153,10 +154,18 @@ class bit_vector
 		return *this;
 	}
 
-	/** set all (used) bits to zero */
-	void clear() noexcept
+	// set all (used) bits to value
+	void clear(bool value = false) noexcept
 	{
-		std::memset(data(), 0, size_limbs() * sizeof(limb_t));
+		if (value)
+		{
+			std::memset(data(), (char)255, size_limbs() * sizeof(limb_t));
+			if (size() % limb_bits)
+				data_[size_limbs() - 1] =
+				    limb_t(-1) >> (limb_bits - size() % limb_bits);
+		}
+		else
+			std::memset(data(), 0, size_limbs() * sizeof(limb_t));
 	}
 
 	/** set new bits to zero, does not reduce capacity */
@@ -317,30 +326,25 @@ class bit_vector
 		return true;
 	}
 
-	/** number of set bits */
-	size_t count() const noexcept
+	// returns number of bits set to value
+	size_t count(bool value = true) const noexcept
 	{
 		size_t c = 0;
 		for (size_t k = 0; k < size_limbs(); ++k)
-			c += __builtin_popcountll(data_[k]);
-		return c;
-	}
-
-	/** number of bits equal to b */
-	size_t count(bool b) const noexcept
-	{
-		if (b)
-			return count();
+			c += popcount(data_[k]);
+		if (value)
+			return c;
 		else
-			return size() - count();
+			return size() - c;
+		return c;
 	}
 
 	/** find first set bit. returns size() if none is set */
 	size_t find() const noexcept
 	{
 		for (size_t k = 0; k < size_limbs(); ++k)
-			if (data_[k] != limb_t(0))
-				return limb_bits * k + __builtin_ctzll(data_[k]);
+			if (data_[k])
+				return limb_bits * k + ctz(data_[k]);
 		return size_;
 	}
 

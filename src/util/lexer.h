@@ -1,11 +1,15 @@
 #pragma once
 
 /**
- * A simple tokenizer based on std::string_view. Right now it is mostly useful
- * for simple math expressions. But the hope is that it might become general
- * enough to support some programming languages (or at least JSON and the like)
+ * A simple tokenizer based on std::string_view.
+ * Right now used for simple math expressions and JSON, though might be general
+ * enough for some programmling languages.
  */
 
+#include "util/hash_map.h"
+#include <cassert>
+#include <cctype>
+#include <charconv>
 #include <climits>
 #include <optional>
 #include <stdexcept>
@@ -19,55 +23,124 @@ class ParseError : public std::runtime_error
 	ParseError(std::string const &what) : std::runtime_error(what) {}
 };
 
-inline int parse_int(std::string_view s)
+// Parse an integer literal, throwing ParseError if not the whole s was matched.
+// Currently only parses decimal with optional minus sign. Might add hex/bin
+// in the future.
+template <typename T = int> T parse_int(std::string_view s)
 {
-	int r = 0;
-	for (size_t i = 0; i < s.size(); ++i)
+	// std::from_chars(...) is supposed to be essentially the fastest routine
+	// possible (a lot less overhead compared to scanf() and such)
+
+	static_assert(std::is_integral_v<T>);
+	T value = {};
+	auto [ptr, ec] = std::from_chars(s.begin(), s.end(), value);
+	if (ec == std::errc() || ptr == s.end())
+		return value;
+	else
+		throw ParseError(fmt::format("cannot parse integer '{}'", s));
+}
+
+// parse a single- or double-quoted string, understands some escapes
+std::string parse_string(std::string_view s)
+{
+	// NOTE: this parser is not totally strict. For example non-escaped quotes
+	//       and trailing backslashes are accepted. Dont really care for now.
+	if (!(s.size() >= 2 && ((s.front() == '"' && s.back() == '"') ||
+	                        (s.front() == '\'' && s.back() == '\''))))
+		throw ParseError("string literal not surrounded by quotes");
+
+	std::string r;
+	r.reserve(s.size() - 2);
+	for (size_t i = 1; i < s.size() - 1; ++i)
 	{
-		if (!('0' <= s[i] && s[i] <= '9'))
-			throw ParseError(
-			    fmt::format("unexpected character '{}' in integer", s[i]));
-		if (r > (INT_MAX - 9) / 10) // not exactly tight
-			throw ParseError(
-			    fmt::format("integer overflow while parsing in '{}'", s));
-		r = 10 * r + (s[i] - '0');
+		if (s[i] == '\\')
+		{
+			++i;
+			switch (s[i])
+			{
+			case '\\':
+				r.push_back('\\');
+				break;
+			case 'n':
+				r.push_back('\n');
+				break;
+			case 'r':
+				r.push_back('\r');
+				break;
+			case 't':
+				r.push_back('\t');
+				break;
+			case '\'':
+				r.push_back('\'');
+				break;
+			case '"':
+				r.push_back('"');
+				break;
+			default:
+				throw ParseError(
+				    fmt::format("unknown escape character '{}'", s[i]));
+			}
+		}
+		else
+			r.push_back(s[i]);
 	}
 	return r;
 }
 
-inline int64_t parse_int64(std::string_view s)
+struct Tok
 {
-	int64_t r = 0;
-	for (size_t i = 0; i < s.size(); ++i)
+	uint32_t value_ = 0;
+
+	constexpr Tok() = default;
+	constexpr Tok(uint32_t val) : value_(val) {}
+	constexpr Tok(char const *s) // TODO: should be consteval I think
 	{
-		if (!('0' <= s[i] && s[i] <= '9'))
-			throw ParseError(
-			    fmt::format("unexpected character '{}' in integer", s[i]));
-		if (r > (INT64_MAX - 9) / 10) // not exactly tight
-			throw ParseError(
-			    fmt::format("integer overflow while parsing in '{}'", s));
-		r = 10 * r + (s[i] - '0');
+		assert(s && s[0]);
+		if (!s[1])
+			value_ = s[0];
+		else if (!s[2])
+			value_ = s[0] | (s[1] << 8);
+		else if (!s[3])
+			value_ = s[0] | (s[1] << 8) | (s[2] << 16);
+		else
+			assert(false);
 	}
-	return r;
-}
 
-enum class Tok
-{
-	// clang-format off
-	None,                         // end of input
-	Ident,                        // identifier
-	Int, Float,                   // literals
-	Add, Sub, Mul, Div, Mod, Pow, // arithmetic operators
-	Assign,                       // =
-	Comma, Semi, Dot,             // , ; .
-	OpenParen, CloseParen,        // ( )
+	static constexpr Tok none() { return (1 - 1); }
+	static constexpr Tok ident() { return 1; }
+	static constexpr Tok integer() { return 2; }
+	static constexpr Tok floating() { return 3; }
+	static constexpr Tok string() { return 4; }
 
-	// clang-format on
+	constexpr operator uint32_t() const { return value_; }
+
+	constexpr bool operator==(Tok const &b) const { return value_ == b.value_; }
+	constexpr bool operator!=(Tok const &b) const { return value_ != b.value_; }
+};
+
+inline const hash_map<char, Tok> string_to_tok = {
+    {'(', "("}, {')', ")"}, {'[', "["}, {']', "]"}, {'{', "{"}, {'}', "}"},
+
+    {'+', "+"}, {'-', "-"}, {'*', "*"}, {'/', "/"}, {'%', "%"},
+
+    {'<', "<"}, {'>', ">"}, {'&', "&"}, {'|', "|"}, {'^', "^"}, {'!', "!"},
+
+    {'=', "="}, {'.', "."}, {',', ","}, {';', ";"}, {':', ":"},
+};
+
+inline const hash_map<std::array<char, 2>, Tok> string2_to_tok = {
+    {{'+', '+'}, "++"}, {{'-', '-'}, "--"}, {{'*', '*'}, "**"},
+    {{'!', '!'}, "!!"},
+
+    {{'&', '&'}, "&&"}, {{'|', '|'}, "||"}, {{'^', '^'}, "^^"},
+
+    {{'=', '='}, "=="}, {{'!', '='}, "!="}, {{'<', '='}, "<="},
+    {{'>', '='}, ">="},
 };
 
 struct Token
 {
-	Tok tok = Tok::None;         // "type" of token
+	Tok tok = Tok::none();       // "type" of token
 	std::string_view value = {}; // slice into source or ""
 };
 
@@ -83,21 +156,20 @@ struct Token
  *    - identifier: [_a-zA-Z][_a-zA-Z0-9]*
  *    - integers: [0-9]+
  *    - floats: [0-9]+(.[0-9]*)?([eE][+-]?[0-9]+)?
- *    - operators: [+*-/%^(),;.=]
+ *    - strings: single- or double-quoted
+ *    - operators: [+*-/%^(),;.=] and many more
  *  Future design choices:
  *    - should be include a location into Token for nicer errors?
  *    - should we support meaningful whitespace?
- *    - how to handle keywords?
- *    - how to handle multi-character operators?
  */
 class Lexer
 {
 	size_t pos_ = 0;
 	/*const*/ std::string_view src_ = {};
-	Token curr_ = {Tok::None, {}};
+	Token curr_ = {Tok::none(), {}};
 
 	// TODO: replacing std::string_view by std::bitset<128> would be faster
-	char tryMatch(std::string_view chars)
+	char try_match_char(std::string_view chars)
 	{
 		if (pos_ == src_.size())
 			return '\0';
@@ -107,18 +179,18 @@ class Lexer
 		return '\0';
 	}
 
-	char matchOne(std::string_view chars)
+	char match_char(std::string_view chars)
 	{
-		if (char c = tryMatch(chars); c)
+		if (char c = try_match_char(chars); c)
 			return c;
 		else
 			throw ParseError("expected character not found");
 	}
 
-	size_t matchAll(std::string_view chars)
+	size_t match_all(std::string_view chars)
 	{
 		size_t count = 0;
-		while (tryMatch(chars))
+		while (try_match_char(chars))
 			++count;
 		return count;
 	}
@@ -127,70 +199,92 @@ class Lexer
 	Lexer() = default;
 	Lexer(std::string_view buf) : src_(buf) { advance(); }
 
-	bool empty() const { return curr_.tok == Tok::None; }
+	bool empty() const { return curr_.tok == Tok::none(); }
 
 	void advance()
 	{
 		// skip whitespace and quit if nothing is left
-		matchAll(" \t\n\r");
+		match_all(" \t\n\r");
 		if (pos_ == src_.size())
 		{
-			curr_ = {Tok::None, {}};
+			curr_ = {};
 			return;
 		}
 
 		size_t start = pos_;
 
 		// identifier
-		if (tryMatch("_abcdefghijklmnopqrstuvwxyz"))
+		if (try_match_char("_abcdefghijklmnopqrstuvwxyz"
+		                   "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 		{
-			curr_.tok = Tok::Ident;
-			matchAll("_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-			         "0123456789");
-		}
-		// operator
-		else if (char c = tryMatch("+-*/%^()=,;."); c)
-		{
-			switch (c)
-			{
-				// clang-format off
-			case '+': curr_.tok = Tok::Add; break;
-			case '-': curr_.tok = Tok::Sub; break;
-			case '*': curr_.tok = Tok::Mul; break;
-			case '/': curr_.tok = Tok::Div; break;
-			case '^': curr_.tok = Tok::Pow; break;
-			case '(': curr_.tok = Tok::OpenParen; break;
-			case ')': curr_.tok = Tok::CloseParen; break;
-			case '=': curr_.tok = Tok::Assign; break;
-			case ',': curr_.tok = Tok::Comma; break;
-			case ';': curr_.tok = Tok::Semi; break;
-			case '.': curr_.tok = Tok::Dot; break;
-				// clang-format on
-			default:
-				throw ParseError(fmt::format("unexpected operator '{}'", c));
-			}
+			curr_.tok = Tok::ident();
+			match_all("_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+			          "0123456789");
 		}
 		// int/float literal
-		else if (tryMatch("0123456789"))
+		else if (try_match_char("0123456789"))
 		{
-			curr_.tok = Tok::Int;
-			matchAll("0123456789");
-			if (tryMatch("."))
+			curr_.tok = Tok::integer();
+			match_all("0123456789");
+			if (try_match_char("."))
 			{
-				curr_.tok = Tok::Float;
-				matchAll("0123456789");
+				curr_.tok = Tok::floating();
+				match_all("0123456789");
 			}
-			if (tryMatch("eE"))
+			if (try_match_char("eE"))
 			{
-				curr_.tok = Tok::Float;
-				tryMatch("+-");
-				if (matchAll("0123456789") == 0)
+				curr_.tok = Tok::floating();
+				try_match_char("+-");
+				if (match_all("0123456789") == 0)
 					throw ParseError("expected exponent after 'e'");
 			}
 		}
+
+		// string literal
+		else if (char delim = try_match_char("\"'"); delim)
+		{
+			curr_.tok = Tok::string();
+			while (true)
+			{
+				if (src_[pos_] == delim)
+				{
+					pos_ += 1;
+					break;
+				}
+
+				if (src_[pos_] == '\\')
+					pos_ += 2;
+				else
+					pos_ += 1;
+				if (pos_ >= src_.size())
+					throw ParseError("undelimited string literal");
+			}
+		}
+
+		// operators / parentheses
 		else
-			throw ParseError(
-			    fmt::format("unexpected character '{}'", src_[start]));
+		{
+			curr_.tok = Tok::none();
+			if (pos_ + 1 < src_.size())
+				if (auto it = string2_to_tok.find({src_[pos_], src_[pos_ + 1]});
+				    it != string2_to_tok.end())
+				{
+					curr_.tok = it->second;
+					pos_ += 2;
+				}
+
+			if (!curr_.tok)
+				if (auto it = string_to_tok.find(src_[pos_]);
+				    it != string_to_tok.end())
+				{
+					curr_.tok = it->second;
+					pos_ += 1;
+				}
+
+			if (!curr_.tok)
+				throw ParseError(
+				    fmt::format("unexpected character '{}'", src_[start]));
+		}
 
 		curr_.value = src_.substr(start, pos_ - start);
 	}
@@ -205,7 +299,7 @@ class Lexer
 		return r;
 	}
 
-	std::optional<Token> tryMatch(Tok tok)
+	std::optional<Token> try_match(Tok tok)
 	{
 		if (curr_.tok != tok)
 			return std::nullopt;
@@ -215,7 +309,7 @@ class Lexer
 
 	Token match(Tok tok)
 	{
-		if (auto r = tryMatch(tok); r)
+		if (auto r = try_match(tok); r)
 			return *r;
 		else
 			throw ParseError(fmt::format("unexpected token '{}'", curr_.value));

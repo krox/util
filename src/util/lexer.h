@@ -40,6 +40,20 @@ template <typename T = int> T parse_int(std::string_view s)
 		throw ParseError(fmt::format("cannot parse integer '{}'", s));
 }
 
+// Parse an integer literal, throwing ParseError if not the whole s was matched.
+// Currently only parses decimal with optional minus sign. Might add hex/bin
+// in the future.
+template <typename T = double> T parse_float(std::string_view s)
+{
+	static_assert(std::is_floating_point_v<T>);
+	T value = {};
+	auto [ptr, ec] = std::from_chars(s.begin(), s.end(), value);
+	if (ec == std::errc() || ptr == s.end())
+		return value;
+	else
+		throw ParseError(fmt::format("cannot parse float '{}'", s));
+}
+
 // parse a single- or double-quoted string, understands some escapes
 std::string parse_string(std::string_view s)
 {
@@ -197,7 +211,7 @@ class Lexer
 
   public:
 	Lexer() = default;
-	Lexer(std::string_view buf) : src_(buf) { advance(); }
+	explicit Lexer(std::string_view buf) : src_(buf) { advance(); }
 
 	bool empty() const { return curr_.tok == Tok::none(); }
 

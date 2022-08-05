@@ -3,11 +3,19 @@
 #include "fmt/format.h"
 #include "util/lexer.h"
 #include "util/vector.h"
+#include <stdexcept>
 #include <string>
 #include <variant>
 #include <vector>
 
 namespace util {
+
+// TODO: not sure of line between JsonError/ParseError
+class JsonError : public std::runtime_error
+{
+  public:
+	JsonError(std::string const &what) : std::runtime_error(what) {}
+};
 
 // helper for std::visit
 template <class... Ts> struct overloaded : Ts...
@@ -69,11 +77,11 @@ class Json
 			return string(parse_string(tok->value));
 		else if (auto tok = lexer.try_match(Tok::ident()); tok)
 		{
-			if (tok->value == "null")
+			if (tok->value == "null" || tok->value == "None")
 				return null();
-			else if (tok->value == "false")
+			else if (tok->value == "false" || tok->value == "False")
 				return boolean(false);
-			else if (tok->value == "true")
+			else if (tok->value == "true" || tok->value == "True")
 				return boolean(true);
 			else
 				throw ParseError(
@@ -84,6 +92,18 @@ class Json
 			Json j;
 			auto &a = j.as_array();
 			while (!lexer.try_match("]"))
+			{
+				// commas are optional, trailing comma is allowed
+				a.push_back(parse(lexer));
+				lexer.try_match(",");
+			}
+			return j;
+		}
+		else if (lexer.try_match("("))
+		{
+			Json j;
+			auto &a = j.as_array();
+			while (!lexer.try_match(")"))
 			{
 				// commas are optional, trailing comma is allowed
 				a.push_back(parse(lexer));
@@ -147,39 +167,92 @@ class Json
 	array_type &as_array() { return get_or_init<array_type>(value_); }
 	object_type &as_object() { return get_or_init<object_type>(value_); }
 
+	bool is_null() const { return std::holds_alternative<null_type>(value_); }
+	bool is_boolean() const
+	{
+		return std::holds_alternative<boolean_type>(value_);
+	}
+	bool is_integer() const
+	{
+		return std::holds_alternative<integer_type>(value_);
+	}
+	bool is_floating() const
+	{
+		return std::holds_alternative<floating_type>(value_);
+	}
+	bool is_string() const
+	{
+		return std::holds_alternative<string_type>(value_);
+	}
+	bool is_array() const { return std::holds_alternative<array_type>(value_); }
+	bool is_object() const
+	{
+		return std::holds_alternative<object_type>(value_);
+	}
+
 	// serialization delegates to the specializable trait struct
 	template <typename T> Json(T const &value)
 	{
 		*this = JsonSerializer<T>::serialize(value);
 	}
 
-	// de-serialization
-	template <typename T> T get()
+	// de-serialization. Does some type conversion, but nothing too speculative
+	template <typename T> T get() const
 	{
 		if constexpr (std::is_same_v<T, bool>)
 		{
-			return visit(overloaded{[](null_type) -> bool { return false; },
-			                        [](auto v) -> bool { return v; }});
+			if (is_boolean())
+				return std::get<boolean_type>(value_);
+			else
+				throw JsonError("json value is not a boolean");
 		}
 		else if constexpr (std::is_integral_v<T>)
 		{
-			return visit(
-			    overloaded{[](null_type) -> T { return 0; },
-			               [](boolean_type v) -> T { return v ? 1 : 0; },
-			               [](integer_type v) -> T { return v; },
-			               [](auto _) -> T { assert(false); }});
+			if (is_integer())
+				return std::get<integer_type>(value_);
+			else
+				throw JsonError("json value is not an integer");
 		}
 		else if constexpr (std::is_floating_point_v<T>)
 		{
-			return visit(
-			    overloaded{[](null_type) -> T { return 0; },
-			               [](boolean_type v) -> T { return v ? 1 : 0; },
-			               [](integer_type v) -> T { return v; },
-			               [](floating_type v) -> T { return v; },
-			               [](auto _) -> T { assert(false); }});
+			if (is_floating())
+				return std::get<floating_type>(value_);
+			else if (is_integer())
+				return std::get<integer_type>(value_);
+			else
+				throw JsonError("json value is not a number");
+		}
+		else if constexpr (std::is_same_v<T, std::string>)
+		{
+			if (is_string())
+				return std::get<string_type>(value_);
+			else if (is_integer())
+				return fmt::format("{}", std::get<integer_type>(value_));
+			else if (is_floating())
+				return fmt::format("{}", std::get<integer_type>(value_));
+			else if (is_null())
+				return "null";
+			else if (is_boolean())
+				return std::get<boolean_type>(value_) ? "true" : "false";
+			else
+				throw JsonError("json value is not a string");
+		}
+		else if constexpr (std::is_same_v<T, std::vector<size_t>>)
+		{
+			// TODO: yikes. need to redo this whole function with some
+			//       "struct JsonDeserializer" or so...
+
+			if (!is_array())
+				throw JsonError("json value is not an array");
+			auto &arr = std::get<array_type>(value_);
+			std::vector<size_t> r;
+			r.reserve(arr.size());
+			for (auto &x : arr)
+				r.push_back(x.get<size_t>());
+			return r;
 		}
 		else
-			assert(false);
+			throw JsonError("unsuppoerted json conversion");
 	}
 
 	// array-like access
@@ -206,6 +279,11 @@ class Json
 	Json &operator[](std::string_view key) { return as_object()[key]; }
 
 	// parse (a superset of) Json, throwing on syntax errors
+	//     - commas in array/object are optional and trailing commas are allowed
+	//     - single-quoted and double-quoted strings allowed
+	//     - object keys without quotes are allowed (C identifier rules)
+	//     - arrays can be surrounded by () instead of []
+	//     - python-like True/False/None are synonymous to true/false/null
 	static Json parse(std::string_view s)
 	{
 		auto lex = Lexer(s);

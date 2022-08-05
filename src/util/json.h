@@ -102,7 +102,8 @@ class Json
 					key = k->value;
 				else
 					key = parse_string(lexer.match(Tok::string()).value);
-				lexer.match(":");
+				if (!lexer.try_match(":"))
+					lexer.match("=");
 				a[std::move(key)] = parse(lexer);
 
 				// commas are optional, trailing comma is allowed
@@ -258,77 +259,155 @@ template <> struct fmt::formatter<util::Json>
 {
 	using Json = util::Json;
 
+	// format settings (see parse() function)
+	enum Spec
+	{
+		standard, // single-line, nice spaces
+		human,    // multi-line, with indentations
+		compact   // no whitespace at all
+	} spec = standard;
+
   private:
-	template <typename It> void print_impl(It &it, Json::null_type)
+	// print newline + indentation
+	template <typename It> static void newline(It &it, int level)
+	{
+		*it++ = '\n';
+		for (int i = 0; i < level * 4; ++i)
+			*it++ = ' ';
+	}
+
+	// helper to determine array-formatting
+	static bool is_trivial(Json const &j)
+	{
+		return j.visit<bool>(util::overloaded{
+		    [](Json::array_type const &a) { return a.empty(); },
+		    [](Json::object_type const &a) { return a.empty(); },
+		    [](auto const &) { return true; },
+		});
+	}
+
+	template <typename It> void print_impl(It &it, Json::null_type, int)
 	{
 		it = fmt::format_to(it, "null");
 	}
-	template <typename It> void print_impl(It &it, Json::boolean_type value)
+	template <typename It>
+	void print_impl(It &it, Json::boolean_type value, int)
 	{
 		it = fmt::format_to(it, value ? "true" : "false");
 	}
-	template <typename It> void print_impl(It &it, Json::integer_type value)
-	{
-		it = fmt::format_to(it, "{}", value);
-	}
-	template <typename It> void print_impl(It &it, Json::floating_type value)
+	template <typename It>
+	void print_impl(It &it, Json::integer_type value, int)
 	{
 		it = fmt::format_to(it, "{}", value);
 	}
 	template <typename It>
-	void print_impl(It &it, Json::string_type const &value)
+	void print_impl(It &it, Json::floating_type value, int)
+	{
+		it = fmt::format_to(it, "{}", value);
+	}
+	template <typename It>
+	void print_impl(It &it, Json::string_type const &value, int)
 	{
 		// TODO: escape special characters
 		it = fmt::format_to(it, "\"{}\"", value);
 	}
-	template <typename It> void print_impl(It &it, Json::array_type const &arr)
+	template <typename It>
+	void print_impl(It &it, Json::array_type const &arr, int level)
 	{
+		// empty array -> '[]' regardless of format
 		if (arr.empty())
 		{
 			it = fmt::format_to(it, "[]");
 			return;
 		}
 
+		// if the array is small and simple, use standard even if spec == human
+		Spec spec = this->spec;
+		if (spec == human && arr.size() <= 4 &&
+		    std::all_of(arr.begin(), arr.end(), is_trivial))
+			spec = standard;
+
+		// actual formatting
+		*it++ = '[';
 		for (size_t i = 0; i < arr.size(); ++i)
 		{
-			it = fmt::format_to(it, i ? ", " : "[");
-			print(it, arr[i]);
+			if (i)
+				*it++ = ',';
+			if (spec == human)
+				newline(it, level + 1);
+			if (i && spec == standard)
+				*it++ = ' ';
+			print(it, arr[i], level + 1);
 		}
-		it = fmt::format_to(it, "]");
+		if (spec == human)
+			newline(it, level);
+		*it++ = ']';
 	}
-	template <typename It> void print_impl(It &it, Json::object_type const &obj)
+	template <typename It>
+	void print_impl(It &it, Json::object_type const &obj, int level)
 	{
 		if (obj.empty())
 		{
 			it = fmt::format_to(it, "{{}}");
 			return;
 		}
-		it = fmt::format_to(it, "{{");
+
+		*it++ = '{';
 		bool first = true;
 		for (auto &[key, value] : obj)
 		{
 			if (!first)
-				it = fmt::format_to(it, ", ");
+				*it++ = ',';
+			if (spec == human)
+				newline(it, level + 1);
+			if (!first && spec == standard)
+				*it++ = ' ';
+			// TODO: escape special characters
+			it = fmt::format_to(it, "\"{}\":", key);
+			if (spec != compact)
+				*it++ = ' ';
+			print(it, value, level + 1);
 			first = false;
-			it = fmt::format_to(it, "\"{}\": ", key);
-			print(it, value);
 		}
-		it = fmt::format_to(it, "}}");
+		if (spec == human)
+			newline(it, level);
+		*it++ = '}';
 	}
 
-	template <typename It> void print(It &it, util::Json const &j)
+	template <typename It> void print(It &it, util::Json const &j, int level)
 	{
-		j.visit([&](auto &value) { print_impl(it, value); });
+		j.visit([&](auto &value) { print_impl(it, value, level); });
 	}
 
   public:
-	constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+	constexpr auto parse(format_parse_context &ctx)
+	{
+		// Parse the presentation format and store it in the formatter:
+		auto it = ctx.begin(), end = ctx.end();
+		if (it != end && *it != '}')
+			switch (*it++)
+			{
+			case 'h':
+				spec = human;
+				break;
+			case 'c':
+				spec = compact;
+				break;
+			default:
+				throw fmt::format_error("invalid format");
+			}
+
+		if (it != end && *it != '}')
+			throw format_error("invalid format");
+
+		return it;
+	}
 
 	template <typename FormatContext>
 	auto format(Json const &j, FormatContext &ctx)
 	{
 		auto it = ctx.out();
-		print(it, j);
+		print(it, j, 0);
 		return it;
 	}
 };

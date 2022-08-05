@@ -25,5 +25,5 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	fmt::print("{}\n", j);
+	fmt::print("{:h}\n", j);
 }

@@ -175,7 +175,7 @@ void sha256_transform(std::array<uint32_t, 8> &state,
 	state[7] += h;
 }
 
-std::array<std::byte, 32> sha256(span<const std::byte> data) noexcept
+std::array<std::byte, 32> sha256(std::span<const std::byte> data) noexcept
 {
 	union
 	{
@@ -242,7 +242,7 @@ std::array<std::byte, 32> sha256(span<const std::byte> data) noexcept
 	return ret;
 }
 
-std::string hex_string(span<const std::byte> h)
+std::string hex_string(std::span<const std::byte> h)
 {
 	static const char digits[] = "0123456789abcdef";
 	std::string r;

@@ -5,98 +5,11 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <span>
 #include <type_traits>
 #include <vector>
 
 namespace util {
-
-/**
- * NOTES:
- *   - 'const span<T>' only means "head const", i.e. the elements are still
- *     mutable (unless T itself is const). This is the same a simple pointer,
- *     but different from 'std::vector'
- *   - .subspan() takes start+size, NOT start+end as arguments. This is the same
- *     as 'std::string.substr()' but different from other languages like
- *     D (builtin slice-type), python (lists, numpy-arrays), ...
- */
-
-/** Contiguous 1D array-view. Will be superseded by std::span in C++20 */
-template <typename T> class span
-{
-	T *data_ = nullptr;
-	size_t size_ = 0;
-
-  public:
-	using element_type = T;
-	using value_type = std::remove_cv_t<T>;
-	using size_type = size_t;
-	using index_type = size_t;
-	using iterator = T *;
-
-	/** constructors */
-	span() = default;
-	span(T *data, size_t size) : data_(data), size_(size) {}
-	span(T *begin, T *end) : data_(begin), size_(end - begin) {}
-	span(std::vector<T> &v) : data_(v.data()), size_(v.size()) {}
-	span(std::vector<value_type> const &v) : data_(v.data()), size_(v.size()) {}
-	span(span<value_type> const &v) : data_(v.data()), size_(v.size()) {}
-	template <size_t N>
-	span(std::array<T, N> &v) : data_(v.data()), size_(v.size())
-	{}
-	template <size_t N>
-	span(std::array<value_type, N> const &v) : data_(v.data()), size_(v.size())
-	{}
-	span(std::initializer_list<T> data) : span(data.begin(), data.end()) {}
-	template <size_t N> span(T (&data)[N]) : span(data, N) {}
-
-	/** field access */
-	T *data() const { return data_; }
-	size_t size() const { return size_; }
-
-	/** element access */
-	T &operator[](size_t i) const { return data_[i]; }
-	T &operator()(int i) const { return data_[i]; }
-
-	/** iterators */
-	iterator begin() const { return data_; }
-	iterator end() const { return data_ + size_; }
-
-	/** number of bytes */
-	size_t size_bytes() const { return size_ * sizeof(T); }
-
-	/** supspan */
-	span<T> subspan(size_t a, size_t len = (size_t)-1) const
-	{
-		if (len == (size_t)-1)
-			return span<T>(data_ + a, data_ + size_);
-		else
-			return span<T>(data_ + a, data_ + a + len);
-	}
-	span<T> slice(size_t a, size_t b) const
-	{
-		return span<T>(data_ + a, data_ + b);
-	}
-};
-
-template <class T> span<const std::byte> as_bytes(span<T> s)
-{
-	return {(const std::byte *)s.data(), s.size_bytes()};
-}
-
-template <class T> span<const std::byte> as_bytes(std::basic_string_view<T> s)
-{
-	return {(const std::byte *)s.data(), s.size() * sizeof(T)};
-}
-
-inline span<const std::byte> as_bytes(char const *s)
-{
-	return as_bytes(std::string_view(s));
-}
-
-template <class T> span<std::byte> as_writable_bytes(span<T> s)
-{
-	return {(std::byte *)s.data(), s.size_bytes()};
-}
 
 /** strided 1D array-view */
 template <typename T> class gspan
@@ -162,7 +75,7 @@ template <typename T> class gspan
 	gspan(std::vector<value_type> const &v) : data_(v.data()), size_(v.size())
 	{}
 	template <typename U>
-	gspan(span<U> const &v) : data_(v.data()), size_(v.size())
+	gspan(std::span<U> const &v) : data_(v.data()), size_(v.size())
 	{}
 	gspan(gspan<value_type> const &v)
 	    : data_(v.data()), size_(v.size()), stride_(v.stride())
@@ -317,7 +230,7 @@ template <typename T, size_t N> class ndspan
 	{}
 
 	/** create a (row-major) Nd-array-view from a 1d array view */
-	explicit ndspan(span<T> data, index_type shape)
+	explicit ndspan(std::span<T> data, index_type shape)
 	    : data_(data.data()), shape_(shape)
 	{
 		size_t count = 1;
@@ -483,7 +396,7 @@ template <typename T, size_t N> class ndspan
 
 	/** arbitrary slicing/indexing */
 	template <typename... Is>
-	auto operator()(Is &&... is) const -> decltype(subscript<0>(is...))
+	auto operator()(Is &&...is) const -> decltype(subscript<0>(is...))
 	{
 		return subscript<0>(is...);
 	}
@@ -583,7 +496,7 @@ void map(F f, ndspan<Ts, N>... as)
 	map_impl(f, shapes[0].data(), as...);
 }
 
-template <typename F, typename... Cs> void map(F f, Cs &&... cs)
+template <typename F, typename... Cs> void map(F f, Cs &&...cs)
 {
 	map(std::move(f), cs()...);
 }
@@ -650,26 +563,6 @@ struct formatter<util::ndspan<T, N>> : formatter<T>
 
 		// format the array
 		return format_string_array(ctx.out(), strs, pad_len, 0);
-	}
-};
-
-template <typename T>
-struct formatter<util::span<T>> : formatter<std::decay_t<T>>
-{
-	// NOTE: parse() is inherited from formatter<T>
-
-	template <typename FormatContext>
-	auto format(util::span<T> const &a, FormatContext &ctx)
-	    -> decltype(ctx.out())
-	{
-		fmt::format_to(ctx.out(), "{{");
-		for (size_t i = 0; i < a.size(); ++i)
-		{
-			if (i != 0)
-				fmt::format_to(ctx.out(), ", ");
-			formatter<std::decay_t<T>>::format(a[i], ctx);
-		}
-		return fmt::format_to(ctx.out(), "}}");
 	}
 };
 

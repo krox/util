@@ -1,11 +1,11 @@
 #pragma once
 
 #include "util/complex.h"
-#include "util/span.h"
 #include <array>
 #include <cassert>
 #include <initializer_list>
 #include <random>
+#include <span>
 
 /**
 vector/matrix types for fixed (small) dimension. Similar to the GLM library.
@@ -157,8 +157,8 @@ template <typename T, size_t N> struct Vector : VectorStorage<T, N>
 	}
 	T *data() { return VectorStorage<T, N>::elements_; }
 	T const *data() const { return VectorStorage<T, N>::elements_; }
-	span<T> flat() { return span<T>(data(), N); }
-	span<const T> flat() const { return span<const T>(data(), N); }
+	std::span<T> flat() { return std::span(data(), N); }
+	std::span<const T> flat() const { return std::span(data(), N); }
 };
 
 #define UTIL_DEFINE_VECTOR_OPERATOR(op)                                        \
@@ -302,8 +302,8 @@ template <typename T, size_t N> struct Matrix
 	T *data() { return data_[0].data(); }
 	T const *data() const { return data_[0].data(); }
 
-	span<T> flat() { return util::span<T>(data(), N * N); }
-	span<const T> flat() const { return util::span<const T>(data(), N * N); }
+	std::span<T> flat() { return std::span(data(), N * N); }
+	std::span<const T> flat() const { return std::span(data(), N * N); }
 };
 
 /** matrix <-> scalar multiplication/division */

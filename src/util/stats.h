@@ -100,8 +100,8 @@ struct ConstantFit
 {
 	/** constructors */
 	ConstantFit() = default;
-	ConstantFit(span<const double> ys);
-	ConstantFit(span<const double> ys, span<const double> ys_err);
+	ConstantFit(std::span<const double> ys);
+	ConstantFit(std::span<const double> ys, std::span<const double> ys_err);
 
 	/** fit result */
 	double a = 0.0 / 0.0;
@@ -117,9 +117,9 @@ struct LinearFit
 {
 	/** constructors */
 	LinearFit() = default;
-	LinearFit(span<const double> xs, span<const double> ys);
-	LinearFit(span<const double> xs, span<const double> ys,
-	          span<const double> err);
+	LinearFit(std::span<const double> xs, std::span<const double> ys);
+	LinearFit(std::span<const double> xs, std::span<const double> ys,
+	          std::span<const double> err);
 
 	/** fit result */
 	double a = 0.0 / 0.0;
@@ -143,7 +143,7 @@ struct Histogram
 
 	void init(double min, double max, size_t n);
 	Histogram(double min, double max, size_t n);
-	Histogram(span<const double> xs, size_t n);
+	Histogram(std::span<const double> xs, size_t n);
 
 	void add(double x);
 };
@@ -274,9 +274,9 @@ template <> class Estimator<1>
 };
 
 /** autocorrelation coefficients */
-std::vector<double> autocorrelation(span<const double> xs, size_t m);
+std::vector<double> autocorrelation(std::span<const double> xs, size_t m);
 
 /** estimate auto-correlation time */
-double correlationTime(span<const double> xs);
+double correlationTime(std::span<const double> xs);
 
 } // namespace util

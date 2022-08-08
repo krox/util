@@ -19,7 +19,7 @@ FetchContent_MakeAvailable(cli11)
 
 # main library
 add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
-target_compile_features(util PUBLIC cxx_std_17)
+target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt)
@@ -34,7 +34,7 @@ target_link_libraries(util_hdf5 util)
 # executables
 foreach(bin "json-format")
 	add_executable(${bin} src/apps/${bin}.cpp)
-	target_compile_features(${bin} PUBLIC cxx_std_17)
+	target_compile_features(${bin} PUBLIC cxx_std_20)
 	target_link_libraries(${bin} util CLI11::CLI11)
 endforeach(bin)
 
@@ -59,7 +59,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_link_options(-fsanitize=address)
 
 	add_executable(tests tests/bits.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/threadpool.cpp tests/vector.cpp)
-	target_compile_features(tests PRIVATE cxx_std_17)
+	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PRIVATE -Wall -Wextra -Werror -g -Wno-parentheses)
 

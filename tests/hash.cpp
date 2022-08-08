@@ -1,8 +1,14 @@
 #include "catch2/catch_test_macros.hpp"
 
 #include "util/hash.h"
+#include <span>
 
 using namespace util;
+
+std::span<const std::byte> as_bytes(std::string_view s)
+{
+	return std::as_bytes(std::span(s.data(), s.size()));
+}
 
 TEST_CASE("sha2/sha3 hash function test vectors", "[hash][sha]")
 {
@@ -122,7 +128,6 @@ TEST_CASE("util::hash", "[hash]")
 	CHECK(is_contiguously_hashable_v<std::pair<int, int>> == true);
 	CHECK(is_contiguously_hashable_v<std::pair<char, int>> == false);
 
-	std::pair<char, int> x;
 	CHECK(hash<int>()(5) != 5);
 	CHECK(hash<std::pair<char, int>>()({1, 2}) !=
 	      hash<std::pair<int, int>>()({1, 2}));

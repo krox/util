@@ -1,8 +1,8 @@
 #pragma once
 
 #include "util/bits.h"
-#include "util/span.h"
 #include <cstring>
+#include <span>
 
 namespace util {
 
@@ -87,9 +87,12 @@ class bit_vector
 
 	/** raw data access. NOTE: don't write the unused bits*/
 	limb_t *data() noexcept { return data_; }
-	span<limb_t> limbs() noexcept { return {data_, size_limbs()}; }
+	std::span<limb_t> limbs() noexcept { return {data_, size_limbs()}; }
 	const limb_t *data() const noexcept { return data_; }
-	span<const limb_t> limbs() const noexcept { return {data_, size_limbs()}; }
+	std::span<const limb_t> limbs() const noexcept
+	{
+		return {data_, size_limbs()};
+	}
 
 	/** constructor / destructor*/
 	bit_vector() = default;

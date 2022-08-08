@@ -39,7 +39,7 @@ class ThreadPool
 		virtual ~JobBase(){};
 	};
 
-	template <class F, class... Args> class Job : public JobBase
+	template <class F, class... Args> class Job final : public JobBase
 	{
 		using result_type = std::invoke_result_t<F, Args...>;
 
@@ -50,7 +50,7 @@ class ThreadPool
 	  public:
 		Job(F f, Args... args) : f_(std::move(f)), args_(std::move(args)...) {}
 
-		~Job() final
+		~Job()
 		{
 			// At this point, we assume promise_ to be fulfilled (either by a
 			// value or by an exception), otherwise anyone waiting on its
@@ -59,7 +59,7 @@ class ThreadPool
 			// assert(promise_.has_value()); // this method doesnt exist :(
 		}
 
-		void run() noexcept final
+		void run() noexcept
 		{
 			try
 			{
@@ -80,7 +80,7 @@ class ThreadPool
 			}
 		}
 
-		void cancel() noexcept final
+		void cancel() noexcept
 		{
 			promise_.set_exception(std::make_exception_ptr(job_cancelled{}));
 		}

@@ -80,7 +80,7 @@ class UnionFind
 	}
 
 	/** Join components of a[0]..a[$-1] into one */
-	void join(span<const int> a)
+	void join(std::span<const int> a)
 	{
 		if (a.size() == 0)
 			return;

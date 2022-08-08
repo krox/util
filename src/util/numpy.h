@@ -11,7 +11,7 @@
 
 namespace util {
 
-template <typename T> constexpr std::string numpy_type()
+template <typename T> std::string numpy_type()
 {
 	// assumes little-endian platform
 	if constexpr (std::is_same_v<T, int8_t>)
@@ -84,7 +84,7 @@ class NumpyFile
 
 	static NumpyFile open(std::string const &filename, bool writeable = false);
 	static NumpyFile create(std::string const &filename,
-	                        util::span<const size_t> shape,
+	                        std::span<const size_t> shape,
 	                        std::string const &dtype = "<f8",
 	                        bool overwrite = false);
 
@@ -101,11 +101,11 @@ class NumpyFile
 	void *raw_data() { return data_; }
 	void const *raw_data() const { return data_; }
 
-	util::span<std::byte> raw_bytes()
+	std::span<std::byte> raw_bytes()
 	{
 		return {static_cast<std::byte *>(raw_data()), size_bytes()};
 	}
-	util::span<const std::byte> raw_bytes() const
+	std::span<const std::byte> raw_bytes() const
 	{
 		return {static_cast<std::byte const *>(raw_data()), size_bytes()};
 	}
@@ -128,13 +128,13 @@ class NumpyFile
 		return static_cast<T const *>(data_);
 	}
 
-	template <class T> util::span<T> flat()
+	template <class T> std::span<T> flat()
 	{
-		return util::span<T>(data<T>(), size());
+		return std::span(data<T>(), size());
 	}
-	template <class T> util::span<const T> flat() const
+	template <class T> std::span<const T> flat() const
 	{
-		return util::span<T>(data<T>(), size());
+		return std::span(data<T>(), size());
 	}
 
 	template <class T, size_t dim> util::ndspan<T, dim> view()

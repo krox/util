@@ -36,14 +36,14 @@ class ProgressBar
 		                      floor<seconds>(elapsed))
 		        : fmt::format("| elapsed: {:%T}, ETA: {:%T}\r",
 		                      floor<seconds>(elapsed), floor<seconds>(eta));
-		fmt::print(head);
+		fmt::print("{}", head);
 		int width = std::max(10, int(80 - head.size() - tail.size()));
 		int pos = int(width * p);
 		for (int i = 0; i < pos; ++i)
 			fmt::print("#");
 		for (int i = pos; i < width; ++i)
 			fmt::print(" ");
-		fmt::print(tail);
+		fmt::print("{}", tail);
 		fflush(stdout);
 	}
 	void finish()

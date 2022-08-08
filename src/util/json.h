@@ -371,7 +371,7 @@ template <> struct fmt::formatter<util::Json>
 	template <typename It>
 	void print_impl(It &it, Json::boolean_type value, int)
 	{
-		it = fmt::format_to(it, value ? "true" : "false");
+		it = fmt::format_to(it, "{}", value ? "true" : "false");
 	}
 	template <typename It>
 	void print_impl(It &it, Json::integer_type value, int)

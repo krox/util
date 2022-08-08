@@ -22,7 +22,7 @@ double correlation(gspan<const double> xs, gspan<const double> ys)
 	return covariance(xs, ys) / std::sqrt(variance(xs) * variance(ys));
 }
 
-ConstantFit::ConstantFit(span<const double> ys)
+ConstantFit::ConstantFit(std::span<const double> ys)
 {
 	a = 0;
 	for (double y : ys)
@@ -31,7 +31,8 @@ ConstantFit::ConstantFit(span<const double> ys)
 	a_err = 0.0 / 0.0;
 }
 
-ConstantFit::ConstantFit(span<const double> ys, span<const double> ys_err)
+ConstantFit::ConstantFit(std::span<const double> ys,
+                         std::span<const double> ys_err)
 {
 	assert(ys.size() == ys_err.size());
 	a = 0;
@@ -48,7 +49,7 @@ ConstantFit::ConstantFit(span<const double> ys, span<const double> ys_err)
 double ConstantFit::operator()() const { return a; }
 double ConstantFit::operator()([[maybe_unused]] double x) const { return a; }
 
-LinearFit::LinearFit(span<const double> xs, span<const double> ys)
+LinearFit::LinearFit(std::span<const double> xs, std::span<const double> ys)
 {
 	assert(xs.size() == ys.size());
 	Estimator<2> est;
@@ -58,8 +59,8 @@ LinearFit::LinearFit(span<const double> xs, span<const double> ys)
 	a = est.mean(1) - est.mean(0) * b;
 }
 
-LinearFit::LinearFit(span<const double> xs, span<const double> ys,
-                     span<const double> err)
+LinearFit::LinearFit(std::span<const double> xs, std::span<const double> ys,
+                     std::span<const double> err)
 {
 	assert(xs.size() == ys.size());
 	Estimator<2> est;
@@ -86,7 +87,7 @@ void Histogram::init(double min, double max, size_t n)
 
 Histogram::Histogram(double min, double max, size_t n) { init(min, max, n); }
 
-Histogram::Histogram(span<const double> xs, size_t n)
+Histogram::Histogram(std::span<const double> xs, size_t n)
 {
 	double lo = 1.0 / 0.0;
 	double hi = -1.0 / 0.0;
@@ -167,12 +168,12 @@ template <size_t dim> void Estimator<dim>::clear()
 			sum2[i][j] = 0;
 }
 
-template class Estimator<1>;
+// template class Estimator<1>; // explicitly specialized
 template class Estimator<2>;
 template class Estimator<3>;
 template class Estimator<4>;
 
-std::vector<double> autocorrelation(span<const double> xs, size_t m)
+std::vector<double> autocorrelation(std::span<const double> xs, size_t m)
 {
 	m = std::min(m, xs.size() - 1);
 	std::vector<double> r(m, 0.0 / 0.0);
@@ -187,7 +188,7 @@ std::vector<double> autocorrelation(span<const double> xs, size_t m)
 	return r;
 }
 
-double correlationTime(span<const double> xs)
+double correlationTime(std::span<const double> xs)
 {
 	auto mx = mean(xs);
 	auto vx = variance(xs);

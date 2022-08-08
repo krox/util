@@ -6,6 +6,7 @@
 
 #include "hdf5/serial/hdf5.h"
 #include "util/span.h"
+#include <optional>
 #include <string>
 
 namespace util {
@@ -54,21 +55,21 @@ class DataSet
 	~DataSet();
 	void close();
 
-	template <typename T> void write(util::span<const T> data);
-	template <typename T> void write(hsize_t row, util::span<const T> data);
+	template <typename T> void write(std::span<const T> data);
+	template <typename T> void write(hsize_t row, std::span<const T> data);
 
 	// workaround for failing template deduction
 	template <typename T> void write(std::vector<T> const &data)
 	{
-		write<T>(util::span<const T>(data));
+		write<T>(std::span<const T>(data));
 	}
 	template <typename T> void write(hsize_t row, std::vector<T> const &data)
 	{
-		write<T>(row, util::span<const T>(data));
+		write<T>(row, std::span<const T>(data));
 	}
 
-	template <typename T> void read(util::span<T> data);
-	template <typename T> void read(hsize_t row, util::span<T> data);
+	template <typename T> void read(std::span<T> data);
+	template <typename T> void read(hsize_t row, std::span<T> data);
 	template <typename T> std::vector<T> read()
 	{
 		auto r = std::vector<T>(size);

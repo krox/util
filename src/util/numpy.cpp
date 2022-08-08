@@ -67,7 +67,7 @@ NumpyFile NumpyFile::open(std::string const &filename, bool writeable)
 }
 
 NumpyFile NumpyFile::create(std::string const &filename,
-                            util::span<const size_t> shape,
+                            std::span<const size_t> shape,
                             std::string const &dtype, bool overwrite)
 {
 	// header size must be multiple of 64. Realistically, 128 is sufficient for

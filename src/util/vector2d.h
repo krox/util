@@ -1,5 +1,4 @@
-#ifndef UTIL_VECTOR2data_H
-#define UTIL_VECTOR2data_H
+#pragma once
 
 #include "util/span.h"
 #include <cassert>
@@ -22,20 +21,23 @@ template <typename T> class vector2d
 	size_t size() const { return height_ * width_; }
 
 	/** row access */
-	span<T> row(size_t i) { return span<T>(data_.data() + width_ * i, width_); }
-	span<const T> row(size_t i) const
+	std::span<T> row(size_t i)
 	{
-		return span<const T>(data_.data() + width_ * i, width_);
+		return std::span<T>(data_.data() + width_ * i, width_);
 	}
-	span<T> operator[](size_t i) { return row(i); }
-	span<const T> operator[](size_t i) const { return row(i); }
-	span<T> operator()(size_t i) { return row(i); }
-	span<const T> operator()(size_t i) const { return row(i); }
+	std::span<const T> row(size_t i) const
+	{
+		return std::span<const T>(data_.data() + width_ * i, width_);
+	}
+	std::span<T> operator[](size_t i) { return row(i); }
+	std::span<const T> operator[](size_t i) const { return row(i); }
+	std::span<T> operator()(size_t i) { return row(i); }
+	std::span<const T> operator()(size_t i) const { return row(i); }
 
-	span<T> front() { return row(0); }
-	span<T> back() { return row(height_ - 1); }
-	span<const T> front() const { return row(0); }
-	span<const T> back() const { return row(height_ - 1); }
+	std::span<T> front() { return row(0); }
+	std::span<T> back() { return row(height_ - 1); }
+	std::span<const T> front() const { return row(0); }
+	std::span<const T> back() const { return row(height_ - 1); }
 
 	/** column access */
 	gspan<T> col(size_t j)
@@ -55,13 +57,13 @@ template <typename T> class vector2d
 	}
 
 	/** access as one-dimensional span */
-	span<T> flat() { return data_; }
-	span<const T> flat() const { return data_; }
+	std::span<T> flat() { return data_; }
+	std::span<const T> flat() const { return data_; }
 	T &flat(size_t i) { return data_[i]; }
 	const T &flat(size_t i) const { return data_[i]; }
 
 	/** add one row at bottom */
-	void push_back(span<const T> v)
+	void push_back(std::span<const T> v)
 	{
 		if (width_ == (size_t)-1)
 		{
@@ -86,5 +88,3 @@ template <typename T> class vector2d
 };
 
 } // namespace util
-
-#endif

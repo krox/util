@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 // bit twiddling stuff. hopefully nicer than using __builtin_XXX directly
 
 namespace util {

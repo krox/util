@@ -28,12 +28,13 @@ template <typename T, size_t N> class ndarray
 		size_t ss = 1;
 		for (size_t s : shape)
 			ss *= s;
-		auto buf = span(new T[ss], ss);
+		auto buf = std::span(new T[ss], ss);
 		span_ = ndspan(buf, shape);
 	}
 
 	ndarray(const ndarray &other)
-	    : span_{ndspan(span(new T[other.size()], other.size()), other.shape())}
+	    : span_{ndspan(std::span(new T[other.size()], other.size()),
+	                   other.shape())}
 	{
 		std::memcpy(data(), other.data(), size() * sizeof(T));
 	}
@@ -48,7 +49,7 @@ template <typename T, size_t N> class ndarray
 		else
 		{
 			delete[] data();
-			auto buf = span(new T[other.size()], other.size());
+			auto buf = std::span(new T[other.size()], other.size());
 			span_ = ndspan(buf, other.shape());
 		}
 		std::memcpy(data(), other.data(), size() * sizeof(T));
@@ -86,14 +87,14 @@ template <typename T, size_t N> class ndarray
 	}
 
 	template <typename... Is>
-	auto operator()(Is &&... is) -> decltype(span_(std::forward<Is>(is)...))
+	auto operator()(Is &&...is) -> decltype(span_(std::forward<Is>(is)...))
 	{
 		static_assert(sizeof...(is) <= N);
 		return span_(std::forward<Is>(is)...);
 	}
 
 	template <typename... Is>
-	auto operator()(Is &&... is) const
+	auto operator()(Is &&...is) const
 	    -> decltype(span_(std::forward<Is>(is)...))
 	{
 		static_assert(sizeof...(is) <= N);

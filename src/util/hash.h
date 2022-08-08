@@ -1,8 +1,11 @@
 #pragma once
 
-#include "util/span.h"
 #include <array>
+#include <cassert>
 #include <cstddef>
+#include <cstring>
+#include <span>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -10,7 +13,7 @@
 namespace util {
 
 // SHA2-256
-std::array<std::byte, 32> sha256(span<const std::byte>) noexcept;
+std::array<std::byte, 32> sha256(std::span<const std::byte>) noexcept;
 
 // the Keccak function, that all of SHA3 is based on
 void keccakf(std::array<uint64_t, 25> &s) noexcept;
@@ -95,7 +98,8 @@ template <int bit_rate, uint8_t domain> class Sha3
 //     * The standard only defines sha3<224/256/384/512>
 //     * Note that different parameters here are implicitly domain separated
 //       due to different rates and the applied padding
-template <int d> std::array<std::byte, d / 8> sha3(span<const std::byte> data)
+template <int d>
+std::array<std::byte, d / 8> sha3(std::span<const std::byte> data)
 {
 	static_assert(d > 0 && d <= 800 && d % 8 == 0);
 	static constexpr int bit_rate = 1600 - 2 * d;
@@ -112,11 +116,11 @@ template <int d> std::array<std::byte, d / 8> sha3(span<const std::byte> data)
 // convenience overload for strings
 template <int d> auto sha3(std::string_view s)
 {
-	return sha3<d>(span<const std::byte>((std::byte *)s.data(), s.size()));
+	return sha3<d>(std::span<const std::byte>((std::byte *)s.data(), s.size()));
 }
 
 // convenience function for pretty printing hash sums
-std::string hex_string(span<const std::byte>);
+std::string hex_string(std::span<const std::byte>);
 
 // FNV by Fowler, Noll, Vo. This is the "FNV-1a", 64 bit version.
 // public domain code adapted from
@@ -273,7 +277,7 @@ class Murmur3
 	}
 };
 
-inline std::array<std::byte, 16> murmur3_128(span<const std::byte> data)
+inline std::array<std::byte, 16> murmur3_128(std::span<const std::byte> data)
 {
 	Murmur3 m;
 	m(data.data(), data.size());
@@ -283,7 +287,8 @@ inline std::array<std::byte, 16> murmur3_128(span<const std::byte> data)
 // convenience overload for strings
 inline auto murmur3_128(std::string_view s)
 {
-	return murmur3_128(span<const std::byte>((std::byte *)s.data(), s.size()));
+	return murmur3_128(
+	    std::span<const std::byte>((std::byte *)s.data(), s.size()));
 }
 
 // helper type trait for 'in' parameters in generic code. For example:

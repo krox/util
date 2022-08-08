@@ -2,9 +2,11 @@
 
 // read and write memory-mapped .npy files from python's numpy library
 
+#include "util/complex.h"
 #include "util/json.h"
 #include "util/memory.h"
 #include "util/span.h"
+#include <complex>
 #include <string>
 
 namespace util {
@@ -12,33 +14,44 @@ namespace util {
 template <typename T> constexpr std::string numpy_type()
 {
 	// assumes little-endian platform
-	if constexpr (std::is_same_v<T, float>)
+	if constexpr (std::is_same_v<T, int8_t>)
+		return "<i1";
+	else if constexpr (std::is_same_v<T, int16_t>)
+		return "<i2";
+	else if constexpr (std::is_same_v<T, int32_t>)
+		return "<i4";
+	else if constexpr (std::is_same_v<T, int64_t>)
+		return "<i8";
+	else if constexpr (std::is_same_v<T, float>)
 		return "<f4";
 	else if constexpr (std::is_same_v<T, double>)
 		return "<f8";
-	else if constexpr (std::is_same_v<T, int8_t>)
-		return "<i1";
-	else if constexpr (std::is_same_v<T, int16_t>)
-		return "<i4";
-	else if constexpr (std::is_same_v<T, int32_t>)
-		return "<i8";
+	else if constexpr (std::is_same_v<T, std::complex<float>> ||
+	                   std::is_same_v<T, util::complex<float>>)
+		return "<c8";
+	else if constexpr (std::is_same_v<T, std::complex<double>> ||
+	                   std::is_same_v<T, util::complex<double>>)
+		return "<c16";
 	else
 		assert(false);
 }
 
-template <class T> class NumpyFile
+// for example "<f8" -> 8
+size_t numpy_type_size(std::string const &dtype);
+
+// memory-mapped .npy file
+class NumpyFile
 {
 	MappedFile file_;
-	T *data_ = nullptr; // points into memory-mapped file
-	size_t size_ = 0;   // flat size = product(shape)
+	void *data_ = nullptr; // points into memory-mapped file
+	size_t size_ = 0;      // flat size = product(shape)
 	std::vector<size_t> shape_ = {};
-
-	static constexpr char magic[8] = {char(0x93), 'N', 'U', 'M',
-	                                  'P',        'Y', 1,   0};
+	std::string dtype_ = ""; // for example "<f8" for little-endian 'double'
 
   public:
+	// special members
 	NumpyFile() = default;
-	~NumpyFile() = default;
+	~NumpyFile() { close(); }
 
 	NumpyFile(NumpyFile &&other) noexcept
 	    : file_(std::exchange(other.file_, {})),
@@ -56,76 +69,89 @@ template <class T> class NumpyFile
 		return *this;
 	}
 
-	static NumpyFile open(std::string const &filename, bool writeable = false)
+	void close() noexcept
 	{
-		auto file = MappedFile::open(filename, writeable);
-		if (file.size() < sizeof(magic) + 2)
-			throw std::runtime_error(
-			    "could not open numpy file (file too short)");
-
-		if (std::memcmp(file.data(), magic, sizeof(magic)))
-			throw std::runtime_error("could not open numpy file (invalid "
-			                         "header, or unsupported version)");
-		size_t header_len = *(uint16_t *)((char *)file.data() + sizeof(magic));
-		if ((header_len + sizeof(magic) + 2) % 64)
-			throw std::runtime_error(
-			    "could not open numpy file (invalid header size)");
-
-		// the header is a "python literal expression", which is not json,
-		// but our json parser is general enough to handle it.
-		auto header_source = std::string_view(
-		    (char *)((char *)file.data() + sizeof(magic) + 2), header_len);
-		auto header = Json::parse(header_source);
-		if (header["fortran_order"].get<bool>())
-			throw std::runtime_error(
-			    "could not open numpy file (fortran order)");
-		auto descr = header["descr"].get<std::string>();
-		if (descr != numpy_type<T>())
-			throw std::runtime_error(fmt ::format(
-			    "could not open numpy file (unexpected datatype '{}')", descr));
-		auto shape = header["shape"].get<std::vector<size_t>>();
-		size_t size = 1;
-		for (auto s : shape)
-			size *= s;
-		if (file.size() < sizeof(magic) + 2 + header_len + sizeof(T) * size)
-			throw std::runtime_error(
-			    "could not open numpy file (data too short)");
-
-		NumpyFile np;
-		np.data_ = (T *)((char *)file.data() + header_len + sizeof(magic) + 2);
-		np.file_ = std::move(file);
-		np.size_ = size;
-		np.shape_ = std::move(shape);
-		return np;
+		file_.close();
+		data_ = nullptr;
+		size_ = 0;
+		shape_ = {};
+		dtype_ = {};
 	}
 
-	// TODO: create()
+	explicit operator bool() const { return !!file_; }
 
+	// pseudo-constructors
+
+	static NumpyFile open(std::string const &filename, bool writeable = false);
+	static NumpyFile create(std::string const &filename,
+	                        util::span<const size_t> shape,
+	                        std::string const &dtype = "<f8",
+	                        bool overwrite = false);
+
+	// size/type information
+
+	std::string const &dtype() const { return dtype_; }
 	size_t size() const { return size_; }
+	size_t size_bytes() const { return size_ * numpy_type_size(dtype()); }
 	int rank() const { return (int)shape_.size(); }
 	auto const &shape() const { return shape_; }
 
-	T *data() { return data_; }
-	T const *data() const { return data_; }
+	// untyped data access
 
-	util::span<T> flat() { return util::span<T>(data(), size()); }
-	util::span<const T> flat() const { return util::span<T>(data(), size()); }
+	void *raw_data() { return data_; }
+	void const *raw_data() const { return data_; }
 
-	template <size_t dim> util::ndspan<T, dim> view()
+	util::span<std::byte> raw_bytes()
+	{
+		return {static_cast<std::byte *>(raw_data()), size_bytes()};
+	}
+	util::span<const std::byte> raw_bytes() const
+	{
+		return {static_cast<std::byte const *>(raw_data()), size_bytes()};
+	}
+
+	// typed access (template type must match file data)
+	template <class T> T *data()
+	{
+		if (numpy_type<T>() != dtype())
+			throw std::runtime_error(fmt::format(
+			    "type error in numpy file. expected '{}', got '{}'.",
+			    numpy_type<T>(), dtype()));
+		return static_cast<T *>(data_);
+	}
+	template <class T> T const *data() const
+	{
+		if (numpy_type<T>() != dtype())
+			throw std::runtime_error(fmt::format(
+			    "type error in numpy file. expected '{}', got '{}'.",
+			    numpy_type<T>(), dtype()));
+		return static_cast<T const *>(data_);
+	}
+
+	template <class T> util::span<T> flat()
+	{
+		return util::span<T>(data<T>(), size());
+	}
+	template <class T> util::span<const T> flat() const
+	{
+		return util::span<T>(data<T>(), size());
+	}
+
+	template <class T, size_t dim> util::ndspan<T, dim> view()
 	{
 		if (rank() != dim)
 			throw std::runtime_error("numpy array dimension mismatch");
 		typename util::ndspan<T, dim>::index_type s;
 		std::copy(shape().begin(), shape().end(), s.begin());
-		return util::ndspan<T, dim>(flat(), s);
+		return util::ndspan<T, dim>(flat<T>(), s);
 	}
-	template <size_t dim> util::ndspan<const T, dim> view() const
+	template <class T, size_t dim> util::ndspan<const T, dim> view() const
 	{
 		if (rank() != dim)
 			throw std::runtime_error("numpy array dimension mismatch");
 		typename util::ndspan<const T, dim>::index_type s;
 		std::copy(shape().begin(), shape().end(), s.begin());
-		return util::ndspan<const T, dim>(flat(), s);
+		return util::ndspan<const T, dim>(flat<T>(), s);
 	}
 };
 

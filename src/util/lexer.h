@@ -55,7 +55,7 @@ template <typename T = double> T parse_float(std::string_view s)
 }
 
 // parse a single- or double-quoted string, understands some escapes
-std::string parse_string(std::string_view s)
+inline std::string parse_string(std::string_view s)
 {
 	// NOTE: this parser is not totally strict. For example non-escaped quotes
 	//       and trailing backslashes are accepted. Dont really care for now.

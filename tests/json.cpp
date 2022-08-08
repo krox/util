@@ -1,7 +1,10 @@
 #include "catch2/catch_test_macros.hpp"
 
+#include "fmt/format.h"
+#include "fmt/ranges.h"
 #include "util/json.h"
-
+#include "util/numpy.h"
+#include "util/span.h"
 using namespace util;
 
 TEST_CASE("json parser", "[json]")
@@ -20,3 +23,24 @@ TEST_CASE("json parser", "[json]")
 	CHECK(fmt::format("{}", k) ==
 	      "[[4, 5, 6], null, {\"b\": \"foo\", \"a\": null}, 1, 2]");
 }
+
+/*
+TEST_CASE("numpy", "[numpy]")
+{
+    {
+        auto np = NumpyFile::create("test.npy", {2, 3}, "<f8", true);
+        auto view = np.view<double, 2>();
+        view(0, 0) = 1;
+        view(0, 1) = 2;
+        view(0, 2) = 3;
+        view(1, 0) = 4;
+        view(1, 1) = 5;
+        view(1, 2) = 6;
+    }
+    {
+        auto np = NumpyFile::open("test.npy");
+        auto view = np.view<double, 2>();
+        fmt::print("{}", view);
+    }
+}
+*/

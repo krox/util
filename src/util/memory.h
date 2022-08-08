@@ -128,6 +128,14 @@ template <class T> void memswap(T *a, T *b) noexcept
 	std::memcpy(static_cast<void *>(b), tmp, sizeof(T));
 }
 
+// little wrapper for fopen() / close() that does RAII and throws on errors
+struct fclose_delete
+{
+	void operator()(FILE *p);
+};
+using FilePointer = std::unique_ptr<FILE, fclose_delete>;
+FilePointer open_file(std::string const &filename, char const *mode);
+
 class MappedFile
 {
 	void *ptr_ = nullptr;
@@ -139,7 +147,8 @@ class MappedFile
 	MappedFile() = default;
 
 	static MappedFile open(std::string const &file, bool writeable = false);
-	static MappedFile create(std::string const &file, bool overwrite = false);
+	static MappedFile create(std::string const &file, size_t size,
+	                         bool overwrite = false);
 	void close() noexcept;
 
 	// special members (move-only type)
@@ -162,7 +171,7 @@ class MappedFile
 	void *data() { return ptr_; }
 	void const *data() const { return ptr_; }
 	size_t size() const { return size_; }
-	explicit operator bool() { return ptr_; }
+	explicit operator bool() const { return ptr_; }
 };
 
 } // namespace util

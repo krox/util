@@ -1,5 +1,6 @@
 #pragma once
 
+#include "blake3.h"
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -18,25 +19,25 @@ std::array<std::byte, 32> sha256(std::span<const std::byte>) noexcept;
 // the Keccak function, that all of SHA3 is based on
 void keccakf(std::array<uint64_t, 25> &s) noexcept;
 
-// This implements the sponge construction based on the Keccak function.
-//     * For most usecases you should call call .finish() exactly once,
-//       .process() only before and .generate() only afterwards
-//     * would be nice to provide an interface that works for all usecases
-//       at the same time (i.e. producing fixed-size hashes, extendable output
-//       functions, and cryptographic prng), but that seems tricky to design.
-//       So for the time being we use this backend class with a separate wrapper
-//       for different usecases
-template <int bit_rate, uint8_t domain> class Sha3
+// incremental interface
+//     * put data in using 'hasher(ptr, len)'
+//     * get hash out using 'hasher()' or 'hasher.generate_bytes(ptr, len)''
+//     * calling the retrieving function multiple times advances the infinite
+//       output stream
+template <int digest_size = 256, uint8_t domain = 0x06> class Sha3
 {
-	static_assert(bit_rate >= 64 && bit_rate <= 1600 && bit_rate % 64 == 0);
+	static_assert(digest_size % 8 == 0);
+	static_assert(8 <= digest_size && digest_size <= 512);
+	static constexpr int bit_rate = 1600 - 2 * digest_size;
 	static constexpr int byte_rate = bit_rate / 8;
 
-	int pos_ = 0; // byte-position into state. always in [0, byte_rate)
 	union
 	{
 		std::array<uint64_t, 25> state_;
 		std::array<uint8_t, 25 * 8> state_bytes_;
 	};
+	int pos_ = 0; // byte-position into state. always in [0, byte_rate)
+	bool finalized_ = false;
 
 	// Notes on Keccak based SHA3:
 	//     * internal state is always 1600 bits = 25 x uint64
@@ -53,9 +54,18 @@ template <int bit_rate, uint8_t domain> class Sha3
   public:
 	Sha3() noexcept { state_.fill(0); }
 
-	// process some data
-	void process(void const *data, size_t len) noexcept
+	Sha3(void const *data, size_t len) noexcept
 	{
+		state_.fill(0);
+		(*this)(data, len);
+	}
+
+	explicit Sha3(std::string_view s) noexcept : Sha3(s.data(), s.size()) {}
+
+	// process some data
+	void operator()(void const *data, size_t len) noexcept
+	{
+		assert(!finalized_);
 		auto buf = (uint8_t const *)data;
 		for (size_t i = 0; i < len; ++i)
 		{
@@ -68,19 +78,19 @@ template <int bit_rate, uint8_t domain> class Sha3
 		}
 	}
 
-	// add padding and complete final block
-	void finish() noexcept
-	{
-		// last (incomplete) block might be empty apart from the padding
-		state_bytes_[pos_] ^= (uint8_t)domain;
-		state_bytes_[byte_rate - 1] ^= (uint8_t)0x80U;
-		keccakf(state_);
-		pos_ = 0;
-	}
-
 	// generate data
-	void generate(void *data, size_t len) noexcept
+	void generate_bytes(void *data, size_t len) noexcept
 	{
+		if (!finalized_)
+		{
+			// last (incomplete) block might be empty apart from the padding
+			state_bytes_[pos_] ^= (uint8_t)domain;
+			state_bytes_[byte_rate - 1] ^= (uint8_t)0x80U;
+			keccakf(state_);
+			pos_ = 0;
+			finalized_ = true;
+		}
+
 		auto buf = (uint8_t *)data;
 		for (size_t i = 0; i < len; ++i)
 		{
@@ -92,31 +102,69 @@ template <int bit_rate, uint8_t domain> class Sha3
 			}
 		}
 	}
+
+	std::array<std::byte, digest_size / 8> operator()() noexcept
+	{
+		std::array<std::byte, digest_size / 8> r;
+		generate_bytes(r.data(), r.size());
+		return r;
+	}
 };
 
-// Use the sponge-construction as single-call hash function
-//     * The standard only defines sha3<224/256/384/512>
-//     * Note that different parameters here are implicitly domain separated
-//       due to different rates and the applied padding
+// Blake3 cryptographic hash function with the same interface as Sha3 above.
+// Calls the official C implementation, which should be really fast.
+class Blake3
+{
+	blake3_hasher hasher_;
+	uint64_t pos_ = 0; // position in output
+
+  public:
+	Blake3() noexcept { blake3_hasher_init(&hasher_); }
+	Blake3(void const *data, size_t len) noexcept
+	{
+		blake3_hasher_init(&hasher_);
+		(*this)(data, len);
+	}
+	explicit Blake3(std::string_view s) noexcept : Blake3(s.data(), s.size()) {}
+
+	void operator()(void const *data, size_t len) noexcept
+	{
+		assert(pos_ == 0);
+		blake3_hasher_update(&hasher_, data, len);
+	}
+
+	void generate_bytes(void *data, size_t len) noexcept
+	{
+		blake3_hasher_finalize_seek(&hasher_, pos_, (uint8_t *)data, len);
+		pos_ += len;
+	}
+
+	std::array<std::byte, 32> operator()() noexcept
+	{
+		std::array<std::byte, 32> r;
+		generate_bytes(r.data(), r.size());
+		return r;
+	}
+};
+
+// convenience functions for hashing in a single function call
 template <int d>
 std::array<std::byte, d / 8> sha3(std::span<const std::byte> data)
 {
-	static_assert(d > 0 && d <= 800 && d % 8 == 0);
-	static constexpr int bit_rate = 1600 - 2 * d;
-	Sha3<bit_rate, 0x06> sha = {};
-
-	sha.process(data.data(), data.size());
-	sha.finish();
-
-	std::array<std::byte, d / 8> r;
-	sha.generate(r.data(), r.size());
-	return r;
+	return Sha3<d>(data.data(), data.size())();
 }
 
-// convenience overload for strings
+inline std::array<std::byte, 32> blake3(std::span<const std::byte> data)
+{
+	return Blake3(data.data(), data.size())();
+}
 template <int d> auto sha3(std::string_view s)
 {
-	return sha3<d>(std::span<const std::byte>((std::byte *)s.data(), s.size()));
+	return sha3<d>(std::span((std::byte const *)s.data(), s.size()));
+}
+inline auto blake3(std::string_view s)
+{
+	return blake3(std::span((std::byte const *)s.data(), s.size()));
 }
 
 // convenience function for pretty printing hash sums
@@ -148,6 +196,13 @@ class Fnv1a
 
 	explicit operator uint64_t() noexcept { return state_; }
 };
+
+inline size_t fnv1a(std::string_view s)
+{
+	Fnv1a h;
+	h(s.data(), s.size());
+	return static_cast<size_t>(h);
+}
 
 // MurmurHash3 by Austin Appleby. This is the 128-bit, x64 version.
 // public domain code adapted from

@@ -59,6 +59,26 @@ TEST_CASE("sha2/sha3 hash function test vectors", "[hash][sha]")
 	      "7c38eab0837ddd274f42181da5971427a05e2029f2ad28adf0cff1d3d7f53479");
 }
 
+TEST_CASE("blake3 test vectors", "[hash][blake3]")
+{
+	// we rely on the official blake3 implementation, so tests here are brief
+	CHECK(hex_string(blake3("")) ==
+	      "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
+	CHECK(hex_string(blake3("foobar")) ==
+	      "aa51dcd43d5c6c5203ee16906fd6b35db298b9b2e1de3fce81811d4806b76b7d");
+
+	// check incremental interface
+	// (blake3 library itself offers an interface with abitrary seeking)
+	std::array<std::byte, 16> half;
+	Blake3 blake3;
+	blake3("foo", 3);
+	blake3("bar", 3);
+	blake3.generate_bytes(&half, sizeof(half));
+	CHECK(hex_string(half) == "aa51dcd43d5c6c5203ee16906fd6b35d");
+	blake3.generate_bytes(&half, sizeof(half));
+	CHECK(hex_string(half) == "b298b9b2e1de3fce81811d4806b76b7d");
+}
+
 TEST_CASE("murmur3 test vectors", "[hash][murmur]")
 {
 	// data is processed in 16-byte blocks, so tests up to 17 bytes seem

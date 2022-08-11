@@ -1,28 +1,42 @@
 cmake_minimum_required (VERSION 3.16.0)
 project (util LANGUAGES C CXX)
 
-
-
 # dependencies
-find_package(HDF5 REQUIRED)
 
-add_subdirectory(fmt EXCLUDE_FROM_ALL)
+find_package(HDF5 REQUIRED) # should be optional
 
 include(FetchContent)
 
+FetchContent_Declare(
+  fmt
+  GIT_REPOSITORY https://github.com/fmtlib/fmt
+  GIT_TAG        c4ee726532178e556d923372f29163bd206d7732 # v9.0.0
+)
+FetchContent_Declare(
+	blake3
+	# This is fork of the official BLAKE3 repo that includes CMake support.
+	# Should switch to the official one if this gets merged:
+	# https://github.com/BLAKE3-team/BLAKE3/pull/247
+	GIT_REPOSITORY https://github.com/SteveGremory/BLAKE3
+	GIT_TAG        a8914f5ab88a84007f8c94ae4f66ac074b158f9c
+)
 FetchContent_Declare(
   cli11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11
   GIT_TAG        b9be5b9444772324459989177108a6a65b8b2769 # v2.2.0
 )
-FetchContent_MakeAvailable(cli11)
+
+FetchContent_MakeAvailable(fmt blake3 cli11)
+
+add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
 
 # main library
+
 add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
-target_link_libraries(util PUBLIC fmt::fmt)
+target_link_libraries(util PUBLIC fmt::fmt blake3-shared)
 target_compile_options(util PRIVATE -Wall -Wextra -Werror -O2)
 
 # optional hdf5 library

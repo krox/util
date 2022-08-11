@@ -80,10 +80,6 @@ class xoshiro256
   public:
 	constexpr xoshiro256() noexcept { seed(0); }
 	constexpr explicit xoshiro256(uint64_t x) noexcept { seed(x); }
-	constexpr explicit xoshiro256(uint64_t x, uint64_t y) noexcept
-	{
-		seed(x, y);
-	}
 	explicit xoshiro256(std::array<std::byte, 32> const &v) noexcept
 	{
 		seed(v);
@@ -101,17 +97,6 @@ class xoshiro256
 		s[1] = gen();
 		s[2] = gen();
 		s[3] = gen();
-	}
-
-	/** set the internal state using a 128 bit seed */
-	constexpr void seed(uint64_t x, uint64_t y) noexcept
-	{
-		splitmix64 gen1(x);
-		splitmix64 gen2(y);
-		s[0] = gen1();
-		s[1] = gen1();
-		s[2] = gen2();
-		s[3] = gen2();
 	}
 
 	// set internal state directly
@@ -287,16 +272,6 @@ class xoshiro256
 	constexpr bool bernoulli() noexcept
 	{
 		return generate_fast() & (1UL << 63);
-	}
-
-	// start a new generator, seeded by values from this one
-	constexpr xoshiro256 split() noexcept
-	{
-		// This splitting method was not really well studied/tested for
-		// statistical robustness. But using a 128 bit seed with some scrambling
-		// provided by the splitmix64 inside of the constructor is hopefully
-		// good enough to avoid any problems in practice.
-		return xoshiro256((*this)(), (*this)());
 	}
 
 	// discards 2^128 values of the random sequence

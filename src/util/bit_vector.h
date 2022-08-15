@@ -1,6 +1,6 @@
 #pragma once
 
-#include "util/bits.h"
+#include <bit>
 #include <cstring>
 #include <span>
 
@@ -334,7 +334,7 @@ class bit_vector
 	{
 		size_t c = 0;
 		for (size_t k = 0; k < size_limbs(); ++k)
-			c += popcount(data_[k]);
+			c += std::popcount(data_[k]);
 		if (value)
 			return c;
 		else
@@ -347,7 +347,7 @@ class bit_vector
 	{
 		for (size_t k = 0; k < size_limbs(); ++k)
 			if (data_[k])
-				return limb_bits * k + ctz(data_[k]);
+				return limb_bits * k + std::countr_zero(data_[k]);
 		return size_;
 	}
 

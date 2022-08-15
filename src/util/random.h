@@ -23,8 +23,8 @@
  * TODO: should be able to produce multiple independent samples using SIMD
  */
 
-#include "util/bits.h"
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstring>
@@ -146,7 +146,7 @@ class xoshiro256
 			return 0;
 		// rejection sampling with >= 50% acceptance
 		while (true)
-			if (uint64_t r = generate() >> clz(m); r <= m)
+			if (uint64_t r = generate() >> std::countl_zero(m); r <= m)
 				return r;
 	}
 

@@ -275,7 +275,10 @@ class xoshiro256
 	}
 
 	// discards 2^128 values of the random sequence
-	constexpr void jump() noexcept
+	//     * returns old value of *this
+	//     * should be used just like a .split() function with the restriction
+	//       that .jump() should not be used on the split-off generator again
+	constexpr xoshiro256 jump() noexcept
 	{
 		constexpr uint64_t JUMP[] = {0x180ec6d33cfd0aba, 0xd5a61266f0c9392c,
 		                             0xa9582618e03fc9aa, 0x39abdc4529b1661c};
@@ -297,10 +300,12 @@ class xoshiro256
 				(*this)();
 			}
 
+		auto r = *this;
 		s[0] = s0;
 		s[1] = s1;
 		s[2] = s2;
 		s[3] = s3;
+		return r;
 	}
 };
 

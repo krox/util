@@ -27,7 +27,7 @@ template <typename Dist> void test_distribution(Dist dist, int l = 4)
 		      Catch::Approx(dist.skewness()).epsilon(0.01).margin(0.01));
 	if (l >= 4)
 		CHECK(est.kurtosis() ==
-		      Catch::Approx(dist.kurtosis()).epsilon(0.01).margin(0.01));
+		      Catch::Approx(dist.exkurtosis()).epsilon(0.01).margin(0.01));
 
 	// CHECK(min(values) >= dist.min());
 	// CHECK(max(values) <= dist.max());
@@ -43,10 +43,10 @@ TEST_CASE("random number distributions", "[random]")
 	test_distribution(bernoulli_distribution(0.15));
 	test_distribution(binomial_distribution(20, 0.3));
 
-	test_distribution(Autoregressive({0.8}, {0.1, 0.8}), 2);
-	test_distribution(Autoregressive({0.5, 0.3}, {0.1, 0.8}), 1);
-	test_distribution(Autoregressive({0.5, -0.3}, {10., 3}), 1);
-	test_distribution(Autoregressive({-0.1, 0.2}, {-6, 1}), 1);
+	test_distribution(Autoregressive({0.8}, {0.1, 0.8}));
+	test_distribution(Autoregressive({0.5, 0.3}, {0.1, 0.8}));
+	test_distribution(Autoregressive({0.5, -0.3}, {10., 3}));
+	test_distribution(Autoregressive({-0.1, 0.2}, {-6, 1}));
 	// test_distribution(canonical_quartic_exponential_distribution(1.0, 2.0));
 }
 

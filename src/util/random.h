@@ -333,7 +333,7 @@ class uniform_distribution
 	double mean() const { return 0.5 * (a_ + b_); }
 	double variance() const { return (1. / 12.) * (b_ - a_) * (b_ - a_); }
 	double skewness() const { return 0.; }
-	double kurtosis() const { return -6. / 5.; }
+	double exkurtosis() const { return -6. / 5.; }
 
 	// generator
 	template <class Rng> double operator()(Rng &rng)
@@ -363,7 +363,7 @@ class bernoulli_distribution
 	double mean() const { return p(); }
 	double variance() const { return p() * q(); }
 	double skewness() const { return (q() - p()) / std::sqrt(p() * q()); }
-	double kurtosis() const { return (1 - 6 * p() * q()) / (p() * q()); }
+	double exkurtosis() const { return (1 - 6 * p() * q()) / (p() * q()); }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -396,7 +396,7 @@ class normal_distribution
 	double mean() const { return mu_; }
 	double variance() const { return sigma_ * sigma_; }
 	double skewness() const { return 0.0; }
-	double kurtosis() const { return 0.0; }
+	double exkurtosis() const { return 0.0; }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -428,7 +428,7 @@ class exponential_distribution
 	double mean() const { return 1.0 / lambda_; }
 	double variance() const { return 1.0 / (lambda_ * lambda_); }
 	double skewness() const { return 2.0; }
-	double kurtosis() const { return 6.0; }
+	double exkurtosis() const { return 6.0; }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -464,7 +464,7 @@ class binomial_distribution
 	double mean() const { return n() * p(); }
 	double variance() const { return n() * p() * q(); }
 	double skewness() const { return (q() - p()) / std::sqrt(variance()); }
-	double kurtosis() const { return (1.0 - 6 * p() * q()) / variance(); }
+	double exkurtosis() const { return (1.0 - 6 * p() * q()) / variance(); }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -501,7 +501,7 @@ class poisson_distribution
 	double mean() const { return lambda(); }
 	double variance() const { return lambda(); }
 	double skewness() const { return 1.0 / std::sqrt(lambda()); }
-	double kurtosis() const { return 1.0 / lambda(); }
+	double exkurtosis() const { return 1.0 / lambda(); }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -768,7 +768,7 @@ class canonical_quartic_exponential_distribution
 	double mean() const { return 0.0 / 0.0; }
 	double variance() const { return 0.0 / 0.0; }
 	double skewness() const { return 0.0 / 0.0; }
-	double kurtosis() const { return 0.0 / 0.0; }
+	double exkurtosis() const { return 0.0 / 0.0; }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
@@ -848,13 +848,16 @@ template <size_t p> class Autoregressive
 			return noise_.variance();
 		else if (p == 1)
 			return noise_.variance() / (1 - ws_[0] * ws_[0]);
+		else if (p == 2)
+			return noise_.variance() * (1 - ws_[1]) / (1 + ws_[1]) /
+			       ((1 - ws_[1]) * (1 - ws_[1]) - ws_[0] * ws_[0]);
 		else
 			return 0.0 / 0.0;
-		// TODO: should be easy enough to derive the general expression
-		//       (maybe also kurtosis?)
+		// TODO: There should be a somewhat nice expression of the general
+		//       case, probably as some matrix equation.
 	}
 	double skewness() const { return 0.0; }
-	double kurtosis() const { return 0.0 / 0.0; }
+	double exkurtosis() const { return 0.0; }
 
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)

@@ -23,13 +23,14 @@
  * TODO: should be able to produce multiple independent samples using SIMD
  */
 
+#include "util/hash.h"
 #include <algorithm>
 #include <bit>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <random>
-#include <stdint.h>
 #include <tuple>
 
 namespace util {
@@ -71,12 +72,6 @@ class xoshiro256
 {
 	uint64_t s[4] = {}; // should not be all zeroes
 
-	static inline constexpr uint64_t rotl(uint64_t x, int k) noexcept
-	{
-		// NOTE: compiler will optimize this to a single instruction
-		return (x << k) | (x >> (64 - k));
-	}
-
   public:
 	constexpr xoshiro256() noexcept { seed(0); }
 	constexpr explicit xoshiro256(uint64_t x) noexcept { seed(x); }
@@ -99,10 +94,24 @@ class xoshiro256
 		s[3] = gen();
 	}
 
+	// seed from a string (which might be low-entropy human-readable)
+	void seed(std::string_view str) noexcept
+	{
+		// TODO: Redo all the seed functions in a more systematic and constexpr
+		//       way. Kind of a jumbled mess right nw.
+		uint64_t seed1 = 0xb2d7'c96c'8961'f368; // random
+		uint64_t seed2 = 0x3a5c'c68f'd334'9a26;
+		std::array<std::byte, 16> h1 = murmur3_128(str, seed1);
+		std::array<std::byte, 16> h2 = murmur3_128(str, seed2);
+		std::memcpy(&s[0], &h1, 16);
+		std::memcpy(&s[1], &h2, 16);
+	}
+
 	// set internal state directly
 	//     * use with care, there are some bad regions (e.g. all/most bits zero)
-	//     * intended to be used as something like
-	//           seed(sha3<256>("human_readable_seed_of_arbitrary_length"))
+	//     * can be used something like
+	//           seed(blake3("arbitrary_seed_material"))
+	//
 	void seed(std::array<std::byte, 32> const &v) noexcept
 	{
 		std::memcpy(s, v.data(), 32);
@@ -116,13 +125,13 @@ class xoshiro256
 		s[1] ^= s[2];
 		s[0] ^= s[3];
 		s[2] ^= t;
-		s[3] = rotl(s[3], 45);
+		s[3] = std::rotl(s[3], 45);
 	}
 
 	// this is the '**' output function
 	constexpr uint64_t generate() noexcept
 	{
-		uint64_t result = rotl(s[1] * 5, 7) * 9;
+		uint64_t result = std::rotl(s[1] * 5, 7) * 9;
 		advance();
 		return result;
 	}
@@ -131,7 +140,7 @@ class xoshiro256
 	// a slight statistical weakness in the lowest few bits
 	constexpr uint64_t generate_fast() noexcept
 	{
-		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
+		const uint64_t result = std::rotl(s[0] + s[3], 23) + s[0];
 		advance();
 		return result;
 	}
@@ -475,6 +484,44 @@ class binomial_distribution
 			if (rng.uniform() <= p_)
 				++count;
 		return count;
+	}
+
+	// probability distribution function (correctly normalized)
+	constexpr double pdf(int k) const noexcept
+	{
+		if (k < 0 || k > n_)
+			return 0.0;
+		if (k > n_ / 2)
+			return binomial_distribution(n_, 1.0 - p_).pdf(n_ - k);
+
+		// (n over k) * p^k * (1-p)^(n-k)
+		assert(n_ - k >= k);
+		double r = 1.0;
+		for (int i = 0; i < k; ++i)
+		{
+			r *= n_ - i;
+			r /= i + 1;
+			r *= p_ * (1.0 - p_);
+			assert(r < 1.0e100);
+		}
+		for (int i = 0; i < n_ - 2 * k; ++i)
+			r *= 1.0 - p_;
+		return r;
+	}
+
+	// ditto, returns vector of size n+1
+	std::vector<double> pdf() const noexcept
+	{
+		// The resulting pdf often underflows to 0 on both ends. Therefore, we
+		// start in the middle and use an incremental formula from there.
+		auto mid = int(p_ * n_);
+		auto r = std::vector<double>(n_ + 1);
+		r[mid] = pdf(mid);
+		for (int k = mid + 1; k <= n_; ++k)
+			r[k] = r[k - 1] * (p_ / (1.0 - p_)) * (n_ + 1.0 - k) / k;
+		for (int k = mid - 1; k >= 0; --k)
+			r[k] = r[k + 1] * ((1.0 - p_) / p_) * (k + 1.0) / (n_ - k);
+		return r;
 	}
 };
 

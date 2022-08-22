@@ -2,6 +2,7 @@
 
 #include "blake3.h"
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstring>
@@ -224,11 +225,6 @@ class Murmur3
 	static constexpr uint64_t c1 = 0x87c37b91114253d5u;
 	static constexpr uint64_t c2 = 0x4cf5ad432745937fu;
 
-	static constexpr uint64_t rotl(uint64_t x, int y)
-	{
-		return (x << y) | (x >> (64 - y));
-	}
-
 	static constexpr uint64_t fmix64(uint64_t k)
 	{
 		k ^= k >> 33;
@@ -242,14 +238,14 @@ class Murmur3
   public:
 	Murmur3() = default;
 
-	explicit Murmur3(uint64_t seed) noexcept : h_{seed, seed}
+	constexpr explicit Murmur3(uint64_t seed) noexcept : h_{seed, seed}
 	{
 		// NOTE: this seeding is suggested by the author of MurmurHash, though
 		//       it only allows 32 bit seeds (dont know why, presumably only
 		//       for the sake of uniformity with the 32 bit version)
 	}
 
-	void operator()(void const *buf, size_t size) noexcept
+	constexpr void operator()(void const *buf, size_t size) noexcept
 	{
 		auto data = (uint8_t const *)buf;
 
@@ -268,10 +264,10 @@ class Murmur3
 			// finish previous block
 			for (size_t i = 0; i < head; ++i)
 				block_bytes_[(len_ & 15) + i] = data[i];
-			h_[0] ^= rotl(block_[0] * c1, 31) * c2;
-			h_[0] = (rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
-			h_[1] ^= rotl(block_[1] * c2, 33) * c1;
-			h_[1] = (rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
+			h_[0] ^= std::rotl(block_[0] * c1, 31) * c2;
+			h_[0] = (std::rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
+			h_[1] ^= std::rotl(block_[1] * c2, 33) * c1;
+			h_[1] = (std::rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
 
 			len_ += head;
 			size -= head;
@@ -287,10 +283,10 @@ class Murmur3
 
 		for (size_t i = 0; i < nblocks; i++)
 		{
-			h_[0] ^= rotl(blocks[2 * i] * c1, 31) * c2;
-			h_[0] = (rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
-			h_[1] ^= rotl(blocks[2 * i + 1] * c2, 33) * c1;
-			h_[1] = (rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
+			h_[0] ^= std::rotl(blocks[2 * i] * c1, 31) * c2;
+			h_[0] = (std::rotl(h_[0], 27) + h_[1]) * 5 + 0x52dce729;
+			h_[1] ^= std::rotl(blocks[2 * i + 1] * c2, 33) * c1;
+			h_[1] = (std::rotl(h_[1], 31) + h_[0]) * 5 + 0x38495ab5;
 		}
 
 		// std::array<uint64_t, 2> k = {0, 0};
@@ -298,13 +294,13 @@ class Murmur3
 		std::memcpy(&block_, tail, size & 15);
 	}
 
-	void finalize() noexcept
+	constexpr void finalize() noexcept
 	{
 		// last block can be partially/completely empty, then this is a no-op
 		for (size_t i = (len_ & 15); i < 16; ++i)
 			block_bytes_[i] = 0;
-		h_[0] ^= rotl(block_[0] * c1, 31) * c2;
-		h_[1] ^= rotl(block_[1] * c2, 33) * c1;
+		h_[0] ^= std::rotl(block_[0] * c1, 31) * c2;
+		h_[1] ^= std::rotl(block_[1] * c2, 33) * c1;
 
 		h_[0] ^= len_;
 		h_[1] ^= len_;
@@ -319,31 +315,31 @@ class Murmur3
 		h_[1] += h_[0];
 	}
 
-	explicit operator uint64_t() noexcept
+	constexpr explicit operator uint64_t() noexcept
 	{
 		finalize();
 		return h_[0];
 	}
 
-	explicit operator std::array<std::byte, 16>() noexcept
+	constexpr explicit operator std::array<std::byte, 16>() noexcept
 	{
 		finalize();
 		return ret_;
 	}
 };
 
-inline std::array<std::byte, 16> murmur3_128(std::span<const std::byte> data)
+constexpr inline std::array<std::byte, 16>
+murmur3_128(std::span<const std::byte> data, uint64_t seed = 0) noexcept
 {
-	Murmur3 m;
+	auto m = Murmur3(seed);
 	m(data.data(), data.size());
-	return (std ::array<std::byte, 16>)m;
+	return static_cast<std ::array<std::byte, 16>>(m);
 }
 
 // convenience overload for strings
-inline auto murmur3_128(std::string_view s)
+inline auto murmur3_128(std::string_view s, uint64_t seed = 0) noexcept
 {
-	return murmur3_128(
-	    std::span<const std::byte>((std::byte *)s.data(), s.size()));
+	return murmur3_128(std::span((std::byte const *)s.data(), s.size()), seed);
 }
 
 // helper type trait for 'in' parameters in generic code. For example:

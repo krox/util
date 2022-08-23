@@ -16,103 +16,82 @@ hid_t enforce(hid_t id)
 
 } // namespace
 
-DataSet::DataSet(hid_t id) : id(id)
+Hdf5Dataset::Hdf5Dataset(hid_t id) : id_(id)
 {
 	if (id <= 0)
 		return;
-	auto space = enforce(H5Dget_space(id));
-	size = H5Sget_simple_extent_npoints(space);
-	shape.resize(64);
-	auto rank = H5Sget_simple_extent_dims(space, &shape[0], nullptr);
-	shape.resize(rank);
+	auto space = enforce(H5Dget_space(id_));
+	size_ = H5Sget_simple_extent_npoints(space);
+	shape_.resize(64);
+	auto rank = H5Sget_simple_extent_dims(space, &shape_[0], nullptr);
+	shape_.resize(rank);
 	H5Sclose(space);
 }
 
-void DataSet::close()
+void Hdf5Dataset::read_raw(hid_t type, void *data)
 {
-	if (id > 0)
-		H5Dclose(id);
+	assert(*this);
+	enforce(H5Dread(id_, type, 0, 0, 0, data));
 }
 
-DataSet::~DataSet() { close(); }
-
-template <typename T> void DataSet::read(std::span<T> data)
+void Hdf5Dataset::read_raw(hsize_t row, hid_t type, void *data)
 {
-	assert(id > 0);
-	assert(data.size() == size);
-	enforce(H5Dread(id, h5_type_id<T>(), 0, 0, 0, data.data()));
-}
-
-template <typename T> void DataSet::read(hsize_t row, std::span<T> data)
-{
-	assert(id > 0);
-	assert(row < shape[0]);
-	assert(data.size() == size / shape[0]);
+	assert(*this);
+	assert(row < shape_[0]);
 
 	auto offset = std::vector<hsize_t>(rank(), 0);
 	offset[0] = row;
-	auto memspace = enforce(H5Screate_simple(rank() - 1, &shape[1], nullptr));
-	std::vector<hsize_t> rowShape = shape;
+	auto memspace = enforce(H5Screate_simple(rank() - 1, &shape_[1], nullptr));
+	std::vector<hsize_t> rowShape = shape_;
 	rowShape[0] = 1;
-	auto space = enforce(H5Dget_space(id));
+	auto space = enforce(H5Dget_space(id_));
 	H5Sselect_hyperslab(space, H5S_SELECT_SET, offset.data(), nullptr,
 	                    rowShape.data(), nullptr);
 
-	enforce(H5Dread(id, h5_type_id<T>(), memspace, space, 0, data.data()));
+	enforce(H5Dread(id_, type, memspace, space, 0, data));
 
 	H5Sclose(memspace);
 	H5Sclose(space);
 }
 
-template <typename T> void DataSet::write(std::span<const T> data)
+void Hdf5Dataset::write_raw(hid_t type, void const *data)
 {
-	assert(id > 0);
-	assert(data.size() == size);
-	enforce(H5Dwrite(id, h5_type_id<T>(), 0, 0, 0, data.data()));
+	assert(*this);
+	enforce(H5Dwrite(id_, type, 0, 0, 0, data));
 }
 
-template <typename T> void DataSet::write(hsize_t row, std::span<const T> data)
+void Hdf5Dataset::write_raw(hsize_t row, hid_t type, void const *data)
 {
-	assert(id > 0);
-	assert(row < shape[0]);
-	assert(data.size() == size / shape[0]);
+	assert(*this);
+	assert(row < shape_[0]);
 
 	auto offset = std::vector<hsize_t>(rank(), 0);
 	offset[0] = row;
-	auto memspace = enforce(H5Screate_simple(rank() - 1, &shape[1], nullptr));
-	std::vector<hsize_t> rowShape = shape;
+	auto memspace = enforce(H5Screate_simple(rank() - 1, &shape_[1], nullptr));
+	std::vector<hsize_t> rowShape = shape_;
 	rowShape[0] = 1;
-	auto space = enforce(H5Dget_space(id));
+	auto space = enforce(H5Dget_space(id_));
 	H5Sselect_hyperslab(space, H5S_SELECT_SET, offset.data(), nullptr,
 	                    rowShape.data(), nullptr);
 
-	enforce(H5Dwrite(id, h5_type_id<T>(), memspace, space, 0, data.data()));
+	enforce(H5Dwrite(id_, type, memspace, space, 0, data));
 
 	H5Sclose(memspace);
 	H5Sclose(space);
 }
 
-DataFile::~DataFile() { close(); }
-
-DataFile DataFile::create(const std::string &filename, bool overwrite)
+Hdf5File Hdf5File::create(std::string const &filename, bool overwrite)
 {
 	auto mode = overwrite ? H5F_ACC_TRUNC : H5F_ACC_EXCL;
 	auto id = enforce(H5Fcreate(filename.c_str(), mode, 0, 0));
-	return DataFile(id);
+	return Hdf5File(id);
 }
 
-DataFile DataFile::open(const std::string &filename, bool writeable)
+Hdf5File Hdf5File::open(std::string const &filename, bool writeable)
 {
 	auto mode = writeable ? H5F_ACC_RDWR : H5F_ACC_RDONLY;
 	auto id = enforce(H5Fopen(filename.c_str(), mode, 0));
-	return DataFile(id);
-}
-
-void DataFile::close()
-{
-	if (id > 0)
-		H5Fclose(id);
-	id = 0;
+	return Hdf5File(id);
 }
 
 namespace {
@@ -175,10 +154,10 @@ std::vector<hsize_t> guessChunkSize(std::vector<hsize_t> const &size,
 
 } // namespace
 
-DataSet DataFile::createData(const std::string &name,
-                             const std::vector<hsize_t> &size, hid_t type)
+Hdf5Dataset Hdf5File::create_data(std::string const &name,
+                                  const std::vector<hsize_t> &size, hid_t type)
 {
-	assert(id > 0);
+	assert(*this);
 	auto space = enforce(H5Screate_simple(size.size(), size.data(), nullptr));
 	auto props = enforce(H5Pcreate(H5P_DATASET_CREATE));
 
@@ -197,108 +176,102 @@ DataSet DataFile::createData(const std::string &name,
 		enforce(H5Pset_fletcher32(props));
 	}
 
-	auto set = enforce(H5Dcreate2(id, name.c_str(), type, space, 0, props, 0));
+	auto set = enforce(H5Dcreate2(id_, name.c_str(), type, space, 0, props, 0));
 	H5Pclose(props);
 	H5Sclose(space);
-	return DataSet(set);
+	return Hdf5Dataset(set);
 }
 
-DataSet DataFile::openData(const std::string &name)
+Hdf5Dataset Hdf5File::open_data(std::string const &name)
 {
-	assert(id > 0);
-	auto set = enforce(H5Dopen2(id, name.c_str(), 0));
-	return DataSet(set);
+	assert(*this);
+	auto set = enforce(H5Dopen2(id_, name.c_str(), 0));
+	return Hdf5Dataset(set);
 }
 
-template <typename T>
-DataSet DataFile::writeData(const std::string &name, std::vector<T> const &data)
+bool Hdf5File::exists(std::string const &name)
 {
-	auto ds = createData(name, {data.size()}, h5_type_id<T>());
-	ds.write(data);
-	return ds;
+	assert(*this);
+	return enforce(H5Lexists(id_, name.c_str(), 0)) > 0;
 }
 
-bool DataFile::exists(const std::string &name)
+void Hdf5File::remove(std::string const &name)
 {
-	assert(id > 0);
-	return enforce(H5Lexists(id, name.c_str(), 0)) > 0;
+	assert(*this);
+	enforce(H5Ldelete(id_, name.c_str(), 0));
 }
 
-void DataFile::remove(const std::string &name)
+void Hdf5File::make_group(std::string const &name)
 {
-	assert(id > 0);
-	enforce(H5Ldelete(id, name.c_str(), 0));
-}
-
-void DataFile::makeGroup(const std::string &name)
-{
-	assert(id > 0);
-	auto group = enforce(H5Gcreate2(id, name.c_str(), 0, 0, 0));
+	assert(*this);
+	auto group = enforce(H5Gcreate2(id_, name.c_str(), 0, 0, 0));
 	H5Gclose(group);
 }
 
-bool DataFile::hasAttribute(const std ::string &name)
+bool Hdf5File::has_attribute(const std ::string &name)
 {
 	// NOTE: H5Aexists returns negative/zero/positive on fail/no/yes
-	assert(id > 0);
-	return enforce(H5Aexists(id, name.c_str()));
+	assert(*this);
+	return enforce(H5Aexists(id_, name.c_str()));
 }
 
-void DataFile::setAttribute(const std::string &name, hid_t type, const void *v)
+void Hdf5File::set_attribute_raw(std::string const &name, hid_t type,
+                                 const void *v)
 {
-	assert(id > 0);
+	assert(*this);
 	auto space = enforce(H5Screate(H5S_SCALAR));
-	auto attr = enforce(H5Acreate2(id, name.c_str(), type, space, 0, 0));
+	auto attr = enforce(H5Acreate2(id_, name.c_str(), type, space, 0, 0));
 	enforce(H5Awrite(attr, type, v));
 	H5Aclose(attr);
 	H5Sclose(space);
 }
 
-void DataFile::setAttribute(const std::string &name, hid_t type, hsize_t count,
-                            const void *v)
+void Hdf5File::set_attribute_raw(std::string const &name, hid_t type,
+                                 hsize_t count, const void *v)
 {
-	assert(id > 0);
+	assert(*this);
 	auto space = enforce(H5Screate_simple(1, &count, nullptr));
-	auto attr = enforce(H5Acreate2(id, name.c_str(), type, space, 0, 0));
+	auto attr = enforce(H5Acreate2(id_, name.c_str(), type, space, 0, 0));
 	enforce(H5Awrite(attr, type, v));
 	H5Aclose(attr);
 	H5Sclose(space);
 }
 
-void DataFile::setAttribute(const std::string &name, double v)
+void Hdf5File::set_attribute(std::string const &name, double v)
 {
-	setAttribute(name, H5T_NATIVE_DOUBLE, &v);
+	set_attribute_raw(name, H5T_NATIVE_DOUBLE, &v);
 }
 
-void DataFile::setAttribute(const std::string &name, int v)
+void Hdf5File::set_attribute(std::string const &name, int v)
 {
-	setAttribute(name, H5T_NATIVE_INT, &v);
+	set_attribute_raw(name, H5T_NATIVE_INT, &v);
 }
 
-void DataFile::setAttribute(const std::string &name, const std::string &v)
+void Hdf5File::set_attribute(std::string const &name, std::string const &v)
 {
 	auto type = enforce(H5Tcopy(H5T_C_S1));
 	enforce(H5Tset_size(type, H5T_VARIABLE));
 	const char *ptr = v.c_str();
-	setAttribute(name, type, &ptr);
+	set_attribute_raw(name, type, &ptr);
 	H5Tclose(type);
 }
 
-void DataFile::setAttribute(const std::string &name,
-                            const std::vector<double> &v)
+void Hdf5File::set_attribute(std::string const &name,
+                             const std::vector<double> &v)
 {
-	setAttribute(name, H5T_NATIVE_DOUBLE, v.size(), v.data());
+	set_attribute_raw(name, H5T_NATIVE_DOUBLE, v.size(), v.data());
 }
 
-void DataFile::setAttribute(const std::string &name, const std::vector<int> &v)
+void Hdf5File::set_attribute(std::string const &name, const std::vector<int> &v)
 {
-	setAttribute(name, H5T_NATIVE_INT, v.size(), v.data());
+	set_attribute_raw(name, H5T_NATIVE_INT, v.size(), v.data());
 }
 
-void DataFile::getAttribute(const std::string &name, hid_t type, void *data)
+void Hdf5File::get_attribute_raw(std::string const &name, hid_t type,
+                                 void *data)
 {
 	// open attribute
-	auto attr = enforce(H5Aopen(id, name.c_str(), 0));
+	auto attr = enforce(H5Aopen(id_, name.c_str(), 0));
 
 	// check size
 	auto space = enforce(H5Aget_space(attr));
@@ -313,28 +286,28 @@ void DataFile::getAttribute(const std::string &name, hid_t type, void *data)
 	H5Aclose(attr);
 }
 
-template <> int DataFile::getAttribute<int>(const std::string &name)
+template <> int Hdf5File::get_attribute<int>(std::string const &name)
 {
 	int r;
-	getAttribute(name, H5T_NATIVE_INT, &r);
+	get_attribute_raw(name, H5T_NATIVE_INT, &r);
 	return r;
 }
 
-template <> double DataFile::getAttribute<double>(const std::string &name)
+template <> double Hdf5File::get_attribute<double>(std::string const &name)
 {
 	double r;
-	getAttribute(name, H5T_NATIVE_DOUBLE, &r);
+	get_attribute_raw(name, H5T_NATIVE_DOUBLE, &r);
 	return r;
 }
 
 template <>
-std::string DataFile::getAttribute<std::string>(const std::string &name)
+std::string Hdf5File::get_attribute<std::string>(std::string const &name)
 {
 	auto type = enforce(H5Tcopy(H5T_C_S1));
 	enforce(H5Tset_size(type, H5T_VARIABLE));
 
 	char *ptr;
-	getAttribute(name, type, &ptr);
+	get_attribute_raw(name, type, &ptr);
 	auto r = std::string(ptr);
 	free(ptr);
 
@@ -344,10 +317,10 @@ std::string DataFile::getAttribute<std::string>(const std::string &name)
 
 template <>
 std::vector<int>
-DataFile::getAttribute<std::vector<int>>(const std::string &name)
+Hdf5File::get_attribute<std::vector<int>>(std::string const &name)
 {
 	// open attribute
-	auto attr = enforce(H5Aopen(id, name.c_str(), 0));
+	auto attr = enforce(H5Aopen(id_, name.c_str(), 0));
 
 	// check size
 	auto space = enforce(H5Aget_space(attr));
@@ -361,37 +334,5 @@ DataFile::getAttribute<std::vector<int>>(const std::string &name)
 	H5Aclose(attr);
 	return r;
 }
-
-// explicit template instantitions
-template DataSet DataFile::writeData<float>(const std::string &,
-                                            std::vector<float> const &);
-template DataSet DataFile::writeData<double>(const std::string &,
-                                             std::vector<double> const &);
-template DataSet DataFile::writeData<int8_t>(const std::string &,
-                                             std::vector<int8_t> const &);
-template DataSet DataFile::writeData<int16_t>(const std::string &,
-                                              std::vector<int16_t> const &);
-template DataSet DataFile::writeData<int32_t>(const std::string &,
-                                              std::vector<int32_t> const &);
-template void DataSet::write<float>(std::span<const float>);
-template void DataSet::write<double>(std::span<const double>);
-template void DataSet::write<int8_t>(std::span<const int8_t>);
-template void DataSet::write<int16_t>(std::span<const int16_t>);
-template void DataSet::write<int32_t>(std::span<const int32_t>);
-template void DataSet::write<float>(hsize_t, std::span<const float>);
-template void DataSet::write<double>(hsize_t, std::span<const double>);
-template void DataSet::write<int8_t>(hsize_t, std::span<const int8_t>);
-template void DataSet::write<int16_t>(hsize_t, std::span<const int16_t>);
-template void DataSet::write<int32_t>(hsize_t, std::span<const int32_t>);
-template void DataSet::read<float>(std::span<float>);
-template void DataSet::read<double>(std::span<double>);
-template void DataSet::read<int8_t>(std::span<int8_t>);
-template void DataSet::read<int16_t>(std::span<int16_t>);
-template void DataSet::read<int32_t>(std::span<int32_t>);
-template void DataSet::read<float>(hsize_t, std::span<float>);
-template void DataSet::read<double>(hsize_t, std::span<double>);
-template void DataSet::read<int8_t>(hsize_t, std::span<int8_t>);
-template void DataSet::read<int16_t>(hsize_t, std::span<int16_t>);
-template void DataSet::read<int32_t>(hsize_t, std::span<int32_t>);
 
 } // namespace util

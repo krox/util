@@ -95,10 +95,36 @@ class Hdf5Dataset
 		read_raw(row, h5_type_id<T>(), data.data());
 	}
 
+	template <typename T> void read(std::vector<T> &data)
+	{
+		data.resize(size());
+		read(std::span(data));
+	}
+	template <typename T> void read(hsize_t row, std::vector<T> &data)
+	{
+		assert(shape_.size() >= 1);
+		data.resize(size() / shape_[0]);
+		read(row, std::span(data));
+	}
+
+	template <typename T> void read(std::vector<std::pair<T, T>> &data)
+	{
+		assert(shape_.size() >= 1);
+		assert(shape_.back() == 2);
+		data.resize(size() / 2);
+		read_raw(h5_type_id<T>(), &data.front().first);
+	}
+
 	template <typename T> std::vector<T> read()
 	{
-		auto r = std::vector<T>(size());
+		std::vector<T> r;
 		read(r);
+		return r;
+	}
+	template <typename T> std::vector<T> read(hsize_t row)
+	{
+		std::vector<T> r;
+		read(row, r);
 		return r;
 	}
 

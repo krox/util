@@ -23,6 +23,8 @@
  * TODO: should be able to produce multiple independent samples using SIMD
  */
 
+#include "fmt/format.h"
+
 #include "util/hash.h"
 #include <algorithm>
 #include <bit>
@@ -79,6 +81,7 @@ class xoshiro256
 	{
 		seed(v);
 	}
+	explicit xoshiro256(std::string_view s) noexcept { seed(s); }
 
 	using result_type = uint64_t;
 	static constexpr uint64_t min() { return 0; }
@@ -497,15 +500,24 @@ class binomial_distribution
 		// (n over k) * p^k * (1-p)^(n-k)
 		assert(n_ - k >= k);
 		double r = 1.0;
+		int rem = n_ - k;
 		for (int i = 0; i < k; ++i)
 		{
-			r *= n_ - i;
+			r *= n_ - k + i + 1;
 			r /= i + 1;
-			r *= p_ * (1.0 - p_);
-			assert(r < 1.0e100);
+			r *= p_;
+			while (rem && r > 1)
+			{
+				rem--;
+				r *= 1.0 - p_;
+			}
+			assert(1.0e-100 < r && r < 1.0e100);
 		}
-		for (int i = 0; i < n_ - 2 * k; ++i)
+		while (rem)
+		{
+			rem--;
 			r *= 1.0 - p_;
+		}
 		return r;
 	}
 

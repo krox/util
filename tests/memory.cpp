@@ -49,3 +49,10 @@ static_assert(is_trivially_relocatable_v<int *>);
 static_assert(is_trivially_relocatable_v<std::string_view>);
 static_assert(!is_trivially_relocatable_v<std::string>);
 static_assert(!is_trivially_relocatable_v<Foo>);
+
+TEST_CASE("unique_array", "[memory]")
+{
+	auto a = make_unique_array<int>(3, 7);
+	CHECK(a.size() == 3);
+	CHECK(a[1] == 7);
+}

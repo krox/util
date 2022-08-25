@@ -136,7 +136,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 
 template <typename T, size_t N> class MmapStorage
 {
-	lazy_memory_ptr<T> data_ = {};
+	lazy_uninitialized_unique_array<T> data_ = {};
 	size_t size_ = 0;
 
   public:
@@ -145,7 +145,7 @@ template <typename T, size_t N> class MmapStorage
 	{
 		assert(cap < max_capacity());
 	}
-	~MmapStorage() { std::destroy_n(data_.get(), size_); }
+	~MmapStorage() { std::destroy_n(data_.data(), size_); }
 
 	MmapStorage(MmapStorage const &other) = delete;
 	MmapStorage &operator=(MmapStorage const &other) = delete;
@@ -161,8 +161,8 @@ template <typename T, size_t N> class MmapStorage
 	void set_size(size_t s) noexcept { size_ = s; }
 	size_t capacity() const noexcept { return data_ ? max_capacity() : 0; }
 	static constexpr size_t max_capacity() { return N; }
-	T *data() noexcept { return data_.get(); }
-	T const *data() const noexcept { return data_.get(); }
+	T *data() noexcept { return data_.data(); }
+	T const *data() const noexcept { return data_.data(); }
 };
 
 template <class T, class Impl> class Vector
@@ -404,7 +404,7 @@ template <class T, class Impl> class Vector
 	iterator insert(size_t pos, T const &value)
 	{
 		reserve(size() + 1, true);
-		construct_at(end(), value);
+		std::construct_at(end(), value);
 		set_size_unsafe(size() + 1);
 		std::rotate(begin() + pos, end() - 1, end());
 		return begin() + pos;
@@ -446,7 +446,8 @@ template <class T, class Impl> class Vector
 			// careful order of operations to ensure strong exception guarantee
 			// and allow aliasing at the same time
 			auto new_impl = Impl(capacity() ? 2 * capacity() : 1);
-			construct_at(new_impl.data() + size(), std::forward<Args>(args)...);
+			std::construct_at(new_impl.data() + size(),
+			                  std::forward<Args>(args)...);
 			uninitialized_relocate_n(data(), size(), new_impl.data());
 			new_impl.set_size(size() + 1);
 			set_size_unsafe(0);
@@ -454,7 +455,7 @@ template <class T, class Impl> class Vector
 		}
 		else
 		{
-			construct_at(end(), std::forward<Args>(args)...);
+			std::construct_at(end(), std::forward<Args>(args)...);
 			set_size_unsafe(size() + 1);
 		}
 	}

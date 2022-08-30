@@ -52,7 +52,11 @@ static_assert(!is_trivially_relocatable_v<Foo>);
 
 TEST_CASE("unique_array", "[memory]")
 {
-	auto a = make_unique_array<int>(3, 7);
+	auto a = make_unique_span<int>(3, 7);
+	a[0] = 5;
 	CHECK(a.size() == 3);
+	CHECK(a.at(0) == 5);
 	CHECK(a[1] == 7);
+	auto vec = std::vector(a.rbegin(), a.rend());
+	CHECK(vec == std::vector{7, 7, 5});
 }

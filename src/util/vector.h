@@ -136,7 +136,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 
 template <typename T, size_t N> class MmapStorage
 {
-	lazy_uninitialized_unique_array<T> data_ = {};
+	lazy_uninitialized_unique_span<T> data_ = {};
 	size_t size_ = 0;
 
   public:

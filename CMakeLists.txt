@@ -3,6 +3,8 @@ project (util LANGUAGES C CXX)
 
 # dependencies
 
+set(FMT_SYSTEM_HEADERS ON) # treat libfmt as system headers, which silences some warnings
+
 find_package(HDF5 REQUIRED) # should be optional
 
 include(FetchContent)

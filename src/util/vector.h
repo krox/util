@@ -16,15 +16,13 @@ namespace detail {
 
 template <typename T> class MallocStorage
 {
-	memory_ptr<T> data_ = {};
+	unique_memory<T> data_ = {};
 	size_t size_ = 0;
-	size_t capacity_ = 0;
 
   public:
 	MallocStorage() = default;
-	explicit MallocStorage(size_t cap) : data_(allocate<T>(cap)), capacity_(cap)
-	{}
-	~MallocStorage() { std::destroy_n(data_.get(), size_); }
+	explicit MallocStorage(size_t cap) : data_(allocate<T>(cap)) {}
+	~MallocStorage() { std::destroy_n(data_.data(), size_); }
 
 	MallocStorage(MallocStorage const &other) = delete;
 	MallocStorage &operator=(MallocStorage const &other) = delete;
@@ -34,15 +32,14 @@ template <typename T> class MallocStorage
 		using std::swap;
 		swap(data_, other.data_);
 		swap(size_, other.size_);
-		swap(capacity_, other.capacity_);
 	}
 
 	size_t size() const noexcept { return size_; }
 	void set_size(size_t s) noexcept { size_ = s; }
-	size_t capacity() const noexcept { return capacity_; }
+	size_t capacity() const noexcept { return data_.size(); }
 	static constexpr size_t max_capacity() { return SIZE_MAX / sizeof(T); }
-	T *data() noexcept { return data_.get(); }
-	T const *data() const noexcept { return data_.get(); }
+	T *data() noexcept { return data_.data(); }
+	T const *data() const noexcept { return data_.data(); }
 };
 
 template <typename T, size_t N> class StaticStorage
@@ -101,9 +98,10 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 	SboStorage() noexcept : size_(0), big_(false){};
 	SboStorage(size_t cap) : size_(0), big_(false)
 	{
+		static_assert(alignof(T) <= alignof(std::max_align_t));
 		if (cap <= N)
 			return;
-		alloc_.data_ = allocate<T>(cap).release();
+		alloc_.data_ = static_cast<T *>(std::malloc(cap * sizeof(T)));
 		alloc_.capacity_ = cap;
 		big_ = true;
 	}
@@ -136,7 +134,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 
 template <typename T, size_t N> class MmapStorage
 {
-	lazy_uninitialized_unique_span<T> data_ = {};
+	lazy_memory<T> data_ = {};
 	size_t size_ = 0;
 
   public:

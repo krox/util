@@ -3,6 +3,7 @@
 // Little helpers for memory allocation and management. Mostly in order to
 // make writing custom containers a little less painful.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -13,123 +14,9 @@
 
 namespace util {
 
-// custom deleter for std::unique_ptr that only deallocates memory, but does not
-// call any destructors
-struct free_delete
-{
-	void operator()(void *p) noexcept { std::free(p); }
-};
+template <class T> struct default_delete;
 
-template <typename T> using memory_ptr = std::unique_ptr<T[], free_delete>;
-
-static_assert(sizeof(memory_ptr<int>) == sizeof(void *));
-
-// allocate uninitialized memory, sized and aligned to store a 'T[n]'
-template <typename T> memory_ptr<T> allocate(size_t n)
-{
-	T *r;
-	if constexpr (alignof(T) <= alignof(std::max_align_t))
-		r = static_cast<T *>(std::malloc(sizeof(T) * n));
-	else
-		r = static_cast<T *>(std::aligned_alloc(alignof(T), sizeof(T) * n));
-	if (!r && n)
-		throw std::bad_alloc();
-	return memory_ptr<T>(r);
-}
-
-template <class T> inline constexpr size_t get_strong_alignof()
-{
-#if __cpp_lib_hardware_interference_size >= 201603
-	// on x86, cache lines are 64 bytes, but some CPUs like to prefetch pairs of
-	// cache lines. So these can sometimes be 128 instead.
-	size_t cache_align = std::max(std::hardware_destructive_interference_size,
-	                              std::hardware_constructive_interference_size);
-#else
-	size_t cache_align = 64;
-#endif
-	size_t simd_align = 16; // I think this is the value for AVX
-	size_t type_align = std::max(alignof(T), alignof(std::max_align_t));
-	return std::max(std::max(cache_align, simd_align), type_align);
-}
-
-template <class T = int>
-inline constexpr size_t strong_alignof = get_strong_alignof<T>();
-
-// same as allocate() but highly aligned
-//     * optimize cache usage, avoid false sharing
-//     * sufficient for optimal SIMD usage
-template <typename T> memory_ptr<T> aligned_allocate(size_t n)
-{
-	constexpr size_t align = strong_alignof<T>;
-
-	if (n == 0)
-		return {};
-	size_t length = sizeof(T) * n;
-	length = (length + align - 1) / align * align;
-	void *p = std::aligned_alloc(align, length);
-	if (!p)
-		throw std::bad_alloc();
-	return memory_ptr<T>(static_cast<T *>(p));
-}
-
-// default deleter for unique_span that just uses an allocator
-template <class Allocator> struct allocator_delete
-{
-	using value_type = typename Allocator::value_type;
-	using alloc_traits = std::allocator_traits<Allocator>;
-
-	[[no_unique_address]] Allocator alloc_ = {};
-
-	allocator_delete() = default;
-	explicit allocator_delete(Allocator const &alloc) : alloc_(alloc) {}
-
-	void operator()(value_type *ptr, size_t n) noexcept
-	{
-		for (size_t i = 0; i < n; ++i)
-			alloc_traits::destroy(alloc_, ptr + i);
-		alloc_traits::deallocate(alloc_, ptr, n);
-	}
-
-	// not part of the 'deleter' interface, but a convenient place to put this
-	value_type *create(size_t n, value_type const &value) noexcept
-	{
-		value_type *ptr = alloc_traits::allocate(alloc_, n);
-		for (size_t i = 0; i < n; ++i)
-			alloc_traits::construct(alloc_, ptr + i, value);
-		return ptr;
-	}
-};
-
-// alternative to allocator_delete that does not call any destructor, just
-// deallocates memory
-template <class Allocator> struct uninitialized_allocator_delete
-{
-	using value_type = typename Allocator::value_type;
-	using alloc_traits = std::allocator_traits<Allocator>;
-
-	[[no_unique_address]] Allocator alloc_ = {};
-
-	uninitialized_allocator_delete() = default;
-	explicit uninitialized_allocator_delete(Allocator const &alloc)
-	    : alloc_(alloc)
-	{}
-
-	void operator()(value_type *ptr, size_t n) noexcept
-	{
-		alloc_traits::deallocate(alloc_, ptr, n);
-	}
-
-	// not part of the 'deleter' interface, but a convenient place to put this
-	value_type *create(size_t n) noexcept
-	{
-		return alloc_traits::allocate(alloc_, n);
-	}
-};
-
-template <class T>
-using default_span_delete = allocator_delete<std::allocator<T>>;
-
-// Smart pointer that stores an owning span instead of a raw pointer. The
+// Smart pointer that stores an owning span instead of an owning pointer. The
 // deleter gets passed (pointer, size) and '.get()' returns a std::span.
 //   * compared to std::unique_ptr<T[]>:
 //     - offers a '.size()' member
@@ -143,7 +30,7 @@ using default_span_delete = allocator_delete<std::allocator<T>>;
 //   * This class could (and previously was) implemented as a specialization of
 //     std::unique_ptr, storing the size in a custom deleter. But that makes the
 //     interface somewhat awkward. Hopefully this is now clean.
-template <class T, class Deleter = default_span_delete<T>> class unique_span
+template <class T, class Deleter = default_delete<T>> class unique_span
 {
 	T *ptr_ = nullptr;
 	size_t size_ = 0;
@@ -196,12 +83,12 @@ template <class T, class Deleter = default_span_delete<T>> class unique_span
 
 	unique_span &operator=(std::nullptr_t) noexcept { reset(); }
 
-	void swap(unique_span &other) noexcept
+	friend void swap(unique_span &a, unique_span &b) noexcept
 	{
 		using std::swap;
-		swap(ptr_, other.ptr_);
-		swap(size_, other.size_);
-		swap(deleter_, other.deleter_);
+		swap(a.ptr_, b.ptr_);
+		swap(a.size_, b.size_);
+		swap(a.deleter_, b.deleter_);
 	}
 
 	constexpr std::span<T> release() noexcept
@@ -268,57 +155,102 @@ template <class T, class Deleter = default_span_delete<T>> class unique_span
 	Deleter const &get_deleter() const noexcept { return deleter_; }
 };
 
-template <class T, class D>
-void swap(unique_span<T, D> &a, unique_span<T, D> &b) noexcept
+// default deleter for unique_span
+template <class T> struct default_delete
 {
-	a.swap(b);
-}
+	void operator()(T *p, size_t n) noexcept
+	{
+		std::destroy(p, p + n);
+		std::free(p);
+	}
+};
+
+// only deallocates, does not destruct any elements
+template <class T> struct free_delete
+{
+	void operator()(T *p, size_t) { std::free(p); }
+};
+template <typename T> using unique_memory = unique_span<T, free_delete<T>>;
+
+namespace detail {
+void *util_mmap(size_t);
+void util_munmap(void *, size_t) noexcept;
+} // namespace detail
+template <class T> struct mmap_delete
+{
+	void operator()(T *p, size_t n) { detail::util_munmap(p, n * sizeof(T)); }
+};
+template <typename T> using lazy_memory = unique_span<T, mmap_delete<T>>;
 
 // make sure the default deleter does not take any space
 static_assert(sizeof(unique_span<int>) == sizeof(std::span<int>));
+static_assert(sizeof(unique_memory<int>) == sizeof(std::span<int>));
+static_assert(sizeof(lazy_memory<int>) == sizeof(std::span<int>));
 
-// allocate memory using given allocator, returning a unique_span<...>
-template <class T, class Allocator = std::allocator<T>>
-auto make_unique_span(size_t n, T const &value = T{},
-                      Allocator alloc = Allocator{})
+// allocate memory sized and aligned for T[n], but does not
+// initilize the individual objects
+template <class T> unique_memory<T> allocate(size_t n)
 {
-	using Deleter = allocator_delete<Allocator>;
-	auto deleter = Deleter(alloc);
-	T *ptr = deleter.create(n, value);
-	return unique_span<T, Deleter>(ptr, n, deleter);
+	if (n == 0)
+		return {};
+	void *p = alignof(T) <= alignof(max_align_t)
+	              ? std::aligned_alloc(alignof(T), n * sizeof(T))
+	              : std::malloc(n * sizeof(T));
+	if (!p)
+		throw std::bad_alloc();
+	return unique_memory<T>(static_cast<T *>(p), n);
 }
 
-template <class T, class Allocator = std::allocator<T>>
-auto make_uninitialized_unique_span(size_t n, Allocator alloc = Allocator{})
+// same as alloate(), but highly aligned (for cache and/or SIMD)
+template <class T> unique_memory<T> aligned_allocate(size_t n)
 {
-	using Deleter = uninitialized_allocator_delete<Allocator>;
-	auto deleter = Deleter(alloc);
-	T *ptr = deleter.create(n);
-	return unique_span<T, Deleter>(ptr, n, deleter);
+	// alignment requirement of AVX512 = 64 bytes
+	// cache line size on x86 CPUs = 64 bytes
+	size_t align = std::max(size_t(64), alignof(T));
+
+#if __cpp_lib_hardware_interference_size >= 201603
+	// Some x86 CPUs like to prefetch pairs of cache lines. In that case, the
+	// "interference size" might be >64 bytes
+	align = std::max(align, std::hardware_destructive_interference_size);
+	align = std::max(align, std::hardware_constructive_interference_size);
+#endif
+
+	if (n == 0)
+		return {};
+	// std::aligned_alloc() requires size to be a multiple of alignment.
+	// NOTE: this only works because default_delete does not take size into
+	//       account, otherwise, the deleter might use the wrong size
+	size_t size = (n * sizeof(T) + align - 1) / align * align;
+	void *p = std::aligned_alloc(align, size);
+	if (!p)
+		throw std::bad_alloc();
+	return unique_memory<T>(static_cast<T *>(p), n);
 }
 
-// wrapper around linux's mmap/munmap for allocating memory
-void *util_mmap(size_t);
-void util_munmap(void *, size_t) noexcept;
-
-// allocator that calls linux's mmap/munmap, which typically is only backed by
-// physical storage after access, not at time of allocation
-template <typename T> struct mmap_allocator
+template <class T> lazy_memory<T> lazy_allocate(size_t n)
 {
-	// NOTE: due to page-size, alignment will never be an issue here
-	using value_type = T;
-	T *allocate(size_t n) { return static_cast<T *>(util_mmap(n * sizeof(T))); }
-	void deallocate(T *p, size_t n) noexcept { util_munmap(p, n * sizeof(T)); }
-};
+	// NOTE: due to page size, alignment will never be an issue here
+	if (n == 0)
+		return {};
+	auto p = detail::util_mmap(n * sizeof(T));
+	return lazy_memory<T>(static_cast<T *>(p), n);
+}
 
-template <typename T>
-using lazy_uninitialized_unique_span =
-    unique_span<T, uninitialized_allocator_delete<mmap_allocator<T>>>;
-
-// "allocates" memory by calling mmap
-template <typename T> lazy_uninitialized_unique_span<T> lazy_allocate(size_t n)
+// allocate and initilize memory, returning a unique_span<...>
+template <class T>
+unique_span<T> make_unique_span(size_t n, T const &value = T{})
 {
-	return make_uninitialized_unique_span<T>(n, mmap_allocator<T>{});
+	auto mem = allocate<T>(n);
+	std::uninitialized_fill(mem.begin(), mem.end(), value);
+	return unique_span<T>(mem.release().data(), n);
+}
+
+template <class T>
+unique_span<T> make_aligned_unique_span(size_t n, T const &value = T{})
+{
+	auto mem = aligned_allocate<T>(n);
+	std::uninitialized_fill(mem.begin(), mem.end(), value);
+	return unique_span<T>(mem.release().data(), n);
 }
 
 // overload this as

@@ -10,7 +10,7 @@
 
 namespace util {
 
-void *util_mmap(size_t length)
+void *detail::util_mmap(size_t length)
 {
 	if (length == 0)
 		return nullptr;
@@ -26,7 +26,7 @@ void *util_mmap(size_t length)
 	return p;
 }
 
-void util_munmap(void *p, size_t length) noexcept
+void detail::util_munmap(void *p, size_t length) noexcept
 {
 	if (length)
 		if (munmap(p, length) != 0)

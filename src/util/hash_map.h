@@ -417,7 +417,7 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		auto new_buckets = new_mask + max_probe;
 		auto new_control = allocate<uint8_t>(new_buckets);
 		auto new_values = allocate<value_type>(new_buckets);
-		std::memset(new_control.get(), 0, new_buckets);
+		std::memset(new_control.data(), 0, new_buckets);
 
 		for (size_t k = 0; k < buckets(); ++k)
 		{
@@ -468,8 +468,9 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 
 	size_t size_ = 0;
 	size_t mask_ = 0;
-	memory_ptr<uint8_t> control_ = {};
-	memory_ptr<value_type> values_ = {};
+	// TODO: merging control_ and values_ into a single allocation
+	unique_memory<uint8_t> control_ = {};
+	unique_memory<value_type> values_ = {};
 	[[no_unique_address]] hasher hasher_ = {}; // usually a stateless functor
 };
 

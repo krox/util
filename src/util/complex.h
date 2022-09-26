@@ -115,42 +115,42 @@ auto operator/(complex<T> const &a, complex<U> const &b)
 // binary complex <-> real
 
 template <typename T>
-complex<T> operator+(complex<T> const &a, util::type_identity_t<T> const &b)
+complex<T> operator+(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
 template <typename T>
-complex<T> operator+(util::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator+(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a + b.re, b.im};
 }
 template <typename T>
-complex<T> operator-(complex<T> const &a, util::type_identity_t<T> const &b)
+complex<T> operator-(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
 template <typename T>
-complex<T> operator-(util::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator-(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a - b.re, -b.im};
 }
 template <typename T>
-complex<T> operator*(complex<T> const &a, util::type_identity_t<T> const &b)
+complex<T> operator*(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
 template <typename T>
-complex<T> operator*(util::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator*(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a * b.re, a * b.im};
 }
 template <typename T>
-complex<T> operator/(complex<T> const &a, util::type_identity_t<T> const &b)
+complex<T> operator/(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
 template <typename T>
-complex<T> operator/(util::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator/(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return a * inverse(b);
 }
@@ -159,48 +159,48 @@ complex<T> operator/(util::type_identity_t<T> const &a, complex<T> const &b)
 
 template <typename T, size_t W>
 complex<simd<T, W>> operator+(complex<simd<T, W>> const &a,
-                              util::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator+(util::type_identity_t<T> const &a,
+complex<simd<T, W>> operator+(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a + b.re, b.im};
 }
 template <typename T, size_t W>
 complex<simd<T, W>> operator-(complex<simd<T, W>> const &a,
-                              util::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator-(util::type_identity_t<T> const &a,
+complex<simd<T, W>> operator-(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a - b.re, -b.im};
 }
 template <typename T, size_t W>
 complex<simd<T, W>> operator*(complex<simd<T, W>> const &a,
-                              util::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator*(util::type_identity_t<T> const &a,
+complex<simd<T, W>> operator*(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a * b.re, a * b.im};
 }
 template <typename T, size_t W>
 complex<simd<T, W>> operator/(complex<simd<T, W>> const &a,
-                              util::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
 template <typename T, size_t W>
-complex<simd<T, W>> operator/(util::type_identity_t<T> const &a,
+complex<simd<T, W>> operator/(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return a * inverse(b);

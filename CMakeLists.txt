@@ -39,7 +39,7 @@ target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt blake3-shared)
-target_compile_options(util PRIVATE -Wall -Wextra -Werror -O2)
+target_compile_options(util PRIVATE -Wall -Wextra -Werror -O2 -march=native)
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)
@@ -74,9 +74,9 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/bits.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/bits.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/simd.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PRIVATE -Wall -Wextra -Werror -g -Wno-parentheses)
+	target_compile_options(tests PUBLIC -Wall -Wextra -Werror -g -Wno-parentheses -march=native)
 
 endif()

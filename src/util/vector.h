@@ -496,15 +496,10 @@ bool operator==(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 }
 
 template <typename T, class Impl, typename T2, class Impl2>
-bool operator!=(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
+auto operator<=>(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 {
-	return !(a == b);
-}
-
-template <typename T, class Impl, typename T2, class Impl2>
-bool operator<(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
-{
-	return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+	return std::lexicographical_compare_three_way(a.begin(), a.end(), b.begin(),
+	                                              b.end());
 }
 
 template <class T, class Impl, class U>

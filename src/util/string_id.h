@@ -1,6 +1,7 @@
 #pragma once
 
 #include "util/hash_map.h"
+#include <compare>
 #include <cstring>
 #include <map>
 #include <memory_resource>
@@ -46,11 +47,18 @@ struct string_id
 	{
 		assert(0 <= i && i <= INT16_MAX);
 	}
-	int id() const { return id_; }
+	int id() const noexcept { return id_; }
+
+	// empty string is always represented by zero, so this is meaningful
+	// independent of the pool.
+	explicit operator bool() const noexcept { return id_; }
 };
 
-bool operator==(string_id a, string_id b) { return a.id() == b.id(); }
-bool operator!=(string_id a, string_id b) { return a.id() != b.id(); }
+bool operator==(string_id a, string_id b) noexcept { return a.id() == b.id(); }
+std::strong_ordering operator<=>(string_id a, string_id b) noexcept
+{
+	return a.id() <=> b.id();
+}
 
 class StringPool
 {

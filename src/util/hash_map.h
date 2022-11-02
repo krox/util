@@ -34,6 +34,8 @@
  *     - internal capacity is always a power-of-two (with a good default hash,
  *       this should not lead to an increased number of collisions), plus
  *       max_probe-1 additional slots, so no wrap-around during probing
+ *     - rehashing occurs whenever max_probe length is exceeded during insertion
+ *     - there are no tombstones, so the full max_probe lenth is always searched
  */
 
 #include "util/hash.h"
@@ -139,10 +141,21 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		}
 	};
 
-	// constructors and special members
-
+	// default constructor
 	hash_map() noexcept = default;
 
+	// constructor for given number of buckets (will be rounded up)
+	// NOTE: This does not guarantee any minimum capacity. With bad luck,
+	//       further reallocation can happen at any time.
+	explicit hash_map(size_t min_buckets, Hash const &h = Hash()) : hasher_(h)
+	{
+		mask_ = std::bit_ceil(std::max(min_buckets, size_t(16))) - 1;
+		control_ = allocate<uint8_t>(buckets());
+		values_ = allocate<value_type>(buckets());
+		std::memset(control_.data(), 0, buckets());
+	}
+
+	// other constructors and special members
 	explicit hash_map(Hash const &h) noexcept : hasher_(h) {}
 
 	template <typename It>
@@ -333,6 +346,11 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		return 1;
 	}
 
+	// number of buckets
+	// NOTE: Due to closed hashing, this number does not guarantee any
+	//       capacity-withouth-reallocation.
+	size_t buckets() const noexcept { return mask_ ? mask_ + max_probe : 0; }
+
   private:
 	// find internal position, returns -1 if not found
 	size_t find_pos(in_param<Key> key, size_t base,
@@ -369,84 +387,49 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 
 		if (mask_)
 		{
-			for (size_t i = base & mask_; i < (base & mask_) + max_probe; ++i)
+			for (size_t i = base; i < base + max_probe; ++i)
 				if (control_[i] == 0)
 				{
 					control_[i] = control;
-					new (&values_[i]) value_type(std::forward<K>(key),
-					                             std::forward<V>(value));
+					std::construct_at(&values_[i], std::forward<K>(key),
+					                  std::forward<V>(value));
 					++size_;
 					return {{this, i}, true};
 				}
 		}
 
-		// at this point, we need to re-allocate. capturing key/value by value
-		// here costs an additional move, but solve some alias issues. Should
-		// be rare enough that it does not matter
-		auto k = std::forward<K>(key);
-		auto v = std::forward<V>(value);
-
-		while (true)
-		{
-			// multiple rehashes are possible with bad luck, but 'rehash()'
-			// will throw if it gets excessive
-			rehash();
-
-			for (size_t i = base & mask_; i < (base & mask_) + max_probe; ++i)
-				if (control_[i] == 0)
-				{
-					control_[i] = control;
-					new (&values_[i]) value_type(std::move(k), std::move(v));
-					++size_;
-					return {{this, i}, true};
-				}
-		}
-	}
-
-	// reallocate to roughly double the size
-	void rehash()
-	{
 		// Throwing an exception is preferrable to segfaulting on a (very)
 		// bad hash function. Especially since we are allowed to throw
 		// (bad_alloc) here anyway.
-		if (mask_ > std::max(size_ * 16, (size_t)1024))
+		if (mask_ > std::max(size_ * 16, size_t(1024)))
 			throw std::runtime_error("Too many collisions in util::hash_map. "
 			                         "Probably the hash function is broken.");
 
-		auto new_mask = mask_ ? 2 * mask_ + 1 : 3;
-		auto new_buckets = new_mask + max_probe;
-		auto new_control = allocate<uint8_t>(new_buckets);
-		auto new_values = allocate<value_type>(new_buckets);
-		std::memset(new_control.data(), 0, new_buckets);
+		// At this point, we need to re-allocate. Capturing key/value by value
+		// here costs an additional move, but solves some aliasing issues.
+		// Should be rare enough to not matter for overall performance
+		auto k = std::forward<K>(key);
+		auto v = std::forward<V>(value);
+
+		auto new_table = hash_map((mask_ + 1) * 2, hasher_);
+
+		// TODO: All insertions into new_table are sub-optimal, because they
+		//       perform unnecessary checks for duplicates. Also, hash(key) is
+		//       computed twice.
 
 		for (size_t k = 0; k < buckets(); ++k)
-		{
-			if (control_[k] == 0)
-				continue;
+			if (control_[k])
+			{
+				// NOTE: with bad luck, new_table might do further
+				//       re-allocations internally
+				bool success = new_table.insert(std::move(values_[k])).second;
+				(void)success;
+				assert(success);
+			}
 
-			auto [base, control] = hash(values_[k].first);
-			bool success = false;
-			for (size_t i = base & new_mask; i < (base & new_mask) + max_probe;
-			     ++i)
-				if (new_control[i] == 0)
-				{
-					new_control[i] = control;
-					new (&new_values[i]) value_type(std::move(values_[k]));
-					values_[k].~value_type();
-					success = true;
-					break;
-				}
+		swap(*this, new_table);
 
-			// NOTE: thanks to the power-of-two (nominal) capacity, rehashing
-			//       cannot fail. I.e. if the elements fit before, they will fit
-			//       after. In other schemes that might not always be true.
-			(void)success;
-			assert(success);
-		}
-
-		mask_ = new_mask;
-		control_ = std::move(new_control);
-		values_ = std::move(new_values);
+		return insert_impl(std::move(k), std::move(v), overwrite);
 	}
 
 	std::pair<uint64_t, uint8_t> hash(in_param<Key> k) const noexcept
@@ -454,16 +437,15 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		uint64_t h = hasher_(k);
 
 		// Split into position and control byte.
-		// Need to make sure the control byte is not zero (which indicates an
-		// empty slot). The '|1' is the fastest way to do this,
-		// though it wastes a little bit of power of the control byte.
-		return {(h >> 8), (h & 255) | 1};
+		// * the control byte may not be zero (indicates an empty slot)
+		// * the default hash algorithm (FNV1a) has some noticable weaknesses:
+		//       * The high bits are not affected by a single-byte input at all
+		//       * The lowest bit is just parity of lowest bits if key bytes
+		//   The bits [29...1] are sufficiently well behaved as far as I know,
+		//   so the current implementation here is probably okay.
+		return {(h >> 8) & mask_, (h & 255) | 1};
 	}
 
-	size_t buckets() const noexcept { return mask_ ? mask_ + max_probe : 0; }
-
-	// * rehashing occurs whenever this length is exceeded during insertion
-	// * without tombstones, the full length is probed in every search
 	static constexpr size_t max_probe = 16;
 
 	size_t size_ = 0;

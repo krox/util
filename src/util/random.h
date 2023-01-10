@@ -107,7 +107,7 @@ class xoshiro256
 		std::array<std::byte, 16> h1 = murmur3_128(str, seed1);
 		std::array<std::byte, 16> h2 = murmur3_128(str, seed2);
 		std::memcpy(&s[0], &h1, 16);
-		std::memcpy(&s[1], &h2, 16);
+		std::memcpy(&s[2], &h2, 16);
 	}
 
 	// set internal state directly
@@ -261,11 +261,11 @@ class xoshiro256
 		//      random 64-bit value. Therefore we can simply use some for
 		//      randomly selecting the layer and the sign
 		//    * only ~2^-64 of the pdf is outside of a 9-sigma radius. Therefore
-		//      it will not be practically noticable if we just cur off there
+		//      it will not be practically noticable if we just cut off there
 		//    * implementation could be slightly optimized by pre-multiplying
 		//      tablex by 2^-64 and such ideas
-		//   * also, for maximal performance, one might use exponential tails
-		//     instead of truncation, and also bigger tables
+		//    * also, for maximal performance, one might use exponential tails
+		//      instead of truncation, and also bigger tables
 
 		auto u = (*this)();
 		auto i = (size_t)(u & (n - 1));

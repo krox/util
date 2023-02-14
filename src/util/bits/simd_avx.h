@@ -161,8 +161,13 @@ struct avx_float
 	// insert/extract single elements
 	static UTIL_SIMD_INLINE vector insert(vector a, int i, scalar b) noexcept
 	{
+#ifdef __AVX2__
 		__m256i m = _mm256_cmpeq_epi32(_mm256_set1_epi32(i), _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0));
 		return _mm256_blendv_ps(a, _mm256_set1_ps(b), _mm256_castsi256_ps(m));
+#else
+		a[i] = b;
+		return a;
+#endif
 	}
 	static UTIL_SIMD_INLINE scalar extract(vector a, int i) noexcept
 	{
@@ -234,8 +239,13 @@ struct avx_double
 	// insert/extract single elements
 	static UTIL_SIMD_INLINE vector insert(vector a, int i, scalar b) noexcept
 	{
+#ifdef __AVX2__
 		__m256i m = _mm256_cmpeq_epi64(_mm256_set1_epi64x(i), _mm256_set_epi64x(3, 2, 1, 0));
 		return _mm256_blendv_pd(a, _mm256_set1_pd(b), _mm256_castsi256_pd(m));
+#else
+		a[i] = b;
+		return a;
+#endif
 	}
 	static UTIL_SIMD_INLINE scalar extract(vector a, int i) noexcept
 	{

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/memory.h"
 #include <bit>
 #include <cassert>
 #include <cstring>
@@ -24,9 +25,8 @@ class bit_vector
 	static constexpr size_t limb_bits = sizeof(limb_t) * 8;
 
   private:
-	size_t size_ = 0;           // number of used bits
-	limb_t *data_ = nullptr;    // all unused bits are kept at zero
-	size_t capacity_limbs_ = 0; // size of allocation in limbs
+	size_t size_ = 0;                 // number of used bits
+	unique_memory<limb_t> data_ = {}; // all unused bits are kept at zero
 
   public:
 	class reference
@@ -83,48 +83,36 @@ class bit_vector
 	{
 		return (size_ + limb_bits - 1) / limb_bits;
 	}
-	size_t capacity() const noexcept { return capacity_limbs_ * limb_bits; }
-	size_t capacity_limbs() const noexcept { return capacity_limbs_; }
+	size_t capacity() const noexcept { return data_.size() * limb_bits; }
+	size_t capacity_limbs() const noexcept { return data_.size(); }
 
 	/** raw data access. NOTE: don't write the unused bits*/
-	limb_t *data() noexcept { return data_; }
-	std::span<limb_t> limbs() noexcept { return {data_, size_limbs()}; }
-	const limb_t *data() const noexcept { return data_; }
+	limb_t *data() noexcept { return data_.data(); }
+	std::span<limb_t> limbs() noexcept { return {data(), size_limbs()}; }
+	const limb_t *data() const noexcept { return data_.data(); }
 	std::span<const limb_t> limbs() const noexcept
 	{
-		return {data_, size_limbs()};
+		return {data(), size_limbs()};
 	}
 
-	/** constructor / destructor*/
+	// constructor
 	bit_vector() = default;
 	explicit bit_vector(size_t size, bool value = false)
-	    : size_(size), data_(new limb_t[size_limbs()]),
-	      capacity_limbs_(size_limbs())
+	    : size_(size), data_(allocate<limb_t>(size_limbs()))
 	{
 		clear(value);
 	}
-	~bit_vector()
-	{
-		if (data_)
-			delete[] data_;
-	}
 
-	/** copy-constructor / assignment */
+	// copy-constructor / assignment
 	bit_vector(bit_vector const &b)
-	    : size_(b.size()), data_(new limb_t[size_limbs()]),
-	      capacity_limbs_(size_limbs())
+	    : size_(b.size()), data_(allocate<limb_t>(size_limbs()))
 	{
 		std::memcpy(data(), b.data(), size_limbs() * sizeof(limb_t));
 	}
 	bit_vector &operator=(bit_vector const &b)
 	{
 		if (capacity_limbs() < b.size_limbs())
-		{
-			if (data_ != nullptr)
-				delete[] data_;
-			data_ = new limb_t[b.size_limbs()];
-			capacity_limbs_ = b.size_limbs();
-		}
+			data_ = allocate<limb_t>(b.size_limbs());
 		else if (size_limbs() > b.size_limbs())
 			std::memset(data() + b.size_limbs(), 0,
 			            (size_limbs() - b.size_limbs()) * sizeof(limb_t));
@@ -137,24 +125,12 @@ class bit_vector
 
 	/** move-constructor / assigment */
 	bit_vector(bit_vector &&b) noexcept
-	    : size_(b.size_), data_(b.data_), capacity_limbs_(b.capacity_limbs_)
-	{
-		// just steal the buffer of b
-		b.size_ = 0;
-		b.data_ = nullptr;
-		b.capacity_limbs_ = 0;
-	}
+	    : size_(std::exchange(b.size_, 0)), data_(std::exchange(b.data_, {}))
+	{}
 	bit_vector &operator=(bit_vector &&b) noexcept
 	{
-		// delete old storage (if any) and then just steal buffer of b
-		if (data_ != nullptr)
-			delete[] data_;
-		size_ = b.size_;
-		data_ = b.data_;
-		capacity_limbs_ = b.capacity_limbs_;
-		b.size_ = 0;
-		b.data_ = nullptr;
-		b.capacity_limbs_ = 0;
+		size_ = std::exchange(b.size_, 0);
+		data_ = std::exchange(b.data_, {});
 		return *this;
 	}
 
@@ -180,52 +156,33 @@ class bit_vector
 		// decreasing size -> set all removed bits to zero
 		if (newsize < size())
 		{
-			// whole limbs
 			std::memset(data() + newsize_limbs, 0,
 			            (size_limbs() - newsize_limbs) * sizeof(limb_t));
-			// last partial limb
-			size_t tail = newsize % limb_bits;
-			if (tail != 0)
-				data_[newsize_limbs - 1] &= (limb_t(1) << tail) - 1;
-			size_ = newsize;
+			if (newsize % limb_bits)
+				data_[newsize_limbs - 1] &=
+				    limb_t(-1) >> (limb_bits - newsize % limb_bits);
 		}
 
-		// increasing size but still enough capacity -> do nothing
-		else if (newsize <= capacity())
+		// increasing size above capacity -> need reallocation
+		else if (newsize > capacity())
 		{
-			size_ = newsize; // unused bits should already be zero
-		}
-
-		// else, need new capacity
-		else
-		{
-			limb_t *newdata = new limb_t[newsize_limbs];
-			std::memcpy(newdata, data_, size_limbs() * sizeof(limb_t));
-			std::memset(newdata + size_limbs(), 0,
+			auto newdata = allocate<limb_t>(newsize_limbs);
+			std::memcpy(newdata.data(), data(), size_limbs() * sizeof(limb_t));
+			std::memset(newdata.data() + size_limbs(), 0,
 			            (newsize_limbs - size_limbs()) * sizeof(limb_t));
-			if (data_ != nullptr)
-				delete[] data_;
-			size_ = newsize;
-			data_ = newdata;
-			capacity_limbs_ = newsize_limbs;
+			data_ = std::move(newdata);
 		}
+		// else: increasing size, but capacity suffices -> do nothing, unused
+		// bits are already zero
+
+		size_ = newsize;
 	}
 
 	/** add a single element to the back */
 	void push_back(bool value)
 	{
 		if (size() == capacity())
-		{
-			size_t newsize_limbs = std::max((size_t)1, capacity_limbs() * 2);
-			limb_t *newdata = new limb_t[newsize_limbs];
-			std::memcpy(newdata, data_, size_limbs() * sizeof(limb_t));
-			std::memset(newdata + size_limbs(), 0,
-			            (newsize_limbs - size_limbs()) * sizeof(limb_t));
-			if (data_ != nullptr)
-				delete[] data_;
-			data_ = newdata;
-			capacity_limbs_ = newsize_limbs;
-		}
+			resize(std::max(size_t(1), capacity() * 2));
 		assert(capacity() > size());
 		size_ += 1;
 		(*this)[size_ - 1] = value;
@@ -234,6 +191,7 @@ class bit_vector
 	/** remove a single element from the back */
 	void pop_back() noexcept
 	{
+		assert(size_);
 		(*this)[size_ - 1] = false;
 		size_ -= 1;
 	}
@@ -277,8 +235,7 @@ class bit_vector
 		assert(size() == b.size());
 		bit_vector r;
 		r.size_ = size_;
-		r.data_ = new limb_t[size_limbs()];
-		r.capacity_limbs_ = size_limbs();
+		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			r.data_[k] = data_[k] | b.data_[k];
 		return r;
@@ -288,8 +245,7 @@ class bit_vector
 		assert(size() == b.size());
 		bit_vector r;
 		r.size_ = size_;
-		r.data_ = new limb_t[size_limbs()];
-		r.capacity_limbs_ = size_limbs();
+		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			r.data_[k] = data_[k] & b.data_[k];
 		return r;
@@ -299,8 +255,7 @@ class bit_vector
 		assert(size() == b.size());
 		bit_vector r;
 		r.size_ = size_;
-		r.data_ = new limb_t[size_limbs()];
-		r.capacity_limbs_ = size_limbs();
+		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			r.data_[k] = data_[k] ^ b.data_[k];
 		return r;

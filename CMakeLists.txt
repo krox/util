@@ -12,7 +12,7 @@ include(FetchContent)
 FetchContent_Declare(
   fmt
   GIT_REPOSITORY https://github.com/fmtlib/fmt
-  GIT_TAG        c4ee726532178e556d923372f29163bd206d7732 # v9.0.0
+  GIT_TAG        a33701196adfad74917046096bf5a2aa0ab0bb50 # v9.1.0
 )
 FetchContent_Declare(
 	blake3
@@ -25,7 +25,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   cli11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11
-  GIT_TAG        b9be5b9444772324459989177108a6a65b8b2769 # v2.2.0
+  GIT_TAG        291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
 )
 
 FetchContent_MakeAvailable(fmt blake3 cli11)
@@ -39,7 +39,7 @@ target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
 target_link_libraries(util PUBLIC fmt::fmt blake3-shared)
-target_compile_options(util PRIVATE -Wall -Wextra -Werror -O2 -march=native)
+target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)
@@ -66,7 +66,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	FetchContent_Declare(
 	  Catch2
 	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-	  GIT_TAG        v3.0.0-preview4
+	  GIT_TAG        2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
 	)
 
 	FetchContent_MakeAvailable(Catch2)
@@ -77,6 +77,6 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_executable(tests tests/bits.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/simd.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PUBLIC -Wall -Wextra -Werror -g -Wno-parentheses -march=native)
+	target_compile_options(tests PUBLIC -Wall -Wextra -Werror -g -Wno-parentheses -Wno-deprecated-declarations -march=native)
 
 endif()

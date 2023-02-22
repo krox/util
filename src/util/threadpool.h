@@ -7,6 +7,8 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <optional>
+#include <ranges>
 #include <thread>
 
 namespace util {
@@ -19,21 +21,122 @@ class job_cancelled : public std::runtime_error
 	job_cancelled() : std::runtime_error("job cancelled") {}
 };
 
+// thread-safe queue
+//     * currently a std::deque + mutex.
+//     * value type must be nothrow-movable, but no copies required
+//     * TODO: actually, some lockfree_circular_queue would be the correct
+//             structure for out usecase.
+template <class T> class synchronized_queue
+{
+	std::deque<T> queue_; // push to back, pop from front
+	std::mutex mutex_;
+	std::condition_variable condition_; // .pop() blocks on this
+
+  public:
+	// current number of elements in the queue
+	// NOTE: in a multithreaded context, this is of limited use, because the
+	//       size might already have changed by the time this function returns
+	size_t size() const noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		return queue_.size();
+	}
+
+	// returns size() != 0
+	bool empty() const noexcept { return size() != 0; }
+
+	// pop one element
+	//     * blocks until one is available
+	//     * returns nullopt if stop_waiting() ever becomes true
+	//     * stop_waiting is called only while holding the mutex of this queue,
+	//       thus it can be guarded by it
+	template <class Predicate>
+	std::optional<T> pop(Predicate stop_waiting) noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		while (true)
+		{
+			// NOTE: order matters. If an element is available, we want to
+			//       return it regardless of the state of stop_waiting
+
+			if (!queue_.empty())
+			{
+				auto r = std::move(queue_.front());
+				queue_.pop_front();
+				return r;
+			}
+
+			if (stop_waiting())
+				return std::nullopt;
+
+			condition_.wait(lock);
+		}
+	}
+
+	// pop one element, immediately returning std::nullopt if non is available.
+	// Equivalent to .pop([]{return true;});
+	std::optional<T> try_pop() noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		if (queue_.empty())
+			return std::nullopt;
+		std::optional<T> r = std::move(queue_.front());
+		queue_.pop_front();
+		return r;
+	}
+
+	// pop one element, blocking until one becomes available.
+	// Equivalent to .pop([]{return false;}).value()
+	T pop() noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		while (queue_.empty())
+			condition_.wait(lock);
+		auto r = std::move(queue_.front());
+		queue_.pop_front();
+		return r;
+	}
+
+	// remove and return all elements from the queue
+	std::deque<T> pop_all() noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		std::deque<T> r;
+		swap(r, queue_);
+		return r;
+	}
+
+	// add an element to the queue
+	void push(T value) noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		queue_.push_back(std::move(value));
+		lock.unlock();
+		condition_.notify_one();
+	}
+
+	// notify all threads waiting in .pop(...), so that their 'stop_waiting'
+	// condition will be checked (again)
+	void notify() noexcept { condition_.notify_all(); }
+};
+
 // simple thread pool with central queue of tasks
 //     * Destructor joins all workers (similar behaviour to std::jthread).
 //       Pending jobs are cancelled and already running ones are waited for.
-//     * Nothing fancy inside (no look-free structures, no work stealing, etc)
+//     * Cancelled jobs recieve a 'job_cancelled' exception in their associated
+//       promise/future
 //     * The future returned by ThreadPool::async() does not block on
 //       destruction, so it can simply be discarded if the return value is not
 //       needed. This is in contrast to std::async().
-//     * TODO: cancel_all() should request cooperative stopping from running
-//             jobs using some std::stop_token and such.
+//     * Nothing fancy inside (no look-free structures, no work stealing, etc)
+//     * Submitting jobs is thread-safe, including from within a running job.
+//     * TODO: some co-operative stoping, maybe using std::stop_token
 class ThreadPool
 {
 	class JobBase
 	{
 	  public:
-		// exactly one of these should be called once
+		// exactly one of run() or cancel() should be called exactly once
 		virtual void run() noexcept = 0;
 		virtual void cancel() noexcept = 0;
 		virtual ~JobBase(){};
@@ -48,12 +151,17 @@ class ThreadPool
 		std::tuple<Args...> args_;
 
 	  public:
-		Job(F f, Args... args) : f_(std::move(f)), args_(std::move(args)...) {}
+		Job(Job const &) = delete;
+		Job &operator=(Job const &) = delete;
+
+		Job(F f, Args... args) noexcept
+		    : f_(std::move(f)), args_(std::move(args)...)
+		{}
 
 		~Job()
 		{
 			// At this point, we assume promise_ to be fulfilled (either by a
-			// value or by an exception), otherwise anyone waiting on its
+			// value or by an exception). Otherwise, anyone waiting on its
 			// future will be stuck indefinitely.
 
 			// assert(promise_.has_value()); // this method doesnt exist :(
@@ -89,35 +197,26 @@ class ThreadPool
 		auto get_future() noexcept { return promise_.get_future(); }
 	};
 
-	std::vector<std::thread> threads_;
+	// worker threads
+	std::vector<std::jthread> threads_;
 
 	// job queue, usually FIFO
-	std::mutex mutex_;
-	std::deque<std::unique_ptr<JobBase>> queue_;
+	synchronized_queue<std::unique_ptr<JobBase>> queue_;
 
-	// terminate workers after draining queue
+	// controls behaviour of the worker threads
 	std::atomic<bool> terminate_{false};
 
-	// idle threads are waiting on this condition variable
-	std::condition_variable condition_;
-
-	void loop_function()
+	// "main function" of the worker threads
+	void loop_function() noexcept
 	{
+		auto should_terminate = [this]() -> bool { return terminate_; };
 		while (true)
 		{
-			auto lock = std::unique_lock(mutex_);
-			condition_.wait(lock,
-			                [this]() { return !queue_.empty() || terminate_; });
-			if (queue_.empty())
-			{
-				assert(terminate_);
-				return;
-			}
-			auto job = std::move(queue_.front());
-			queue_.pop_front();
-
-			lock.unlock();
-			job->run();
+			auto job = queue_.pop(should_terminate);
+			if (job)
+				(*job)->run();
+			else
+				break;
 		}
 	}
 
@@ -128,7 +227,7 @@ class ThreadPool
 	{
 		threads_.reserve(n);
 		for (int i = 0; i < n; ++i)
-			threads_.push_back(std::thread(&ThreadPool::loop_function, this));
+			threads_.push_back(std::jthread(&ThreadPool::loop_function, this));
 	}
 
 	// not movable because the workers have to keep a reference to the pool
@@ -140,36 +239,20 @@ class ThreadPool
 	~ThreadPool()
 	{
 		terminate_ = true;
-		cancel_pending();
-		condition_.notify_all();
-
-		// with C++20 and std::jthread, this would not be necessary
-		for (auto &t : threads_)
-			if (t.joinable())
-				t.join();
-	}
-
-	int num_threads() const { return (int)threads_.size(); }
-
-	// cancel all pending jobs (already running jobs are left running)
-	void cancel_pending()
-	{
-		auto lock = std::unique_lock(mutex_);
-		auto q = std::move(queue_);
-		lock.unlock();
+		auto q = queue_.pop_all();
+		queue_.notify();
 		for (auto &job : q)
 			job->cancel();
 	}
 
-	// Wait for all pending jobs to finish and joins the worker threads.
-	// Adding jobs after calling join() is undefined.
-	void join()
+	int num_threads() const noexcept { return (int)threads_.size(); }
+
+	void add_job(std::unique_ptr<JobBase> job) noexcept
 	{
-		terminate_ = true;
-		condition_.notify_all();
-		for (auto &t : threads_)
-			if (t.joinable())
-				t.join();
+		if (terminate_)
+			job->cancel();
+		else
+			queue_.push(std::move(job));
 	}
 
 	// asynchronously call a function (or anything invoke'able)
@@ -178,27 +261,17 @@ class ThreadPool
 	//       std::ref/cref for references, but beware of escaping dangling
 	//       references, especially because
 	//     * The returned future does not block on destruction (this is
-	//       different from std::async). The ThreadPool destructor does join
-	//       all workers (cancelling or finishing all pending work), so this
-	//       is the longest that captured references might live.
-	//     * If async itself throws, the job will is not enqueued (Though
-	//       currently, some problems do std::terminate() instead)
-	template <class F, class... Args> auto async(F &&f, Args &&...args)
+	//       different from std::async). The maximum lifetime of captured
+	//       references is determined by the ThreadPool itself, the destructor
+	//       of which cancels or waits for all all pending jobs.
+	//     * If f throws, the exception is captured and can be retrieved
+	//       from the returned future.
+	template <class F, class... Args> auto async(F f, Args... args) noexcept
 	{
-		using JobType = Job<std::decay_t<F>, std::decay_t<Args>...>;
-
-		auto job = std::make_unique<JobType>(std::forward<F>(f),
-		                                     std::forward<Args>(args)...);
+		auto job =
+		    std::make_unique<Job<F, Args...>>(std::move(f), std::move(args)...);
 		auto future = job->get_future();
-
-		// Exceptions in here would need careful cleanup. we dont bother...
-		[&]() noexcept {
-			auto lock = std::scoped_lock(mutex_);
-			queue_.push_back(std::move(job));
-		}();
-
-		condition_.notify_one(); // noexcept
-
+		add_job(std::move(job));
 		return future;
 	}
 
@@ -208,10 +281,13 @@ class ThreadPool
 	//       to finish
 	//     * If any invocation of f throws an exception, one of them is rethrown
 	//       and any additional ones are lost.
-	template <class It, class F> void for_each(It first, It last, F f)
+	//     * TODO: if one invocation of f throws, it would be reasonable to
+	//             cancel all pending invocations to get out faster.
+	template <std::forward_iterator I, std::sentinel_for<I> S, class F>
+	void for_each(I first, S last, F f)
 	{
 		// NOTE: because we capture the elements by reference, we need to be
-		//       carful to .wait() on all futures before leaving this function
+		//       careful to .wait() on all futures before leaving this function
 
 		std::vector<decltype(async(f, std::ref(*first)))> as;
 		as.reserve(std::distance(first, last));
@@ -227,6 +303,54 @@ class ThreadPool
 
 		for (auto &a : as)
 			a.get(); // rethrows any exception from the job
+	}
+
+	template <std::ranges::forward_range R, class F> void for_each(R &&r, F f)
+	{
+		for_each(std::ranges::begin(r), std::ranges::end(r), std::move(f));
+	}
+
+	// parallel filter with optional chunking
+	//     * order of elements is preserved
+	template <std ::ranges::random_access_range R, class F>
+	std::vector<std::ranges::range_value_t<R>> filter(R &&r, F f,
+	                                                  size_t chunk_size = 1)
+	{
+		assert(chunk_size >= 1);
+		using T = std::ranges::range_value_t<R>;
+		using It = std::ranges::iterator_t<R>;
+
+		std::vector<std::future<std::vector<T>>> as;
+		std::vector<T> result;
+		size_t n = std::ranges::distance(r);
+		size_t chunk_count = (n + chunk_size - 1) / chunk_size;
+		as.reserve(chunk_count);
+
+		auto fun = [&f](It first, size_t cnt) -> std::vector<T> {
+			std::vector<T> r;
+			while (cnt-- > 0)
+			{
+				if (f(*first))
+					r.push_back(*first);
+				++first;
+			}
+			return r;
+		};
+
+		// didnt implement proper exeption safety / cleanup yet, so just wrap it
+		// in noexcept to terminate on any error...
+		[&]() noexcept {
+			for (size_t i = 0; i < chunk_count; ++i)
+				as.push_back(async(fun, std::ranges::begin(r) + chunk_size * i,
+				                   std::min(chunk_size, n - chunk_size * i)));
+			for (auto &a : as)
+			{
+				std::vector<T> tmp = a.get();
+				result.insert(result.end(), tmp.begin(), tmp.end());
+			}
+		}();
+
+		return result;
 	}
 };
 

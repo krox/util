@@ -56,4 +56,26 @@ TEST_CASE("threadpool")
 		pool.for_each(v.begin(), v.end(), f);
 		CHECK(sum == 1 + 2 + 3 + 4 + 5);
 	}
+
+	SECTION("parallel for_each (range)")
+	{
+		const std::vector<int> v = {1, 2, 3, 4, 5};
+		std::atomic<int> sum{0};
+		auto f = [&sum](int x) {
+			std::this_thread::sleep_for(20ms);
+			sum += x;
+		};
+
+		util::ThreadPool pool;
+		pool.for_each(v, f);
+		CHECK(sum == 1 + 2 + 3 + 4 + 5);
+	}
+
+	SECTION("parallel filter")
+	{
+		util::ThreadPool pool;
+		std::vector<int> r = pool.filter(std::views::iota(0, 10),
+		                                 [](int a) -> bool { return a % 2; });
+		CHECK(r == std::vector<int>{1, 3, 5, 7, 9});
+	}
 }

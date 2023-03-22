@@ -71,12 +71,18 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 	static_assert(std::is_nothrow_move_constructible_v<mapped_type>);
 	static_assert(std::is_nothrow_move_assignable_v<mapped_type>);
 
-	class iterator : public std::iterator<std::forward_iterator_tag, value_type>
+	class iterator
 	{
 		hash_map *map_ = nullptr;
 		size_t index_ = 0;
 
 	  public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = hash_map::value_type;
+		using difference_type = std::ptrdiff_t;
+		using pointer = value_type *;
+		using reference = value_type &;
+
 		iterator(hash_map *map, size_t index) noexcept
 		    : map_(map), index_(index)
 		{}
@@ -105,12 +111,17 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 	};
 
 	class const_iterator
-	    : public std::iterator<std::forward_iterator_tag, const value_type>
 	{
 		hash_map const *map_ = nullptr;
 		size_t index_ = 0;
 
 	  public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = const hash_map::value_type;
+		using difference_type = std::ptrdiff_t;
+		using pointer = value_type *;
+		using reference = value_type &;
+
 		const_iterator(hash_map const *map, size_t index) noexcept
 		    : map_(map), index_(index)
 		{}

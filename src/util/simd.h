@@ -10,13 +10,16 @@
 #include "fmt/format.h"
 #include <cmath>
 
+// force inline of low level SIMD functions
+#define UTIL_SIMD_INLINE __attribute__((always_inline)) inline
+
 // configuration (no auto-detect yet)
 
-static constexpr size_t simd_native_bytes = 32; // 256 bit (AVX, AVX2)
-
-#define UTIL_SIMD_INLINE __attribute__((always_inline)) inline // force inline
-
+#ifdef __AVX__
 #include "util/bits/simd_avx.h"
+#else
+#error "no SIMD support found (maybe just missing '-march=native' ?)"
+#endif
 
 namespace util {
 
@@ -141,6 +144,16 @@ struct alignas(sizeof(T) * W) simd_mask
 		return r;                                                              \
 	}
 
+#define UTIL_DEFINE_COMPONENT_WISE_UNARY(fun)                                  \
+	template <class T, int W>                                                  \
+	UTIL_SIMD_INLINE simd<T, W> fun(simd<T, W> a) noexcept                     \
+	{                                                                          \
+		simd<T, W> r;                                                          \
+		for (int i = 0; i < W; ++i)                                            \
+			r = vinsert(r, i, std::fun(vextract(a, i)));                       \
+		return r;                                                              \
+	}
+
 UTIL_DEFINE_BINARY(operator+, add)
 UTIL_DEFINE_BINARY(operator-, sub)
 UTIL_DEFINE_BINARY(operator*, mul)
@@ -156,10 +169,50 @@ UTIL_DEFINE_COMPARISON(operator<, cmplt)
 UTIL_DEFINE_COMPARISON(operator<=, cmple)
 UTIL_DEFINE_COMPARISON(operator>, cmpgt)
 UTIL_DEFINE_COMPARISON(operator>=, cmpge)
+UTIL_DEFINE_COMPONENT_WISE_UNARY(sin)
+UTIL_DEFINE_COMPONENT_WISE_UNARY(cos)
+UTIL_DEFINE_COMPONENT_WISE_UNARY(tan)
+UTIL_DEFINE_COMPONENT_WISE_UNARY(exp)
+UTIL_DEFINE_COMPONENT_WISE_UNARY(log)
 
 #undef UTIL_DEFINE_UNARY
 #undef UTIL_DEFINE_BINARY
 #undef UTIL_DEFINE_COMPARISON
+#undef UTIL_DEFINE_COMPONENT_WISE_UNARY
+
+template <class T, int W>
+UTIL_SIMD_INLINE simd<T, W> operator-(simd<T, W> a) noexcept
+{
+	return T(0) - a;
+}
+
+template <class T, int W, class U>
+UTIL_SIMD_INLINE simd<T, W> &operator+=(simd<T, W> &a, U b) noexcept
+{
+	a = a + b;
+	return a;
+}
+
+template <class T, int W, class U>
+UTIL_SIMD_INLINE simd<T, W> &operator-=(simd<T, W> &a, U b) noexcept
+{
+	a = a - b;
+	return a;
+}
+
+template <class T, int W, class U>
+UTIL_SIMD_INLINE simd<T, W> &operator*=(simd<T, W> &a, U b) noexcept
+{
+	a = a * b;
+	return a;
+}
+
+template <class T, int W, class U>
+UTIL_SIMD_INLINE simd<T, W> &operator/=(simd<T, W> &a, U b) noexcept
+{
+	a = a / b;
+	return a;
+}
 
 template <class T, int W>
 UTIL_SIMD_INLINE T vextract(simd<T, W> a, int i) noexcept

@@ -281,7 +281,7 @@ template <typename T> void uninitialized_relocate_at(T *src, T *dest) noexcept
 		//       two loops), might help the compiler optimize. For example for
 		//       RAII types like unique_ptr, the destructor is trivial for
 		//       the freshly moved-from objects.
-		construct_at(dest, std::move(*src));
+		std::construct_at(dest, std::move(*src));
 		std::destroy_at(src);
 	}
 }

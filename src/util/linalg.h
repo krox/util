@@ -13,7 +13,8 @@ vector/matrix types for fixed (small) dimension. Similar to the GLM library.
 Some general notes:
  * The basic type 'T' can be any numerical type which supports arithmetic
    itself. Not just float/double as in GLM.
- * Mixed-Type operations are supported like Vector<double> + Vector<float>
+ * Some mixed-type operations are supported like float<->double or
+   simd<->scalar.
  * The compiler might be able to do some limited auto-vectorization.
    But for serious workloads, you probably need something like 'Vector<simd<T>>'
    using std::experimental::simd, or any available simd-wrapper library.
@@ -22,12 +23,6 @@ Notes on 'Vector':
  * Component-wise arithmetic on "Vector" includes operations like
    'vector * vector' and 'vector + scalar' which are nonsense for the
    mathematical concept 'vector', but can be very useful computationally.
-
-Notes on 'Matrix':
- * We store matrices as column-major and consider vectors to be columns.
-   So we write the their product as 'Matrix * Vector'. This is the usual
-   convention in 3D-Graphics (though OpenGL does not actually require it
-   due to user-defined shaders)
 
 Notes on implementation details/performance:
  * You should compile with '-fno-math-errno'. Otherwise you get assmebly like
@@ -63,8 +58,8 @@ template <typename T, size_t N> struct VectorStorage
 {
 	T elements_[N];
 	VectorStorage() = default;
-	T &operator[](size_t i) { return elements_[i]; }
-	T const &operator[](size_t i) const { return elements_[i]; }
+	T &operator[](size_t i) noexcept { return elements_[i]; }
+	T const &operator[](size_t i) const noexcept { return elements_[i]; }
 };
 
 template <typename T> struct VectorStorage<T, 1>
@@ -148,6 +143,9 @@ template <typename T> struct VectorStorage<T, 4>
 
 template <typename T, size_t N> struct Vector : VectorStorage<T, N>
 {
+	using value_type = T;
+	static constexpr size_t size() { return N; }
+
 	using VectorStorage<T, N>::VectorStorage;
 
 	T &operator[](size_t i) { return VectorStorage<T, N>::elements_[i]; }
@@ -155,6 +153,7 @@ template <typename T, size_t N> struct Vector : VectorStorage<T, N>
 	{
 		return VectorStorage<T, N>::elements_[i];
 	}
+
 	T *data() { return VectorStorage<T, N>::elements_; }
 	T const *data() const { return VectorStorage<T, N>::elements_; }
 	std::span<T> flat() { return std::span(data(), N); }
@@ -171,35 +170,35 @@ template <typename T, size_t N> struct Vector : VectorStorage<T, N>
 			c[i] = a[i] op b[i];                                               \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, typename U, size_t N>                                \
-	auto operator op(Vector<T, N> const &a, U const &b)                        \
-	    ->Vector<decltype(a[0] op b), N>                                       \
+	template <typename T, size_t N>                                            \
+	Vector<T, N> operator op(Vector<T, N> const &a, std::type_identity_t<T> b) \
 	{                                                                          \
-		Vector<decltype(a[0] op b), N> c;                                      \
+		Vector<T, N> c;                                                        \
 		for (size_t i = 0; i < N; ++i)                                         \
 			c[i] = a[i] op b;                                                  \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, typename U, size_t N>                                \
-	auto operator op(T const &a, Vector<U, N> const &b)                        \
-	    ->Vector<decltype(a op b[0]), N>                                       \
+	template <typename T, size_t N>                                            \
+	Vector<T, N> operator op(std::type_identity_t<T> a, Vector<T, N> const &b) \
 	{                                                                          \
-		Vector<decltype(a op b[0]), N> c;                                      \
+		Vector<T, N> c;                                                        \
 		for (size_t i = 0; i < N; ++i)                                         \
 			c[i] = a op b[i];                                                  \
 		return c;                                                              \
 	}                                                                          \
 	template <typename T, typename U, size_t N>                                \
-	void operator op##=(Vector<T, N> &a, Vector<U, N> const &b)                \
+	Vector<T, N> &operator op##=(Vector<T, N> &a, Vector<U, N> const &b)       \
 	{                                                                          \
 		for (size_t i = 0; i < N; ++i)                                         \
 			a[i] op## = b[i];                                                  \
+		return a;                                                              \
 	}                                                                          \
-	template <typename T, typename U, size_t N>                                \
-	void operator op##=(Vector<T, N> &a, U const &b)                           \
+	template <typename T, size_t N>                                            \
+	Vector<T, N> &operator op##=(Vector<T, N> &a, std::type_identity_t<T> b)   \
 	{                                                                          \
 		for (size_t i = 0; i < N; ++i)                                         \
 			a[i] op## = b;                                                     \
+		return a;                                                              \
 	}
 
 UTIL_DEFINE_VECTOR_OPERATOR(+)
@@ -225,7 +224,7 @@ auto dot(Vector<complex<T>, N> const &a, Vector<U, N> const &b)
 	// GLSL/GLM: no complex numbers at all
 	// numpy: 'vdot' does complex conjugation, 'dot' does not
 	assert(false && "dot(...) does not support complex numbers. "
-	                "Use innerProduct(...) instead.");
+	                "Use inner_product(...) instead.");
 }
 template <typename T, typename U>
 auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b)
@@ -260,7 +259,7 @@ Vector<T, N> reflect(Vector<T, N> const &a, Vector<U, N> const &normal)
 }
 
 template <typename T, typename U, size_t N>
-auto innerProduct(Vector<T, N> const &a, Vector<U, N> const &b)
+auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b)
     -> decltype(a[0] * b[0])
 {
 	decltype(a[0] * b[0]) r = conj(a[0]) * b[0];
@@ -271,7 +270,8 @@ auto innerProduct(Vector<T, N> const &a, Vector<U, N> const &b)
 
 template <typename T, size_t N> struct Matrix
 {
-	/** only square matrices (yet) */
+	using value_type = T;
+
 	Vector<T, N> data_[N];
 
 	Matrix() = default;
@@ -306,27 +306,25 @@ template <typename T, size_t N> struct Matrix
 	std::span<const T> flat() const { return std::span(data(), N * N); }
 };
 
-/** matrix <-> scalar multiplication/division */
-template <typename T, typename U, size_t N>
-auto operator*(Matrix<T, N> const &a, U const &b)
-    -> Matrix<decltype(a(0, 0) * b), N>
+// matrix <-> scalar multiplication/division
+template <typename T, size_t N>
+Matrix<T, N> operator*(Matrix<T, N> const &a, std::type_identity_t<T> b)
 {
-	Matrix<decltype(a(0, 0) * b), N> r;
+	Matrix<T, N> r;
 	for (size_t i = 0; i < N * N; ++i)
 		r.data()[i] = a.data()[i] * b;
 	return r;
 }
-template <typename T, typename U, size_t N>
-auto operator/(Matrix<T, N> const &a, U const &b)
-    -> Matrix<decltype(a(0, 0) / b), N>
+template <typename T, size_t N>
+Matrix<T, N> operator/(Matrix<T, N> const &a, std::type_identity_t<T> b)
 {
-	Matrix<decltype(a(0, 0) / b), N> r;
+	Matrix<T, N> r;
 	for (size_t i = 0; i < N * N; ++i)
 		r.data()[i] = a.data()[i] / b;
 	return r;
 }
 
-/** matrix <-> vector multiplication */
+// matrix <-> vector multiplication
 template <typename T, typename U, size_t N>
 auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b)
     -> Vector<decltype(a(0, 0) * b[0]), N>
@@ -341,6 +339,7 @@ auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b)
 	return r;
 }
 
+// matrix <-> matrix operations
 template <typename T, typename U, size_t N>
 auto operator+(Matrix<T, N> const &a, Matrix<U, N> const &b)
     -> Matrix<decltype(a(0, 0) + b(0, 0)), N>
@@ -363,7 +362,6 @@ auto operator-(Matrix<T, N> const &a, Matrix<U, N> const &b)
 	return r;
 }
 
-/** matrix <-> matrix multiplication */
 template <typename T, typename U, size_t N>
 auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
     -> Matrix<decltype(a(0, 0) * b(0, 0)), N>
@@ -379,7 +377,7 @@ auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
 	return r;
 }
 
-/** inplace operations */
+// inplace operations for convenience
 template <typename T, typename U, size_t N>
 Matrix<T, N> &operator+=(Matrix<T, N> &a, Matrix<U, N> const &b)
 {
@@ -388,12 +386,38 @@ Matrix<T, N> &operator+=(Matrix<T, N> &a, Matrix<U, N> const &b)
 			a(i, j) += b(i, j);
 	return a;
 }
+
 template <typename T, typename U, size_t N>
 Matrix<T, N> &operator-=(Matrix<T, N> &a, Matrix<U, N> const &b)
 {
 	for (size_t i = 0; i < N; ++i)
 		for (size_t j = 0; j < N; ++j)
 			a(i, j) -= b(i, j);
+	return a;
+}
+
+template <typename T, typename U, size_t N>
+Matrix<T, N> &operator*=(Matrix<T, N> &a, Matrix<U, N> const &b)
+{
+	a = a * b;
+	return a;
+}
+
+template <typename T, size_t N>
+Matrix<T, N> &operator*=(Matrix<T, N> &a, std::type_identity_t<T> b)
+{
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			a(i, j) *= b;
+	return a;
+}
+
+template <typename T, size_t N>
+Matrix<T, N> &operator/=(Matrix<T, N> &a, std::type_identity_t<T> b)
+{
+	for (size_t i = 0; i < N; ++i)
+		for (size_t j = 0; j < N; ++j)
+			a(i, j) /= b;
 	return a;
 }
 
@@ -425,7 +449,7 @@ template <typename T, size_t N> Matrix<T, N> adj(Matrix<T, N> const &a)
 }
 
 template <typename T, size_t N>
-Matrix<T, N> antiHermitianTraceless(Matrix<T, N> const &a)
+Matrix<T, N> anti_hermitian_traceless(Matrix<T, N> const &a)
 {
 	// TODO: optimize
 	auto r = (a - adj(a)) / real_t<T>(2);
@@ -476,12 +500,12 @@ template <typename T, size_t N> auto norm2(Matrix<T, N> const &a)
 	return r;
 }
 
-template <typename T, size_t N> Matrix<T, N> gramSchmidt(Matrix<T, N> a)
+template <typename T, size_t N> Matrix<T, N> gram_schmidt(Matrix<T, N> a)
 {
 	for (size_t i = 0; i < N; ++i)
 	{
 		for (size_t j = 0; j < i; ++j)
-			a(i) -= a(j) * innerProduct(a(j), a(i));
+			a(i) -= a(j) * inner_product(a(j), a(i));
 		a(i) = normalize(a(i));
 	}
 	return a;
@@ -504,55 +528,6 @@ template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
 	for (int i = 0; i < 4; ++i)
 		r = r * r;
 	return r;
-}
-
-// overloads for (horizontal) simd
-
-template <typename T, size_t N> auto vsum(Vector<T, N> const &a)
-{
-	Vector<decltype(vsum(a[0])), N> r;
-	for (size_t i = 0; i < N; ++i)
-		r[i] = vsum(a[i]);
-	return r;
-}
-template <typename T, size_t N>
-auto vextract(Vector<T, N> const &a, size_t lane)
-{
-	Vector<decltype(vsum(a[0])), N> r;
-	for (size_t i = 0; i < N; ++i)
-		r[i] = vextract(a[i], lane);
-	return r;
-}
-template <typename T, typename U, size_t N>
-void vinsert(Vector<T, N> &a, size_t lane, Vector<U, N> const &b)
-{
-	for (size_t i = 0; i < N; ++i)
-		vinsert(a[i], lane, b[i]);
-}
-
-template <typename T, size_t N> auto vsum(Matrix<T, N> const &a)
-{
-	Matrix<decltype(vsum(a(0, 0))), N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
-			r(i, j) = vsum(a(i, j));
-	return r;
-}
-template <typename T, size_t N>
-auto vextract(Matrix<T, N> const &a, size_t lane)
-{
-	Matrix<decltype(vsum(a(0, 0))), N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
-			r(i, j) = vextract(a(i, j), lane);
-	return r;
-}
-template <typename T, typename U, size_t N>
-void vinsert(Matrix<T, N> &a, size_t lane, Matrix<U, N> const &b)
-{
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
-			vinsert(a(i, j), lane, b(i, j));
 }
 
 /**

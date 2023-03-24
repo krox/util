@@ -6,6 +6,8 @@
 
 namespace util {
 
+static constexpr size_t simd_native_bytes = 32; // 256 bit (AVX, AVX2)
+
 // helpers for bitmasks
 #define UTIL_SELECT_2(a, b) ((a << 0) | (b << 1))
 #define UTIL_SELECT_4(a, b, c, d) ((a << 0) | (b << 2) | (c << 4) | (d << 6))

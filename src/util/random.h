@@ -26,6 +26,7 @@
 #include "fmt/format.h"
 
 #include "util/hash.h"
+#include "util/simd.h"
 #include <algorithm>
 #include <bit>
 #include <cassert>
@@ -199,16 +200,26 @@ class xoshiro256
 	// But faster.
 	template <typename T = double> constexpr T uniform() noexcept
 	{
-		static_assert(std::is_floating_point_v<T>);
-		// NOTE: the statistical weakness of generate_fast() is mostly in the
-		//       low bits, which are typically not used when converting to a
-		//       floating point number, so this is okay here.
+		if constexpr (std::is_floating_point_v<T>)
+		{
+			// NOTE: the statistical weakness of generate_fast() is mostly in
+			// the
+			//       low bits, which are typically not used when converting to a
+			//       floating point number, so this is okay here.
 
-		// this version can return 1.0 (depending on rounding mode)
-		return generate_fast() * 0x1p-64;
+			// this version can return 1.0 (depending on rounding mode)
+			return generate_fast() * 0x1p-64;
 
-		// this version is strictly in [0,1) (independent of rounding mode)
-		// return (generate_fast() >> 11) * 0x1p-53;
+			// this version is strictly in [0,1) (independent of rounding mode)
+			// return (generate_fast() >> 11) * 0x1p-53;
+		}
+		else /* if constexpr(is_simd_like<T>)*/
+		{
+			T r;
+			for (size_t i = 0; i < T::size(); ++i)
+				r = vinsert(r, i, uniform<typename T::value_type>());
+			return r;
+		}
 	}
 
 	// generate a value with normal/Gaussian distribution (µ=0, σ²=1)
@@ -565,7 +576,7 @@ class poisson_distribution
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
 	{
-		double L = exp(-lambda_);
+		double L = std::exp(-lambda_);
 		double p = rng.uniform();
 		int k = 0;
 		while (p > L)

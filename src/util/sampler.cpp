@@ -16,16 +16,16 @@ namespace util {
 double LogSampler::Region::areaUpper() const
 {
 	if (beta == 0)
-		return (b - a) * exp(alpha);
-	return (b - a) / beta * exp(alpha) * expm1(beta);
+		return (b - a) * std::exp(alpha);
+	return (b - a) / beta * std::exp(alpha) * std::expm1(beta);
 }
 
 /** area of lower bound */
 double LogSampler::Region::areaLower() const
 {
 	if (delta == 0)
-		return (b - a) * exp(gamma);
-	return (b - a) / delta * exp(gamma) * expm1(delta);
+		return (b - a) * std::exp(gamma);
+	return (b - a) / delta * std::exp(gamma) * std::expm1(delta);
 }
 
 /** lower area / upper area */
@@ -197,12 +197,12 @@ void LogSampler::test()
 
 		// match scaling of histogram/distribution
 		double c =
-		    util::integrate([&](double x) { return exp(f(x)); }, min, max);
+		    util::integrate([&](double x) { return std::exp(f(x)); }, min, max);
 		c = (double)count * (max - min) / binCount / c;
 
 		util::Gnuplot p;
 		p.plotHistogram(hist);
-		p.plotFunction([&](double x) { return c * exp(f(x)); }, min, max);
+		p.plotFunction([&](double x) { return c * std::exp(f(x)); }, min, max);
 	}
 }
 

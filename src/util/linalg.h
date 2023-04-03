@@ -54,7 +54,7 @@ namespace util {
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 
-template <typename T, size_t N> struct VectorStorage
+template <typename T, int N> struct VectorStorage
 {
 	T elements_[N];
 	VectorStorage() = default;
@@ -141,7 +141,7 @@ template <typename T> struct VectorStorage<T, 4>
 #pragma GCC diagnostic pop
 #endif
 
-template <typename T, size_t N> struct Vector : VectorStorage<T, N>
+template <typename T, int N> struct Vector : VectorStorage<T, N>
 {
 	using value_type = T;
 	static constexpr size_t size() { return N; }
@@ -161,42 +161,42 @@ template <typename T, size_t N> struct Vector : VectorStorage<T, N>
 };
 
 #define UTIL_DEFINE_VECTOR_OPERATOR(op)                                        \
-	template <typename T, typename U, size_t N>                                \
+	template <typename T, typename U, int N>                                   \
 	auto operator op(Vector<T, N> const &a, Vector<U, N> const &b)             \
 	    ->Vector<decltype(a[0] op b[0]), N>                                    \
 	{                                                                          \
 		Vector<decltype(a[0] op b[0]), N> c;                                   \
-		for (size_t i = 0; i < N; ++i)                                         \
+		for (int i = 0; i < N; ++i)                                            \
 			c[i] = a[i] op b[i];                                               \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t N>                                            \
+	template <typename T, int N>                                               \
 	Vector<T, N> operator op(Vector<T, N> const &a, std::type_identity_t<T> b) \
 	{                                                                          \
 		Vector<T, N> c;                                                        \
-		for (size_t i = 0; i < N; ++i)                                         \
+		for (int i = 0; i < N; ++i)                                            \
 			c[i] = a[i] op b;                                                  \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, size_t N>                                            \
+	template <typename T, int N>                                               \
 	Vector<T, N> operator op(std::type_identity_t<T> a, Vector<T, N> const &b) \
 	{                                                                          \
 		Vector<T, N> c;                                                        \
-		for (size_t i = 0; i < N; ++i)                                         \
+		for (int i = 0; i < N; ++i)                                            \
 			c[i] = a op b[i];                                                  \
 		return c;                                                              \
 	}                                                                          \
-	template <typename T, typename U, size_t N>                                \
+	template <typename T, typename U, int N>                                   \
 	Vector<T, N> &operator op##=(Vector<T, N> &a, Vector<U, N> const &b)       \
 	{                                                                          \
-		for (size_t i = 0; i < N; ++i)                                         \
+		for (int i = 0; i < N; ++i)                                            \
 			a[i] op## = b[i];                                                  \
 		return a;                                                              \
 	}                                                                          \
-	template <typename T, size_t N>                                            \
+	template <typename T, int N>                                               \
 	Vector<T, N> &operator op##=(Vector<T, N> &a, std::type_identity_t<T> b)   \
 	{                                                                          \
-		for (size_t i = 0; i < N; ++i)                                         \
+		for (int i = 0; i < N; ++i)                                            \
 			a[i] op## = b;                                                     \
 		return a;                                                              \
 	}
@@ -208,7 +208,7 @@ UTIL_DEFINE_VECTOR_OPERATOR(/)
 
 #undef UTIL_DEFINE_VECTOR_OPERATOR
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto dot(Vector<T, N> const &a, Vector<U, N> const &b) -> decltype(a[0] * b[0])
 {
 	decltype(a[0] * b[0]) r = a[0] * b[0];
@@ -216,7 +216,7 @@ auto dot(Vector<T, N> const &a, Vector<U, N> const &b) -> decltype(a[0] * b[0])
 		r += a[i] * b[i];
 	return r;
 }
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto dot(Vector<complex<T>, N> const &a, Vector<U, N> const &b)
     -> decltype(a[0] * b[0])
 {
@@ -236,29 +236,29 @@ auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b)
 	r[2] = a[0] * b[1] - a[1] * b[0];
 	return r;
 }
-template <typename T, size_t N> auto norm2(Vector<T, N> const &a)
+template <typename T, int N> auto norm2(Vector<T, N> const &a)
 {
 	auto r = norm2(a[0]);
 	for (size_t i = 1; i < N; ++i)
 		r += norm2(a[i]);
 	return r;
 }
-template <typename T, size_t N> auto length(Vector<T, N> const &a)
+template <typename T, int N> auto length(Vector<T, N> const &a)
 {
 	return sqrt(norm2(a));
 }
-template <typename T, size_t N> Vector<T, N> normalize(Vector<T, N> const &a)
+template <typename T, int N> Vector<T, N> normalize(Vector<T, N> const &a)
 {
 	// TODO: there should be a slightly faster way to compute 1/sqrt(x)
 	return a * (T(1) / length(a));
 }
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 Vector<T, N> reflect(Vector<T, N> const &a, Vector<U, N> const &normal)
 {
 	return a - 2 * dot(normal, a) * normal;
 }
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b)
     -> decltype(a[0] * b[0])
 {
@@ -268,7 +268,7 @@ auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b)
 	return r;
 }
 
-template <typename T, size_t N> struct Matrix
+template <typename T, int N> struct Matrix
 {
 	using value_type = T;
 
@@ -277,8 +277,8 @@ template <typename T, size_t N> struct Matrix
 	Matrix() = default;
 	Matrix(T const &a)
 	{
-		for (size_t i = 0; i < N; ++i)
-			for (size_t j = 0; j < N; ++j)
+		for (int i = 0; i < N; ++i)
+			for (int j = 0; j < N; ++j)
 				data_[i][j] = i == j ? a : T(real_t<T>(0));
 	}
 
@@ -307,7 +307,7 @@ template <typename T, size_t N> struct Matrix
 };
 
 // matrix <-> scalar multiplication/division
-template <typename T, size_t N>
+template <typename T, int N>
 Matrix<T, N> operator*(Matrix<T, N> const &a, std::type_identity_t<T> b)
 {
 	Matrix<T, N> r;
@@ -315,7 +315,7 @@ Matrix<T, N> operator*(Matrix<T, N> const &a, std::type_identity_t<T> b)
 		r.data()[i] = a.data()[i] * b;
 	return r;
 }
-template <typename T, size_t N>
+template <typename T, int N>
 Matrix<T, N> operator/(Matrix<T, N> const &a, std::type_identity_t<T> b)
 {
 	Matrix<T, N> r;
@@ -325,50 +325,50 @@ Matrix<T, N> operator/(Matrix<T, N> const &a, std::type_identity_t<T> b)
 }
 
 // matrix <-> vector multiplication
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b)
     -> Vector<decltype(a(0, 0) * b[0]), N>
 {
 	Vector<decltype(a(0, 0) * b[0]), N> r;
-	for (size_t i = 0; i < N; ++i)
+	for (int i = 0; i < N; ++i)
 	{
 		r[i] = T(0);
-		for (size_t j = 0; j < N; ++j)
+		for (int j = 0; j < N; ++j)
 			r[i] += a(i, j) * b[j];
 	}
 	return r;
 }
 
 // matrix <-> matrix operations
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto operator+(Matrix<T, N> const &a, Matrix<U, N> const &b)
     -> Matrix<decltype(a(0, 0) + b(0, 0)), N>
 {
 	Matrix<decltype(a(0, 0) + b(0, 0)), N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			r(i, j) = a(i, j) + b(i, j);
 	return r;
 }
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto operator-(Matrix<T, N> const &a, Matrix<U, N> const &b)
     -> Matrix<decltype(a(0, 0) - b(0, 0)), N>
 {
 	Matrix<decltype(a(0, 0) - b(0, 0)), N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			r(i, j) = a(i, j) - b(i, j);
 	return r;
 }
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
     -> Matrix<decltype(a(0, 0) * b(0, 0)), N>
 {
 	Matrix<decltype(a(0, 0) * b(0, 0)), N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 		{
 			r(i, j) = a(i, 0) * b(0, j);
 			for (size_t k = 1; k < N; ++k)
@@ -378,77 +378,77 @@ auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b)
 }
 
 // inplace operations for convenience
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 Matrix<T, N> &operator+=(Matrix<T, N> &a, Matrix<U, N> const &b)
 {
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			a(i, j) += b(i, j);
 	return a;
 }
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 Matrix<T, N> &operator-=(Matrix<T, N> &a, Matrix<U, N> const &b)
 {
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			a(i, j) -= b(i, j);
 	return a;
 }
 
-template <typename T, typename U, size_t N>
+template <typename T, typename U, int N>
 Matrix<T, N> &operator*=(Matrix<T, N> &a, Matrix<U, N> const &b)
 {
 	a = a * b;
 	return a;
 }
 
-template <typename T, size_t N>
+template <typename T, int N>
 Matrix<T, N> &operator*=(Matrix<T, N> &a, std::type_identity_t<T> b)
 {
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			a(i, j) *= b;
 	return a;
 }
 
-template <typename T, size_t N>
+template <typename T, int N>
 Matrix<T, N> &operator/=(Matrix<T, N> &a, std::type_identity_t<T> b)
 {
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			a(i, j) /= b;
 	return a;
 }
 
-template <typename T, size_t N> Matrix<T, N> transpose(Matrix<T, N> const &a)
+template <typename T, int N> Matrix<T, N> transpose(Matrix<T, N> const &a)
 {
 	Matrix<T, N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			r(i, j) = a(j, i);
 	return r;
 }
 
-template <typename T, size_t N> Matrix<T, N> conj(Matrix<T, N> const &a)
+template <typename T, int N> Matrix<T, N> conj(Matrix<T, N> const &a)
 {
 	Matrix<T, N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			r(i, j) = conj(a(i, j));
 	return r;
 }
 
-template <typename T, size_t N> Matrix<T, N> adj(Matrix<T, N> const &a)
+template <typename T, int N> Matrix<T, N> adj(Matrix<T, N> const &a)
 {
 	Matrix<T, N> r;
-	for (size_t i = 0; i < N; ++i)
-		for (size_t j = 0; j < N; ++j)
+	for (int i = 0; i < N; ++i)
+		for (int j = 0; j < N; ++j)
 			r(i, j) = conj(a(j, i));
 	return r;
 }
 
-template <typename T, size_t N>
+template <typename T, int N>
 Matrix<T, N> anti_hermitian_traceless(Matrix<T, N> const &a)
 {
 	// TODO: optimize
@@ -456,7 +456,7 @@ Matrix<T, N> anti_hermitian_traceless(Matrix<T, N> const &a)
 	return r - Matrix<T, N>{trace(r) / real_t<T>(N)};
 }
 
-template <typename T, size_t N> T trace(Matrix<T, N> const &a)
+template <typename T, int N> T trace(Matrix<T, N> const &a)
 {
 	T r = a(0, 0);
 	for (size_t i = 1; i < N; ++i)
@@ -492,26 +492,26 @@ template <typename T> Matrix<T, 3> inverse(Matrix<T, 3> const &a)
 	return b * (T(1) / determinant(a));
 }
 
-template <typename T, size_t N> auto norm2(Matrix<T, N> const &a)
+template <typename T, int N> auto norm2(Matrix<T, N> const &a)
 {
 	auto r = norm2(a(0));
-	for (size_t i = 1; i < N; ++i)
+	for (int i = 1; i < N; ++i)
 		r += norm2(a(i));
 	return r;
 }
 
-template <typename T, size_t N> Matrix<T, N> gram_schmidt(Matrix<T, N> a)
+template <typename T, int N> Matrix<T, N> gram_schmidt(Matrix<T, N> a)
 {
-	for (size_t i = 0; i < N; ++i)
+	for (int i = 0; i < N; ++i)
 	{
-		for (size_t j = 0; j < i; ++j)
+		for (int j = 0; j < i; ++j)
 			a(i) -= a(j) * inner_product(a(j), a(i));
 		a(i) = normalize(a(i));
 	}
 	return a;
 }
 
-template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
+template <typename T, int N> Matrix<T, N> exp(Matrix<T, N> const &a)
 {
 	// use exp(A) = exp(A/16)^16 with 12th-order Taylor
 	// TODO (ideas):
@@ -535,7 +535,7 @@ template <typename T, size_t N> Matrix<T, N> exp(Matrix<T, N> const &a)
  */
 template <typename T> class uniform_sphere_distribution;
 
-template <typename RealType, size_t N>
+template <typename RealType, int N>
 class uniform_sphere_distribution<Vector<RealType, N>>
 {
 	// internal helpers
@@ -552,7 +552,7 @@ class uniform_sphere_distribution<Vector<RealType, N>>
 	template <class Generator> result_type operator()(Generator &rng)
 	{
 		result_type r;
-		for (size_t i = 0; i < N; ++i)
+		for (int i = 0; i < N; ++i)
 			r[i] = normal(rng);
 		return normalize(r);
 	}
@@ -608,8 +608,7 @@ class exponential_sphere_distribution<Vector<RealType, 3>>
 } // namespace util
 
 namespace fmt {
-template <typename T, size_t N>
-struct formatter<util::Matrix<T, N>> : formatter<T>
+template <typename T, int N> struct formatter<util::Matrix<T, N>> : formatter<T>
 {
 	// NOTE: parse() is inherited from formatter<T>
 
@@ -618,9 +617,9 @@ struct formatter<util::Matrix<T, N>> : formatter<T>
 	    -> decltype(ctx.out())
 	{
 		format_to(ctx.out(), "[[");
-		for (size_t i = 0; i < N; ++i)
+		for (int i = 0; i < N; ++i)
 		{
-			for (size_t j = 0; j < N; ++j)
+			for (int j = 0; j < N; ++j)
 			{
 				if (j != 0)
 					format_to(ctx.out(), ", ");

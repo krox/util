@@ -44,7 +44,7 @@ template <typename T> struct complex
 	T re, im;
 
 	complex() = default;
-	explicit complex(int r) : re(r), im(0) {}
+	// explicit complex(int r) : re(r), im(0) {}
 	complex(T r) : re(std::move(r)), im(0) {}
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
 	template <typename U>

@@ -25,6 +25,7 @@ namespace util {
  *             using the implicit double->float conversion. Therefore the result
  *             always tracks the type of the complex and does NOT perform
  *             promotion to the bigger type.
+ *     - there is a quaternion<T> type, which is nice
  *
  *     - TODO: Add explicit 'imaginary<T>' type
  *
@@ -39,7 +40,7 @@ namespace util {
  *         LQCD:             -       'norm2'
  *         util::Vector:   'length'  'norm2'
  */
-template <typename T> struct complex
+template <class T> struct complex
 {
 	T re, im;
 
@@ -47,65 +48,67 @@ template <typename T> struct complex
 	// explicit complex(int r) : re(r), im(0) {}
 	complex(T r) : re(std::move(r)), im(0) {}
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
-	template <typename U>
+	template <class U>
 	explicit complex(complex<U> const &other) : re(other.re), im(other.im)
 	{}
 
 	T const &real() const { return re; }
 	T const &imag() const { return im; }
+
+	bool operator==(complex const &) const = default;
 };
 
-template <typename T> T const &real(complex<T> const &a) { return a.re; }
-template <typename T> T const &imag(complex<T> const &a) { return a.im; }
+template <class T> T const &real(complex<T> const &a) { return a.re; }
+template <class T> T const &imag(complex<T> const &a) { return a.im; }
 
 using std::exp, std::sin, std::cos, std::sinh, std::cosh, std::abs, std::sqrt;
 
 // unary complex
 
-template <typename T> T norm2(complex<T> const &a)
+template <class T> T norm2(complex<T> const &a)
 {
 	return a.re * a.re + a.im * a.im;
 }
-template <typename T> T norm(complex<T> const &a) { return norm2(a); }
-template <typename T> T abs(complex<T> const &a) { return sqrt(norm(a)); }
-template <typename T> complex<T> conj(complex<T> const &a)
+template <class T> T norm(complex<T> const &a) { return norm2(a); }
+template <class T> T abs(complex<T> const &a) { return sqrt(norm(a)); }
+template <class T> complex<T> conj(complex<T> const &a)
 {
 	return {a.re, -a.im};
 }
-template <typename T> complex<T> operator+(complex<T> const &a)
+template <class T> complex<T> operator+(complex<T> const &a)
 {
 	return {+a.re, +a.im};
 }
-template <typename T> complex<T> operator-(complex<T> const &a)
+template <class T> complex<T> operator-(complex<T> const &a)
 {
 	return {-a.re, -a.im};
 }
-template <typename T> complex<T> inverse(complex<T> const &a)
+template <class T> complex<T> inverse(complex<T> const &a)
 {
 	return conj(a) / norm(a);
 }
 
 // binary complex <-> complex
 
-template <typename T, typename U>
+template <class T, class U>
 auto operator+(complex<T> const &a, complex<U> const &b)
     -> complex<decltype(a.re + b.re)>
 {
 	return {a.re + b.re, a.im + b.im};
 }
-template <typename T, typename U>
+template <class T, class U>
 auto operator-(complex<T> const &a, complex<U> const &b)
     -> complex<decltype(a.re - b.re)>
 {
 	return {a.re - b.re, a.im - b.im};
 }
-template <typename T, typename U>
+template <class T, class U>
 auto operator*(complex<T> const &a, complex<U> const &b)
     -> complex<decltype(a.re * b.re)>
 {
 	return {a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
 }
-template <typename T, typename U>
+template <class T, class U>
 auto operator/(complex<T> const &a, complex<U> const &b)
     -> complex<decltype(a.re * b.re)>
 {
@@ -114,42 +117,42 @@ auto operator/(complex<T> const &a, complex<U> const &b)
 
 // binary complex <-> real
 
-template <typename T>
+template <class T>
 complex<T> operator+(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
-template <typename T>
+template <class T>
 complex<T> operator+(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a + b.re, b.im};
 }
-template <typename T>
+template <class T>
 complex<T> operator-(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
-template <typename T>
+template <class T>
 complex<T> operator-(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a - b.re, -b.im};
 }
-template <typename T>
+template <class T>
 complex<T> operator*(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
-template <typename T>
+template <class T>
 complex<T> operator*(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return {a * b.re, a * b.im};
 }
-template <typename T>
+template <class T>
 complex<T> operator/(complex<T> const &a, std::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
-template <typename T>
+template <class T>
 complex<T> operator/(std::type_identity_t<T> const &a, complex<T> const &b)
 {
 	return a * inverse(b);
@@ -157,49 +160,49 @@ complex<T> operator/(std::type_identity_t<T> const &a, complex<T> const &b)
 
 // binary complex<simd> <-> scalar real
 
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator+(complex<simd<T, W>> const &a,
                               std::type_identity_t<T> const &b)
 {
 	return {a.re + b, a.im};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator+(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a + b.re, b.im};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator-(complex<simd<T, W>> const &a,
                               std::type_identity_t<T> const &b)
 {
 	return {a.re - b, a.im};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator-(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a - b.re, -b.im};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator*(complex<simd<T, W>> const &a,
                               std::type_identity_t<T> const &b)
 {
 	return {a.re * b, a.im * b};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator*(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
 	return {a * b.re, a * b.im};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator/(complex<simd<T, W>> const &a,
                               std::type_identity_t<T> const &b)
 {
 	return {a.re / b, a.im / b};
 }
-template <typename T, size_t W>
+template <class T, size_t W>
 complex<simd<T, W>> operator/(std::type_identity_t<T> const &a,
                               complex<simd<T, W>> const &b)
 {
@@ -208,27 +211,27 @@ complex<simd<T, W>> operator/(std::type_identity_t<T> const &a,
 
 // op-assigns complex <-> complex
 
-template <typename T, typename U>
+template <class T, class U>
 complex<T> &operator+=(complex<T> &a, complex<U> const &b)
 {
 	a.re += b.re;
 	a.im += b.im;
 	return a;
 }
-template <typename T, typename U>
+template <class T, class U>
 complex<T> &operator-=(complex<T> &a, complex<U> const &b)
 {
 	a.re -= b.re;
 	a.im -= b.im;
 	return a;
 }
-template <typename T, typename U>
+template <class T, class U>
 complex<T> &operator*=(complex<T> &a, complex<U> const &b)
 {
 	a = a * b;
 	return a;
 }
-template <typename T, typename U>
+template <class T, class U>
 complex<T> &operator/=(complex<T> &a, complex<U> const &b)
 {
 	a = a / b;
@@ -237,26 +240,24 @@ complex<T> &operator/=(complex<T> &a, complex<U> const &b)
 
 // op-assigns complex <-> any
 
-template <typename T, typename U>
-complex<T> &operator+=(complex<T> &a, U const &b)
+template <class T, class U> complex<T> &operator+=(complex<T> &a, U const &b)
 {
 	a.re += b;
 	return a;
 }
-template <typename T, typename U>
-complex<T> &operator-=(complex<T> &a, U const &b)
+template <class T, class U> complex<T> &operator-=(complex<T> &a, U const &b)
 {
 	a.re -= b;
 	return a;
 }
-template <typename T, typename U> complex<T> &operator*=(complex<T> &a, U b)
+template <class T, class U> complex<T> &operator*=(complex<T> &a, U b)
 {
 	// beware of aliasing
 	a.re *= b;
 	a.im *= b;
 	return a;
 }
-template <typename T, typename U> complex<T> &operator/=(complex<T> &a, U b)
+template <class T, class U> complex<T> &operator/=(complex<T> &a, U b)
 {
 	// beware of aliasing
 	a.re /= b;
@@ -264,34 +265,30 @@ template <typename T, typename U> complex<T> &operator/=(complex<T> &a, U b)
 	return a;
 }
 
-template <typename T> bool operator==(complex<T> const &a, complex<T> const &b)
-{
-	return a.re == b.re && a.im == b.im;
-}
-template <typename T> bool operator==(complex<T> const &a, T const &b)
+template <class T> bool operator==(complex<T> const &a, T const &b)
 {
 	return a.im == 0 && a.re == b;
 }
 
 // exponentials and trigonometry
 
-template <typename T> complex<T> exp(complex<T> const &a)
+template <class T> complex<T> exp(complex<T> const &a)
 {
 	return exp(a.re) * complex<T>(cos(a.im), sin(a.im));
 }
-template <typename T> complex<T> sin(complex<T> const &a)
+template <class T> complex<T> sin(complex<T> const &a)
 {
 	return {sin(a.re) * cosh(a.im), cos(a.re) * sinh(a.im)};
 }
-template <typename T> complex<T> cos(complex<T> const &a)
+template <class T> complex<T> cos(complex<T> const &a)
 {
 	return {cos(a.re) * cosh(a.im), -sin(a.re) * sinh(a.im)};
 }
-template <typename T> complex<T> sinh(complex<T> const &a)
+template <class T> complex<T> sinh(complex<T> const &a)
 {
 	return {sinh(a.re) * cos(a.im), cosh(a.re) * sin(a.im)};
 }
-template <typename T> complex<T> cosh(complex<T> const &a)
+template <class T> complex<T> cosh(complex<T> const &a)
 {
 	return {cosh(a.re) * cos(a.im), sinh(a.re) * sin(a.im)};
 }
@@ -314,7 +311,7 @@ inline double imag([[maybe_unused]] double a) { return 0; }
 //           complex_t<T> = complex<T>    or    real_t<T> = T
 //       because these would be wrong in case of deeply nested types
 
-template <typename T> struct RealType;
+template <class T> struct RealType;
 template <> struct RealType<float>
 {
 	using type = float;
@@ -323,11 +320,11 @@ template <> struct RealType<double>
 {
 	using type = double;
 };
-template <typename T> struct RealType<complex<T>>
+template <class T> struct RealType<complex<T>>
 {
 	using type = T;
 };
-template <typename T> struct ComplexType;
+template <class T> struct ComplexType;
 template <> struct ComplexType<float>
 {
 	using type = complex<float>;
@@ -336,35 +333,198 @@ template <> struct ComplexType<double>
 {
 	using type = complex<double>;
 };
-template <typename T> struct ComplexType<complex<T>>
+template <class T> struct ComplexType<complex<T>>
 {
 	using type = complex<T>;
 };
-template <typename T> using real_t = typename RealType<T>::type;
-template <typename T> using complex_t = typename ComplexType<T>::type;
+template <class T> using real_t = typename RealType<T>::type;
+template <class T> using complex_t = typename ComplexType<T>::type;
 
 // overloads for (horizontal) simd
 
-template <typename T> auto vsum(complex<T> const &a)
+template <class T> auto vsum(complex<T> const &a)
 {
 	return complex(vsum(a.re), vsum(a.im));
 }
-template <typename T> auto vextract(complex<T> const &a, size_t lane)
+template <class T> auto vextract(complex<T> const &a, size_t lane)
 {
 	return complex(vextract(a.re, lane), vextract(a.im, lane));
 }
-template <typename T, typename U>
+template <class T, class U>
 void vinsert(complex<T> &a, size_t lane, complex<U> const &b)
 {
 	vinsert(a.re, lane, b.re);
 	vinsert(a.im, lane, b.im);
 }
 
+template <class T> struct quaternion
+{
+	T re, im1, im2, im3;
+
+	quaternion() = default;
+	quaternion(T r) : re(std::move(r)), im1(0), im2(0), im3(0) {}
+	quaternion(T a, T b, T c, T d)
+	    : re(std::move(a)), im1(std::move(b)), im2(std::move(c)),
+	      im3(std::move(d))
+	{}
+	template <class U>
+	explicit quaternion(quaternion<U> const &other)
+	    : re(other.re), im1(other.im1), im2(other.im2), im3(other.im3)
+	{}
+
+	T const &real() const { return re; }
+	T const &imag1() const { return im1; }
+	T const &imag2() const { return im2; }
+	T const &imag3() const { return im3; }
+
+	bool operator==(quaternion const &) const = default;
+};
+
+template <class T> T const &real(quaternion<T> const &a) { return a.re; }
+
+// unary quaternion
+
+template <class T> T norm2(quaternion<T> const &a)
+{
+	return a.re * a.re + a.im1 * a.im1 + a.im2 * a.im2 + a.im3 * a.im3;
+}
+
+template <class T> quaternion<T> conj(quaternion<T> const &a)
+{
+	return {a.re, -a.im1, -a.im2, -a.im3};
+}
+template <class T> quaternion<T> operator+(quaternion<T> const &a)
+{
+	return {+a.re, +a.im1, +a.im2, +a.im3};
+}
+template <class T> quaternion<T> operator-(quaternion<T> const &a)
+{
+	return {-a.re, -a.im1, -a.im2, -a.im3};
+}
+template <class T> quaternion<T> inverse(quaternion<T> const &a)
+{
+	return conj(a) / norm(a);
+}
+
+// binary quaternion <-> quaternion
+
+template <class T, class U>
+auto operator+(quaternion<T> const &a, quaternion<U> const &b)
+    -> quaternion<decltype(a.re + b.re)>
+{
+	return {a.re + b.re, a.im1 + b.im1, a.im2 + b.im2, a.im3 + b.im3};
+}
+template <class T, class U>
+auto operator-(quaternion<T> const &a, quaternion<U> const &b)
+    -> quaternion<decltype(a.re - b.re)>
+{
+	return {a.re - b.re, a.im1 - b.im1, a.im2 - b.im2, a.im3 - b.im3};
+}
+template <class T, class U>
+auto operator*(quaternion<T> const &a, quaternion<U> const &b)
+    -> quaternion<decltype(a.re * b.re)>
+{
+	return {a.re * b.re - a.im1 * b.im1 - a.im2 * b.im2 - a.im3 * b.im3,
+	        a.re * b.im1 + a.im1 * b.re + a.im2 * b.im3 - a.im3 * b.im2,
+	        a.re * b.im2 - a.im1 * b.im3 + a.im2 * b.re + a.im3 * b.im1,
+	        a.re * b.im3 + a.im1 * b.im2 - a.im2 * b.im1 + a.im3 * b.re};
+}
+template <class T, class U>
+auto operator/(quaternion<T> const &a, quaternion<U> const &b)
+    -> quaternion<decltype(a.re * b.re)>
+{
+	return (a * conj(b)) / norm(b);
+}
+
+// binary quaternion <-> real
+
+template <class T>
+quaternion<T> operator+(quaternion<T> const &a,
+                        std::type_identity_t<T> const &b)
+{
+	return {a.re + b, a.im1, a.im2, a.im3};
+}
+template <class T>
+quaternion<T> operator+(std::type_identity_t<T> const &a,
+                        quaternion<T> const &b)
+{
+	return {a + b.re, b.im1, b.im2, b.im3};
+}
+template <class T>
+quaternion<T> operator-(quaternion<T> const &a,
+                        std::type_identity_t<T> const &b)
+{
+	return {a.re - b, a.im1, a.im2, a.im3};
+}
+template <class T>
+quaternion<T> operator-(std::type_identity_t<T> const &a,
+                        quaternion<T> const &b)
+{
+	return {a - b.re, -b.im1, -b.im2, -b.im3};
+}
+template <class T>
+quaternion<T> operator*(quaternion<T> const &a,
+                        std::type_identity_t<T> const &b)
+{
+	return {a.re * b, a.im1 * b, a.im2 * b, a.im3 * b};
+}
+template <class T>
+quaternion<T> operator*(std::type_identity_t<T> const &a,
+                        quaternion<T> const &b)
+{
+	return {a * b.re, a * b.im1, a * b.im2, a * b.im3};
+}
+template <class T>
+quaternion<T> operator/(quaternion<T> const &a,
+                        std::type_identity_t<T> const &b)
+{
+	return {a.re / b, a.im1 / b, a.im2 / b, a.im3 / b};
+}
+template <class T>
+quaternion<T> operator/(std::type_identity_t<T> const &a,
+                        quaternion<T> const &b)
+{
+	return a * inverse(b);
+}
+
+// op-assigns quaternion <-> quaternion
+
+template <class T, class U>
+quaternion<T> &operator+=(quaternion<T> &a, quaternion<U> const &b)
+{
+	a = a + b;
+	return a;
+}
+template <class T, class U>
+quaternion<T> &operator-=(quaternion<T> &a, quaternion<U> const &b)
+{
+	a.re -= b.re;
+	a.im -= b.im;
+	return a;
+}
+template <class T, class U>
+quaternion<T> &operator*=(quaternion<T> &a, quaternion<U> const &b)
+{
+	a = a * b;
+	return a;
+}
+template <class T, class U>
+quaternion<T> &operator/=(quaternion<T> &a, quaternion<U> const &b)
+{
+	a = a / b;
+	return a;
+}
+
+template <class T> bool operator==(quaternion<T> const &a, T const &b)
+{
+	return a.im1 == 0 && a.im2 == 0 && a.im3 == 0 && a.re == b;
+}
+
 } // namespace util
 
-template <typename T> struct fmt::formatter<util::complex<T>> : formatter<T>
+template <class T> struct fmt::formatter<util::complex<T>> : formatter<T>
 {
-	template <typename FormatContext>
+	template <class FormatContext>
 	auto format(const util::complex<T> &a, FormatContext &ctx)
 	{
 		if (a.im == 0)
@@ -378,5 +538,23 @@ template <typename T> struct fmt::formatter<util::complex<T>> : formatter<T>
 		format_to(ctx.out(), " + ");
 		formatter<T>::format(a.im, ctx);
 		return format_to(ctx.out(), "i");
+	}
+};
+
+template <class T> struct fmt::formatter<util::quaternion<T>> : formatter<T>
+{
+	template <class FormatContext>
+	auto format(const util::quaternion<T> &a, FormatContext &ctx)
+	{
+		format_to(ctx.out(), "{{");
+		formatter<T>::format(a.re, ctx);
+		format_to(ctx.out(), ", ");
+		formatter<T>::format(a.im1, ctx);
+		format_to(ctx.out(), ", ");
+		formatter<T>::format(a.im2, ctx);
+		format_to(ctx.out(), ", ");
+		formatter<T>::format(a.im3, ctx);
+		format_to(ctx.out(), "}}");
+		return ctx.out();
 	}
 };

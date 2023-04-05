@@ -13,15 +13,13 @@
 // force inline of low level SIMD functions
 #define UTIL_SIMD_INLINE __attribute__((always_inline)) inline
 
-// configuration (no auto-detect yet)
+#if __AVX__
 
-#ifdef __AVX__
 #include "util/bits/simd_avx.h"
-#else
-#error "no SIMD support found (maybe just missing '-march=native' ?)"
-#endif
 
 namespace util {
+
+static constexpr size_t simd_native_bytes = 32; // 256 bit (AVX, AVX2)
 
 template <class T, int W> struct simd_impl;
 template <> struct simd_impl<float, 4>
@@ -40,6 +38,26 @@ template <> struct simd_impl<double, 4>
 {
 	using impl = avx_double;
 };
+} // namespace util
+
+#elif _OPENMP
+
+#define UTIL_SIMD_FOR(i, n) _Pragma("omp simd") for (int i = 0; i < n; ++i)
+#include "util/bits/simd_generic.h"
+#undef UTIL_SIMD_FOR
+namespace util {
+static constexpr size_t simd_native_bytes = 32; // 256 bit, arbitrary
+template <class T, int W> struct simd_impl
+{
+	using impl = simd_generic<T, W>;
+};
+} // namespace util
+
+#else
+#error "no SIMD support found (maybe just missing '-march=native' ?)"
+#endif
+
+namespace util {
 
 template <class T, int W = simd_native_bytes / sizeof(T)>
 struct alignas(sizeof(T) * W) simd
@@ -53,7 +71,7 @@ struct alignas(sizeof(T) * W) simd
 	static_assert(std::is_same_v<value_type, typename impl::scalar>);
 	static_assert(size() * sizeof(T) == sizeof(typename impl::vector));
 
-	impl::vector v_;
+	typename impl::vector v_;
 
 	simd() = default;
 	simd(T a) noexcept : v_(impl::make(a)) {}
@@ -75,7 +93,7 @@ struct alignas(sizeof(T) * W) simd_mask
 	static_assert(std::has_single_bit(size_t(W)));
 	static_assert(sizeof(typename impl::mask) == sizeof(typename impl::vector));
 
-	impl::mask v_;
+	typename impl::mask v_;
 
 	simd_mask() = default;
 	simd_mask(bool a) noexcept : v_(impl::make_mask(a)) {}

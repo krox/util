@@ -81,19 +81,19 @@ template <typename Rng> inline double LogSampler::operator()(Rng &rng)
 		const Region &r = regs[i];
 
 		// candidate in [0,1] with exponential distribution
-		double u = uni_dist(rng) * (1 - exp(-r.beta)) + exp(-r.beta);
-		double x = log(u) / r.beta + 1;
+		double u = uni_dist(rng) * (1 - std::exp(-r.beta)) + std::exp(-r.beta);
+		double x = std::log(u) / r.beta + 1;
 		if (r.beta == 0)
 			x = uni_dist(rng);
 		assert(0 <= x && x <= 1);
 
 		// uniform in [0,upper(x)]
-		double y = uni_dist(rng) * exp(r.alpha + r.beta * x);
+		double y = uni_dist(rng) * std::exp(r.alpha + r.beta * x);
 
-		if (y > exp(r.gamma + r.delta * x)) // over lower bound?
+		if (y > std::exp(r.gamma + r.delta * x)) // over lower bound?
 		{
 			++nEvals;
-			if (y > exp(f(r.a + (r.b - r.a) * x))) // over f itself?
+			if (y > std::exp(f(r.a + (r.b - r.a) * x))) // over f itself?
 				continue;
 		}
 

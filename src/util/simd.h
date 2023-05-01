@@ -80,6 +80,22 @@ struct alignas(sizeof(T) * W) simd
 	simd(T a, T b, T c, T d, T e, T f, T g, T h) noexcept
 	    : v_(impl::make(a, b, c, d, e, f, g, h))
 	{}
+
+	// TODO: this should be removed in favor of actual SIMD-PRNG
+	template <class Rng> static simd random_uniform(Rng &rng)
+	{
+		simd r;
+		for (int i = 0; i < W; ++i)
+			r = vinsert(r, i, rng.template uniform<T>());
+		return r;
+	}
+	template <class Rng> static simd random_normal(Rng &rng)
+	{
+		simd r;
+		for (int i = 0; i < W; ++i)
+			r = vinsert(r, i, rng.template normal<T>());
+		return r;
+	}
 };
 
 template <class T, int W = simd_native_bytes / sizeof(T)>
@@ -137,6 +153,29 @@ struct alignas(sizeof(T) * W) simd_mask
 		return r;                                                              \
 	}
 
+#define UTIL_DEFINE_REDUCTION(op, fun)                                         \
+	template <class T> UTIL_SIMD_INLINE T op(simd<T, 2> a) noexcept            \
+	{                                                                          \
+		using impl = simd<T, 2>::impl;                                         \
+		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
+		return impl::extract(r, 0);                                            \
+	}                                                                          \
+	template <class T> UTIL_SIMD_INLINE T op(simd<T, 4> a) noexcept            \
+	{                                                                          \
+		using impl = simd<T, 4>::impl;                                         \
+		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
+		r = impl::fun(r, impl::permute1(r));                                   \
+		return impl::extract(r, 0);                                            \
+	}                                                                          \
+	template <class T> UTIL_SIMD_INLINE T op(simd<T, 8> a) noexcept            \
+	{                                                                          \
+		using impl = simd<T, 8>::impl;                                         \
+		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
+		r = impl::fun(r, impl::permute1(r));                                   \
+		r = impl::fun(r, impl::permute2(r));                                   \
+		return impl::extract(r, 0);                                            \
+	}
+
 #define UTIL_DEFINE_COMPARISON(op, fun)                                        \
 	template <class T, int W>                                                  \
 	UTIL_SIMD_INLINE simd_mask<T, W> op(simd<T, W> a, simd<T, W> b) noexcept   \
@@ -181,6 +220,10 @@ UTIL_DEFINE_BINARY(max, max)
 UTIL_DEFINE_UNARY(sqrt, sqrt)
 UTIL_DEFINE_UNARY(vpermute0, permute0)
 UTIL_DEFINE_UNARY(vpermute1, permute1)
+UTIL_DEFINE_UNARY(vpermute2, permute2)
+UTIL_DEFINE_REDUCTION(vsum, add)
+UTIL_DEFINE_REDUCTION(vmin, min)
+UTIL_DEFINE_REDUCTION(vmax, max)
 UTIL_DEFINE_COMPARISON(operator==, cmpeq)
 UTIL_DEFINE_COMPARISON(operator!=, cmpneq)
 UTIL_DEFINE_COMPARISON(operator<, cmplt)
@@ -195,8 +238,23 @@ UTIL_DEFINE_COMPONENT_WISE_UNARY(log)
 
 #undef UTIL_DEFINE_UNARY
 #undef UTIL_DEFINE_BINARY
+#undef UTIL_DEFINE_REDUCTION
 #undef UTIL_DEFINE_COMPARISON
 #undef UTIL_DEFINE_COMPONENT_WISE_UNARY
+
+template <std::floating_point T, int W> simd<T, W> norm2(simd<T, W> a) noexcept
+{
+	return a * a;
+}
+
+template <std::floating_point T, int W> simd<T, W> conj(simd<T, W> a) noexcept
+{
+	return a;
+}
+
+template <std::floating_point T> T vsum(T a) noexcept { return a; }
+template <std::floating_point T> T vmin(T a) noexcept { return a; }
+template <std::floating_point T> T vmax(T a) noexcept { return a; }
 
 template <class T, int W>
 UTIL_SIMD_INLINE simd<T, W> operator-(simd<T, W> a) noexcept
@@ -251,6 +309,13 @@ template <class T, int W>
 UTIL_SIMD_INLINE bool all_of(simd_mask<T, W> a) noexcept
 {
 	return simd_mask<T, W>::impl::all_of(a.v_);
+}
+
+// TODO: remove this. should do proper simd-prng
+template <class T, int W, class Rng> void gaussian(simd<T, W> x, Rng &rng)
+{
+	for (int i = 0; i < W; ++i)
+		x = vinsert(x, i, rng.normal());
 }
 
 using vfloat4 = simd<float, 4>;

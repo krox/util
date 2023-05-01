@@ -38,10 +38,79 @@
 
 namespace util {
 
-/**
- * Originally written in 2015 by Sebastiano Vigna (vigna@acm.org).
- * public domain, taken from http://xoroshiro.di.unimi.it/splitmix64.c
- */
+// return gaussian/normal random value using ziggurat method
+template <class Rng> double ziggurat_normal(Rng &rng)
+{
+	// tables for the Ziggurat method
+	auto pdf = [](double x) { return std::exp(-0.5 * x * x); };
+	constexpr int n = 16; // must be power of two
+	static constexpr double table_x[17] = {
+	    0,
+	    0.5760613949656382,
+	    0.7848844962025341,
+	    0.9423784527652854,
+	    1.0773743224753307,
+	    1.200704026435259,
+	    1.3180610326087927,
+	    1.4332000178637592,
+	    1.5491474170121649,
+	    1.6688615282467072,
+	    1.7958043759924367,
+	    1.9347422398932554,
+	    2.093335394648163,
+	    2.2862554378205204,
+	    2.5498700041250193,
+	    3.0419762337330707,
+	    9,
+	};
+	static constexpr double table_y[17] = {
+	    1,
+	    0.8471111497389042,
+	    0.734899270434089,
+	    0.641440677341622,
+	    0.5596925211819822,
+	    0.4863410853434781,
+	    0.41952068615317745,
+	    0.35806843715908643,
+	    0.3012156396855146,
+	    0.24844112073029095,
+	    0.1993971571819638,
+	    0.15387514265202898,
+	    0.11180192085428531,
+	    0.0732789444190452,
+	    0.03873860933779797,
+	    0.00978592937289994,
+	    2.576757109154981e-18,
+	};
+
+	// implementaion notes:
+	//    * a uniform double does not (usually) use the low bits of the
+	//      random 64-bit value. Therefore we can simply use some for
+	//      randomly selecting the layer and the sign
+	//    * only ~2^-64 of the pdf is outside of a 9-sigma radius. Therefore
+	//      it will not be practically noticable if we just cut off there
+	//    * implementation could be slightly optimized by pre-multiplying
+	//      tablex by 2^-64 and such ideas
+	//    * also, for maximal performance, one might use exponential tails
+	//      instead of truncation, and also bigger tables
+
+	while (true)
+	{
+		auto u = rng();
+		auto i = (size_t)(u & (n - 1));
+		auto x = u * 0x1.0p-64;
+		x *= table_x[i + 1];
+		if (x > table_x[i])
+			if (table_y[i + 1] + rng.uniform() * (table_y[i] - table_y[i + 1]) >
+			    pdf(x))
+				continue;
+
+		return (u & n) ? x : -x;
+	}
+}
+
+// Originally written by Sebastiano Vigna (vigna@acm.org), 2015
+// public domain, taken from http://xoroshiro.di.unimi.it/splitmix64.c
 class splitmix64
 {
 	uint64_t s = 0; // all values are allowed
@@ -66,11 +135,9 @@ class splitmix64
 	}
 };
 
-/**
- * This is xoshiro256**, version 1.0.
- * Originally written in 2018 by David Blackman and Sebastiano Vigna.
- * public domain, from http://xoshiro.di.unimi.it/xoshiro256starstar.c
- */
+// This is xoshiro256**, version 1.0.
+// Originally written by David Blackman and Sebastiano Vigna, 2018
+// public domain, from http://xoshiro.di.unimi.it/xoshiro256starstar.c
 class xoshiro256
 {
 	uint64_t s[4] = {}; // should not be all zeroes
@@ -88,7 +155,7 @@ class xoshiro256
 	static constexpr uint64_t min() { return 0; }
 	static constexpr uint64_t max() { return UINT64_MAX; }
 
-	/** set the internal state using a 64 bit seed */
+	// set the internal state using a 64 bit seed
 	constexpr void seed(uint64_t x) noexcept
 	{
 		splitmix64 gen(x);
@@ -213,82 +280,19 @@ class xoshiro256
 			// this version is strictly in [0,1) (independent of rounding mode)
 			// return (generate_fast() >> 11) * 0x1p-53;
 		}
-		else /* if constexpr(is_simd_like<T>)*/
+		else // simd, vector, complex...
 		{
-			T r;
-			for (size_t i = 0; i < T::size(); ++i)
-				r = vinsert(r, i, uniform<typename T::value_type>());
-			return r;
+			return T::random_uniform(*this);
 		}
 	}
 
 	// generate a value with normal/Gaussian distribution (µ=0, σ²=1)
-	template <typename T = double> T normal()
+	template <class T = double> T normal()
 	{
-		// tables for the Ziggurat method
-		auto pdf = [](double x) { return std::exp(-0.5 * x * x); };
-		constexpr int n = 16; // must be power of two
-		constexpr double table_x[17] = {
-		    0,
-		    0.5760613949656382,
-		    0.7848844962025341,
-		    0.9423784527652854,
-		    1.0773743224753307,
-		    1.200704026435259,
-		    1.3180610326087927,
-		    1.4332000178637592,
-		    1.5491474170121649,
-		    1.6688615282467072,
-		    1.7958043759924367,
-		    1.9347422398932554,
-		    2.093335394648163,
-		    2.2862554378205204,
-		    2.5498700041250193,
-		    3.0419762337330707,
-		    9,
-		};
-		constexpr double table_y[17] = {
-		    1,
-		    0.8471111497389042,
-		    0.734899270434089,
-		    0.641440677341622,
-		    0.5596925211819822,
-		    0.4863410853434781,
-		    0.41952068615317745,
-		    0.35806843715908643,
-		    0.3012156396855146,
-		    0.24844112073029095,
-		    0.1993971571819638,
-		    0.15387514265202898,
-		    0.11180192085428531,
-		    0.0732789444190452,
-		    0.03873860933779797,
-		    0.00978592937289994,
-		    2.576757109154981e-18,
-		};
-
-		// implementaion notes:
-		//    * a uniform double does not (usually) use the low bits of the
-		//      random 64-bit value. Therefore we can simply use some for
-		//      randomly selecting the layer and the sign
-		//    * only ~2^-64 of the pdf is outside of a 9-sigma radius. Therefore
-		//      it will not be practically noticable if we just cut off there
-		//    * implementation could be slightly optimized by pre-multiplying
-		//      tablex by 2^-64 and such ideas
-		//    * also, for maximal performance, one might use exponential tails
-		//      instead of truncation, and also bigger tables
-
-		auto u = (*this)();
-		auto i = (size_t)(u & (n - 1));
-		auto x = u * 0x1.0p-64;
-		x *= table_x[i + 1];
-		if (x > table_x[i])
-		{
-			if (table_y[i + 1] + uniform() * (table_y[i] - table_y[i + 1]) >
-			    pdf(x))
-				return normal();
-		}
-		return (u & n) ? x : -x;
+		if constexpr (std::is_floating_point_v<T>)
+			return ziggurat_normal(*this);
+		else // simd, vector, complex...
+			return T::random_normal(*this);
 	}
 
 	// bernoulli with p=1/2

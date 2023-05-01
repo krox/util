@@ -199,6 +199,7 @@ struct avx_float
 	// shuffles
 	static UTIL_SIMD_INLINE vector permute0(vector a) noexcept { return _mm256_shuffle_ps(a, a, UTIL_SELECT_4(1, 0, 3, 2)); }
 	static UTIL_SIMD_INLINE vector permute1(vector a) noexcept { return _mm256_shuffle_ps(a, a, UTIL_SELECT_4(2, 3, 0, 1)); }
+	static UTIL_SIMD_INLINE vector permute2(vector a) noexcept { return _mm256_permute2f128_ps(a, a, 1); }
 
 	// m ? b : a
 	static UTIL_SIMD_INLINE vector blend(vector a, vector b, mask m) { return _mm256_blendv_ps(a, b, _mm256_castsi256_ps(m)); }

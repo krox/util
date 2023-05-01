@@ -42,15 +42,22 @@ namespace util {
  */
 template <class T> struct complex
 {
+	using value_type = T;
+
 	T re, im;
 
 	complex() = default;
 	// explicit complex(int r) : re(r), im(0) {}
-	complex(T r) : re(std::move(r)), im(0) {}
+	explicit complex(T r) : re(std::move(r)), im(0) {}
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
 	template <class U>
 	explicit complex(complex<U> const &other) : re(other.re), im(other.im)
 	{}
+
+	template <class Rng> static complex<T> random_normal(Rng &rng)
+	{
+		return {rng.template normal<T>(), rng.template normal<T>()};
+	}
 
 	T const &real() const { return re; }
 	T const &imag() const { return im; }
@@ -359,6 +366,8 @@ void vinsert(complex<T> &a, size_t lane, complex<U> const &b)
 
 template <class T> struct quaternion
 {
+	using value_type = T;
+
 	T re, im1, im2, im3;
 
 	quaternion() = default;
@@ -371,6 +380,12 @@ template <class T> struct quaternion
 	explicit quaternion(quaternion<U> const &other)
 	    : re(other.re), im1(other.im1), im2(other.im2), im3(other.im3)
 	{}
+
+	template <class Rng> static quaternion<T> random_normal(Rng &rng)
+	{
+		return {rng.template normal<T>(), rng.template normal<T>(),
+		        rng.template normal<T>(), rng.template normal<T>()};
+	}
 
 	T const &real() const { return re; }
 	T const &imag1() const { return im1; }

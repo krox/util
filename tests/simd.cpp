@@ -75,6 +75,9 @@ TEST_CASE("simd operations", "[simd]")
 		CHECK(fmt::format("{}", vpermute1(util::vfloat8(0.1, 0.2, 0.3, 0.4, 0.5,
 		                                                0.6, 0.7, 0.8))) ==
 		      "{0.3, 0.4, 0.1, 0.2, 0.7, 0.8, 0.5, 0.6}");
+		CHECK(fmt::format("{}", vpermute2(util::vfloat8(0.1, 0.2, 0.3, 0.4, 0.5,
+		                                                0.6, 0.7, 0.8))) ==
+		      "{0.5, 0.6, 0.7, 0.8, 0.1, 0.2, 0.3, 0.4}");
 		CHECK(
 		    fmt::format("{}", vpermute0(util::vdouble4(0.1, 0.2, 0.3, 0.4))) ==
 		    "{0.2, 0.1, 0.4, 0.3}");

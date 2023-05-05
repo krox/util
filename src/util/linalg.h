@@ -229,7 +229,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 	template <class T, int N>                                                  \
 	auto operator op(V<T, N> const &a, typename S b) noexcept                  \
 	{                                                                          \
-		V<decltype(a.data()[0] op b), N> r;                                    \
+		V<T, N> r;                                                             \
 		for (int i = 0; i < DIM; ++i)                                          \
 			r.data()[i] = a.data()[i] op b;                                    \
 		return r;                                                              \
@@ -246,7 +246,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 	template <class T, int N>                                                  \
 	auto operator op(typename S a, V<T, N> const &b) noexcept                  \
 	{                                                                          \
-		V<decltype(a op b.data()[0]), N> r;                                    \
+		V<T, N> r;                                                             \
 		for (int i = 0; i < DIM; ++i)                                          \
 			r.data()[i] = a op b.data()[i];                                    \
 		return r;                                                              \
@@ -380,12 +380,15 @@ template <class T, int N> struct Matrix
 				(*this)(i, j) = i == j ? a : T(0);
 	}
 
-	/*Matrix(T::value_type const &a) noexcept
+	Matrix(typename T::value_type const &a) noexcept
 	{
-	    for (int i = 0; i < N; ++i)
-	        for (int j = 0; j < N; ++j)
-	            (*this)(i, j) = i == j ? T(a) : T(T::value_type(0));
-	}*/
+		// NOTE: the extra 'typename' is necessary in case 'T::value_type' does
+		//       not actually exists (e.g. T==float/double). This way, parsing
+		//       works and this overload is (correctly) essentially ignored.
+		for (int i = 0; i < N; ++i)
+			for (int j = 0; j < N; ++j)
+				(*this)(i, j) = i == j ? T(a) : T(typename T::value_type(0));
+	}
 
 	static Matrix zero() noexcept { return Matrix(T(0)); }
 	static Matrix identity() noexcept { return Matrix(T(1)); }
@@ -632,8 +635,8 @@ Matrix<T, N> exp(Matrix<T, N> const &a, int order = 12) noexcept
 	//    * handle the trace of a separately (and exactly)
 	//    * choose the expansion order depending on the norm of a
 	//    * use exact formulas for small N
-	auto b = a * (1.0 / 16.0);
-	auto r = Matrix<T, N>::identity() + b;
+	Matrix<T, N> b = a * (1.0 / 16.0);
+	Matrix<T, N> r = Matrix<T, N>::identity() + b;
 	for (int n = 2; n <= order; ++n)
 	{
 		b = a * b * (1.0 / (16.0 * n));

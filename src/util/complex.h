@@ -507,14 +507,19 @@ quaternion<T> operator/(std::type_identity_t<T> const &a,
 template <class T, class U>
 quaternion<T> &operator+=(quaternion<T> &a, quaternion<U> const &b)
 {
-	a = a + b;
+	a.re += b.re;
+	a.im1 += b.im1;
+	a.im2 += b.im2;
+	a.im3 += b.im3;
 	return a;
 }
 template <class T, class U>
 quaternion<T> &operator-=(quaternion<T> &a, quaternion<U> const &b)
 {
 	a.re -= b.re;
-	a.im -= b.im;
+	a.im1 -= b.im1;
+	a.im2 -= b.im2;
+	a.im3 -= b.im3;
 	return a;
 }
 template <class T, class U>
@@ -527,6 +532,26 @@ template <class T, class U>
 quaternion<T> &operator/=(quaternion<T> &a, quaternion<U> const &b)
 {
 	a = a / b;
+	return a;
+}
+
+template <class T>
+quaternion<T> &operator*=(quaternion<T> &a, std::type_identity_t<T> b)
+{
+	a.re *= b;
+	a.im1 *= b;
+	a.im2 *= b;
+	a.im3 *= b;
+	return a;
+}
+
+template <class T>
+quaternion<T> &operator/=(quaternion<T> &a, std::type_identity_t<T> b)
+{
+	a.re /= b;
+	a.im1 /= b;
+	a.im2 /= b;
+	a.im3 /= b;
 	return a;
 }
 

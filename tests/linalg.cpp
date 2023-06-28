@@ -18,6 +18,9 @@ TEMPLATE_PRODUCT_TEST_CASE("simple matrix identities", "[linalg]",
                            (float, double, util::complex<float>,
                             util::complex<double>, util::simd<float>))
 {
+	CHECK_EQ(TestType(1.0), TestType::identity());
+	CHECK_EQ(TestType(0.0), TestType::zero());
+
 	using std::exp;
 	using util::norm2;
 	auto rng = util::xoshiro256(12345);

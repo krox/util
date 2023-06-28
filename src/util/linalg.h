@@ -373,6 +373,7 @@ template <class T, int N> struct Matrix
 	Vector data_[N];
 
 	Matrix() = default;
+
 	Matrix(T const &a) noexcept
 	{
 		for (int i = 0; i < N; ++i)
@@ -380,11 +381,12 @@ template <class T, int N> struct Matrix
 				(*this)(i, j) = i == j ? a : T(0);
 	}
 
-	Matrix(typename T::value_type const &a) noexcept
+	template <std::convertible_to<typename T::value_type> V>
+	Matrix(V const &a) noexcept
 	{
-		// NOTE: the extra 'typename' is necessary in case 'T::value_type' does
-		//       not actually exists (e.g. T==float/double). This way, parsing
-		//       works and this overload is (correctly) essentially ignored.
+		// NOTE: the extra template-indirection with 'V' is necessary in case
+		// 'T' is not a class type (i.e. T=float/double), which makes
+		// 'T::value_type' invalid. This way, its SFINAE'd away.
 		for (int i = 0; i < N; ++i)
 			for (int j = 0; j < N; ++j)
 				(*this)(i, j) = i == j ? T(a) : T(typename T::value_type(0));

@@ -3,34 +3,30 @@ project (util LANGUAGES C CXX)
 
 # dependencies
 
-set(FMT_SYSTEM_HEADERS ON) # treat libfmt as system headers, which silences some warnings
-
 find_package(HDF5 REQUIRED) # should be optional
 
-include(FetchContent)
+include(cmake/CPM.cmake)
 
-FetchContent_Declare(
-  fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt
-  GIT_TAG        a33701196adfad74917046096bf5a2aa0ab0bb50 # v9.1.0
-)
-FetchContent_Declare(
-	blake3
-	# This is fork of the official BLAKE3 repo that includes CMake support.
-	# Should switch to the official one if this gets merged:
-	# https://github.com/BLAKE3-team/BLAKE3/pull/247
-	GIT_REPOSITORY https://github.com/SteveGremory/BLAKE3
-	GIT_TAG        a8914f5ab88a84007f8c94ae4f66ac074b158f9c
-)
-FetchContent_Declare(
-  cli11
-  GIT_REPOSITORY https://github.com/CLIUtils/CLI11
-  GIT_TAG        291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
+CPMAddPackage(
+  NAME fmt
+  GITHUB_REPOSITORY fmtlib/fmt
+  GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2 # v10.0.0
 )
 
-FetchContent_MakeAvailable(fmt blake3 cli11)
-
+CPMAddPackage(
+	NAME blake3
+	GITHUB_REPOSITORY BLAKE3-team/BLAKE3
+	GIT_TAG 3f396d223946f722ab060fe9377cd1cebacaf4c0 # a little after v1.4.0
+	DOWNLOAD_ONLY True
+)
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
+include_directories(${blake3_SOURCE_DIR}/c)
+
+CPMAddPackage(
+  NAME cli11
+  GITHUB_REPOSITORY CLIUtils/CLI11
+  GIT_TAG 291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
+)
 
 # main library
 
@@ -38,7 +34,7 @@ add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
-target_link_libraries(util PUBLIC fmt::fmt blake3-shared)
+target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
 target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
 
 # optional hdf5 library
@@ -61,15 +57,12 @@ install(FILES ${files_h} DESTINATION include)
 
 # unittests
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-	include(FetchContent)
 
-	FetchContent_Declare(
-	  Catch2
-	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-	  GIT_TAG        2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
+	CPMAddPackage(
+	  NAME Catch2
+	  GITHUB_REPOSITORY catchorg/Catch2
+	  GIT_TAG 2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
 	)
-
-	FetchContent_MakeAvailable(Catch2)
 
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)

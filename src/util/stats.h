@@ -67,13 +67,13 @@ inline double variance(gspan<const double> xs)
 // mean of |x_i|
 inline double mean_abs(gspan<const double> xs)
 {
-	return mean(xs, [](double x) { return fabs(x); });
+	return mean(xs, [](double x) { return std::abs(x); });
 }
 
 // variance of |x_i|
 inline double variance_abs(gspan<const double> xs)
 {
-	return variance(xs, [](double x) { return fabs(x); });
+	return variance(xs, [](double x) { return std::abs(x); });
 }
 
 double covariance(gspan<const double> xs, gspan<const double> ys);
@@ -260,7 +260,7 @@ template <> class Estimator<1>
 
 	double variance() const { return m2 / (n - 1); }
 
-	double skewness() const { return m3 / n / pow(variance(), 1.5); }
+	double skewness() const { return m3 / n / std::pow(variance(), 1.5); }
 
 	double kurtosis() const
 	{

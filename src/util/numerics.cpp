@@ -7,6 +7,8 @@ using namespace std;
 
 namespace util {
 
+using std::isnan, std::abs, std::min, std::max;
+
 double solve(function_t f, double a, double b)
 {
 	assert(!isnan(a) && !isnan(b));
@@ -273,6 +275,49 @@ double integrate_hermite_63(function_t f)
 	for (size_t i = 1; i < 32; ++i)
 		s += GH63_w[i] * (f(-GH63_x[i]) + f(GH63_x[i]));
 	return s;
+}
+
+FSum::FSum(double x)
+{
+	if (x != 0)
+		parts_.push_back(x);
+}
+
+FSum &FSum::operator+=(double x)
+{
+	// NOTE: this algorithm ensures that the parts have non-overlapping
+	// bits, but it does not ensure that the mantissas are fully utilized.
+	// I.e. it can happen that each part only contains a single bit.
+	size_t j = 0;
+	for (double y : parts_)
+	{
+		double high = x + y;
+		double tmp = high - x;
+		double low = (x - (high - tmp)) + (y - tmp);
+
+		if (low != 0.0)
+			parts_[j++] = low;
+		x = high;
+	}
+	parts_.resize(j);
+	if (x != 0)
+		parts_.push_back(x);
+	return *this;
+}
+
+FSum &FSum::operator-=(double x) { return *this += -x; }
+
+FSum::operator double() const
+{
+	// this sums low to high. correctnes proof in
+	//    www-2.cs.cmu.edu/afs/cs/project/quake/public/papers/robust-arithmetic.ps
+	// could be optimized by summing high to low and stopping when sum
+	// becomes inexact. Though that needs some annoying fixup to make
+	// round-to-even work correctly accros multiple partials.
+	double total = 0;
+	for (double x : parts_)
+		total += x;
+	return total;
 }
 
 } // namespace util

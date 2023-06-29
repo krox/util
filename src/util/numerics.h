@@ -55,4 +55,36 @@ double integrate_hermite_15(function_t f);
 double integrate_hermite_31(function_t f);
 double integrate_hermite_63(function_t f);
 
+// sum of (double precision) floating point numbers without rounding
+class FSum
+{
+	std::vector<double> parts_;
+
+  public:
+	FSum() = default;
+	explicit FSum(double x);
+
+	// add/subtract x to the current sum
+	FSum &operator+=(double x);
+	FSum &operator-=(double x);
+
+	// double-precision approximation to current sum
+	explicit operator double() const;
+
+	// returns and subtracts double-precision approximation
+	double subtract_double();
+
+	// debugging only
+	std::vector<double> const &parts() const { return parts_; }
+};
+
+// sum xs values, only rounding once. Equivalent to python's 'math.fsum'
+inline double fsum(std::span<const double> xs)
+{
+	FSum r;
+	for (double x : xs)
+		r += x;
+	return double(r);
+}
+
 } // namespace util

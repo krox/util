@@ -3,6 +3,7 @@
 
 #include "util/numerics.h"
 
+#include "util/random.h"
 #include <cmath>
 
 using namespace util;
@@ -23,4 +24,31 @@ TEST_CASE("numerics")
 	CHECK(integrate_hermite_63([](double x) {
 		      return std::exp(-x * x * x * x);
 	      }) == Catch::Approx(1.812804954110954));
+}
+
+TEST_CASE("fsum")
+{
+	CHECK(fsum(std::array{1e30, 1e-30, -1e30}) == 1e-30);
+
+	util::xoshiro256 rng;
+
+	auto seed = 12094;
+	FSum f(1.23456);
+
+	rng.seed(seed);
+	for (int i = 0; i < 1000; ++i)
+		f += rng.uniform() * exp(rng.uniform() * 10);
+
+	fmt::print("------\n");
+	for (auto x : f.parts())
+		fmt::print("{}\n", x);
+
+	rng.seed(seed);
+	for (int i = 0; i < 1000; ++i)
+		f -= rng.uniform() * exp(rng.uniform() * 10);
+
+	fmt::print("------\n");
+	for (auto x : f.parts())
+		fmt::print("{}\n", x);
+	CHECK(double(f) == 1.23456);
 }

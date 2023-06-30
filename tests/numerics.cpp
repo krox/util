@@ -39,16 +39,9 @@ TEST_CASE("fsum")
 	for (int i = 0; i < 1000; ++i)
 		f += rng.uniform() * exp(rng.uniform() * 10);
 
-	fmt::print("------\n");
-	for (auto x : f.parts())
-		fmt::print("{}\n", x);
-
 	rng.seed(seed);
 	for (int i = 0; i < 1000; ++i)
 		f -= rng.uniform() * exp(rng.uniform() * 10);
 
-	fmt::print("------\n");
-	for (auto x : f.parts())
-		fmt::print("{}\n", x);
 	CHECK(double(f) == 1.23456);
 }

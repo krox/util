@@ -430,6 +430,13 @@ class normal_distribution
 	{
 		return rng.normal() * sigma_ + mu_;
 	}
+
+	// (normalized) pdf
+	double pdf(double x)
+	{
+		return std::exp(-(x - mu_) * (x - mu_) / (2 * sigma_ * sigma_)) /
+		       std::sqrt(2 * M_PI * sigma_ * sigma_);
+	}
 };
 
 class exponential_distribution
@@ -461,6 +468,63 @@ class exponential_distribution
 	template <class Rng> result_type operator()(Rng &rng)
 	{
 		return -std::log(rng.uniform()) / lambda_;
+	}
+
+	// (normalized) pdf
+	double pdf(double x)
+	{
+		if (x < 0)
+			return 0;
+		return std::exp(-x * lambda_) * lambda_;
+	}
+};
+
+class geometric_distribution
+{
+	double p_ = 0.5;
+
+  public:
+	using result_type = int;
+
+	// constructors
+	geometric_distribution() = default;
+	geometric_distribution(double p) : p_(p)
+	{
+		// NOTE: the lower limit is due to the implementation. If p is too
+		// small, we would need to generate values outside the range of int.
+		assert(1e-3 <= p && p <= 1.0);
+	}
+
+	// parameters
+	double p() const { return p_; }
+	double q() const { return 1.0 - p_; }
+
+	// properties
+	double min() const { return 1; }
+	double max() const { return std::numeric_limits<double>::infinity(); }
+	double mean() const { return 1 / p(); }
+	double variance() const { return (1.0 - p()) / (p() * p()); }
+	double skewness() const { return (2.0 - p()) / std::sqrt(1.0 - p()); }
+	double exkurtosis() const { return 6.0 + p() * p() / (1 - p()); }
+
+	// generator
+	template <class Rng> result_type operator()(Rng &rng)
+	{
+		double u = rng.uniform();
+		// TODO: not tested. probably wrong sign or something
+		return result_type(1 + std::log(u) / std::log(1 - p()));
+	}
+
+	std::vector<double> pdf() const
+	{
+		static constexpr size_t max_len = 1000;
+		static constexpr double min_prob = 1e-30;
+
+		std::vector<double> r;
+		r.push_back(0.0);
+		for (double v = 1.0; v > min_prob && r.size() < max_len; v *= 1 - p())
+			r.push_back(v * p());
+		return r;
 	}
 };
 
@@ -496,7 +560,10 @@ class binomial_distribution
 	// generator
 	template <class Rng> result_type operator()(Rng &rng)
 	{
-		// TODO: this is not really a reasonable algorithm...
+		// TODO:
+		// small n -> naive direct simulation
+		// large n, large n*p -> gaussian approximation
+		// large n, small n*p -> simulate waiting times (geometric distribution)
 		int count = 0;
 		for (int i = 0; i < n_; ++i)
 			if (rng.uniform() <= p_)

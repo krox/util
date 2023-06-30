@@ -115,6 +115,25 @@ void Histogram::add(double x)
 	total += 1;
 }
 
+void IntHistogram::add(int x)
+{
+	assert(x >= 0);
+	assert(x < (1 << 20));
+	if (x >= (int)bins_.size())
+		bins_.resize(std::max(x + 1, (int)bins_.size() * 2));
+
+	max_ = std::max(max_, x);
+	count_ += 1;
+	sum_ += 1;
+	bins_[x] += 1;
+}
+
+void IntHistogram::add(std::span<const int> xs)
+{
+	for (auto x : xs)
+		add(x);
+}
+
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }
 
 template <size_t dim> void Estimator<dim>::add(std::array<double, dim> x)

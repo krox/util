@@ -76,6 +76,9 @@ class Gnuplot
 	Gnuplot &plotHistogram(const Histogram &hist,
 	                       const std::function<double(double)> &dist,
 	                       const std::string &title = "hist");
+	Gnuplot &plotHistogram(const IntHistogram &hist,
+	                       const std::string &title = "hist",
+	                       double scale = 1.0);
 
 	/** black horizontal line without label */
 	Gnuplot &hline(double y);

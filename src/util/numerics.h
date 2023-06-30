@@ -6,6 +6,7 @@
  */
 
 #include <functional>
+#include <span>
 #include <stdexcept>
 
 namespace util {

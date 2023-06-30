@@ -4,7 +4,7 @@
 #include "util/random.h"
 #include "util/stats.h"
 
-//#include "util/gnuplot.h"
+#include "util/gnuplot.h"
 
 using namespace util;
 
@@ -40,14 +40,25 @@ TEST_CASE("random number distributions", "[random]")
 	test_distribution(uniform_distribution(1.5, 4.8));
 	test_distribution(normal_distribution(-2.1, 0.8));
 	test_distribution(exponential_distribution(1.7));
+
 	test_distribution(bernoulli_distribution(0.15));
 	test_distribution(binomial_distribution(20, 0.3));
+	test_distribution(poisson_distribution(3));
+	test_distribution(geometric_distribution(0.2));
 
 	test_distribution(Autoregressive({0.8}, {0.1, 0.8}));
 	test_distribution(Autoregressive({0.5, 0.3}, {0.1, 0.8}));
 	test_distribution(Autoregressive({0.5, -0.3}, {10., 3}));
 	test_distribution(Autoregressive({-0.1, 0.2}, {-6, 1}));
 	// test_distribution(canonical_quartic_exponential_distribution(1.0, 2.0));
+
+	/*std::vector<int> values;
+	size_t N = 10'000'000;
+	auto rng = xoshiro256("foobar");
+	auto dist = geometric_distribution(0.1);
+	for (size_t iter = 0; iter < N; ++iter)
+	    values.push_back(dist(rng));
+	Gnuplot().plotHistogram(IntHistogram(values));*/
 }
 
 template <typename T> void test_int_dist(T a, T b)

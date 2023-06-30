@@ -212,6 +212,23 @@ Gnuplot &Gnuplot::plotHistogram(const Histogram &hist,
 	return *this;
 }
 
+Gnuplot &Gnuplot::plotHistogram(const IntHistogram &hist,
+                                const std::string &title, double scale)
+{
+	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
+	std::ofstream file(filename);
+
+	for (int i = 0; i <= hist.max(); ++i)
+		file << i << " " << scale * hist.bin(i) << "\n";
+	file.flush();
+	file.close();
+	fmt::print(pipe, "{} '{}' using 1:2 with histeps title \"{}\"\n",
+	           (nplots ? "replot" : "plot"), filename, title);
+	fflush(pipe);
+	nplots++;
+	return *this;
+}
+
 Gnuplot &Gnuplot::hline(double y)
 {
 	fmt::print(pipe, "{} {} lt -1 title \"\"\n", nplots ? "replot" : "plot", y);

@@ -68,7 +68,8 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
                    (util::stable_vector<Int>), (util::small_vector<Int, 1>),
                    (util::small_vector<Int, 2>), (util::small_vector<Int, 3>),
                    (util::small_vector<Int, 4>), (util::small_vector<Int, 5>),
-                   (util::static_vector<Int, 4>), (util::static_vector<Int, 5>))
+                   (util::static_vector<Int, 4>), (util::static_vector<Int, 5>),
+                   (util::indirect_vector<Int>))
 {
 	SECTION("constructors")
 	{
@@ -145,6 +146,9 @@ struct alignas(32) Foo
 {};
 static_assert(sizeof(util::small_vector<Foo, 1>) == 2 * 32);
 static_assert(alignof(util::small_vector<Foo, 1>) == 32);
+
+// the whole point of indirect_vector is its tiny size on stack
+static_assert(sizeof(util::indirect_vector<int>) == sizeof(int *));
 
 TEST_CASE("tiny_map", "[vector][tiny_map]")
 {

@@ -163,6 +163,88 @@ template <typename T, size_t N> class MmapStorage
 	T const *data() const noexcept { return data_.data(); }
 };
 
+template <typename T> class IndirectStorage
+{
+	struct Header
+	{
+		size_t capacity_;
+		size_t size_;
+	};
+
+	static_assert(alignof(T) <= alignof(std::max_align_t));
+	static_assert(alignof(T) <= sizeof(Header));
+
+	Header *header_ = nullptr;
+
+  public:
+	IndirectStorage() = default;
+	explicit IndirectStorage(size_t cap)
+	{
+		if (cap == 0)
+			return;
+		header_ = (Header *)std::malloc(sizeof(Header) + cap * sizeof(T));
+		header_->capacity_ = cap;
+		header_->size_ = 0;
+	}
+
+	~IndirectStorage()
+	{
+		if (header_ == nullptr)
+			return;
+		std::destroy_n(data(), size());
+		std::free(header_);
+	}
+
+	IndirectStorage(IndirectStorage const &other) = delete;
+	IndirectStorage &operator=(IndirectStorage const &other) = delete;
+
+	void swap(IndirectStorage &other) noexcept
+	{
+		std::swap(header_, other.header_);
+	}
+
+	size_t size() const noexcept
+	{
+		if (header_ == nullptr)
+			return 0;
+		else
+			return header_->size_;
+	}
+
+	void set_size(size_t s) noexcept
+	{
+		if (header_ == nullptr)
+			assert(s == 0);
+		else
+			header_->size_ = s;
+	}
+
+	size_t capacity() const noexcept
+	{
+		if (header_ == nullptr)
+			return 0;
+		else
+			return header_->capacity_;
+	}
+
+	static constexpr size_t max_capacity() { return SIZE_MAX / sizeof(T); }
+	T *data() noexcept
+	{
+		if (header_ == nullptr)
+			return nullptr;
+		else
+			return reinterpret_cast<T *>(header_ + 1);
+	}
+
+	T const *data() const noexcept
+	{
+		if (header_ == nullptr)
+			return nullptr;
+		else
+			return reinterpret_cast<T *>(header_ + 1);
+	}
+};
+
 template <class T, class Impl> class Vector
 {
 	// No strange types allowed in current implementation. If necessary, use
@@ -546,6 +628,14 @@ using static_vector = detail::Vector<T, detail::StaticStorage<T, N>>;
 // be willing to give us in a single mmap()).
 template <typename T, size_t N = (1LL << 36) / sizeof(T)>
 using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
+
+// vector that stores its size and capacity inside the allocation. The struct
+// itself contains only a single pointer, thus very space efficient in case the
+// vector is typically empty anyway.
+// TODO: if T itself is a pointer type, we could do some bit stuffing to get a
+//       N=1 small-object-optimization going.
+template <typename T>
+using indirect_vector = detail::Vector<T, detail::IndirectStorage<T>>;
 
 // Associative container implemented as unsorted vector. For sufficiently small
 // datasets this should be the most efficient datastructure. Furthermore:

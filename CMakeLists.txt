@@ -20,7 +20,6 @@ CPMAddPackage(
 	DOWNLOAD_ONLY True
 )
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
-include_directories(${blake3_SOURCE_DIR}/c)
 
 CPMAddPackage(
   NAME cli11
@@ -34,6 +33,7 @@ add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC src)
+target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
 target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
 

@@ -1,16 +1,15 @@
-cmake_minimum_required (VERSION 3.16.0)
-project (util LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.16.0)
+project(util LANGUAGES C CXX)
 
 # dependencies
-
 find_package(HDF5 REQUIRED) # should be optional
 
 include(cmake/CPM.cmake)
 
 CPMAddPackage(
-  NAME fmt
-  GITHUB_REPOSITORY fmtlib/fmt
-  GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2 # v10.0.0
+	NAME fmt
+	GITHUB_REPOSITORY fmtlib/fmt
+	GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2 # v10.0.0
 )
 
 CPMAddPackage(
@@ -22,13 +21,12 @@ CPMAddPackage(
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
 
 CPMAddPackage(
-  NAME cli11
-  GITHUB_REPOSITORY CLIUtils/CLI11
-  GIT_TAG 291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
+	NAME cli11
+	GITHUB_REPOSITORY CLIUtils/CLI11
+	GIT_TAG 291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
 )
 
 # main library
-
 add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
@@ -44,9 +42,10 @@ target_link_libraries(util_hdf5 ${HDF5_LIBRARIES})
 target_link_libraries(util_hdf5 util)
 
 # executables
-foreach(bin "json-format")
+foreach(bin "json-format" "random")
 	add_executable(${bin} src/apps/${bin}.cpp)
 	target_compile_features(${bin} PUBLIC cxx_std_20)
+	target_compile_options(${bin} PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
 	target_link_libraries(${bin} util CLI11::CLI11)
 endforeach(bin)
 
@@ -57,11 +56,10 @@ install(FILES ${files_h} DESTINATION include)
 
 # unittests
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-
 	CPMAddPackage(
-	  NAME Catch2
-	  GITHUB_REPOSITORY catchorg/Catch2
-	  GIT_TAG 2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
+		NAME Catch2
+		GITHUB_REPOSITORY catchorg/Catch2
+		GIT_TAG 2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
 	)
 
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
@@ -71,5 +69,4 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PUBLIC -Wall -Wextra -Werror -g -Wno-parentheses -Wno-deprecated-declarations -march=native)
-
 endif()

@@ -159,7 +159,7 @@ class IntHistogram
 	IntHistogram() = default;
 	IntHistogram(std::span<const int> xs) { add(xs); }
 
-	void add(int x);
+	void add(int x, int64_t weight = 1);
 	void add(std::span<const int> xs);
 
 	int max() const { return max_; }

@@ -115,7 +115,7 @@ void Histogram::add(double x)
 	total += 1;
 }
 
-void IntHistogram::add(int x)
+void IntHistogram::add(int x, int64_t weight)
 {
 	assert(x >= 0);
 	assert(x < (1 << 20));
@@ -123,9 +123,9 @@ void IntHistogram::add(int x)
 		bins_.resize(std::max(x + 1, (int)bins_.size() * 2));
 
 	max_ = std::max(max_, x);
-	count_ += 1;
-	sum_ += 1;
-	bins_[x] += 1;
+	count_ += weight;
+	sum_ += x * weight;
+	bins_[x] += weight;
 }
 
 void IntHistogram::add(std::span<const int> xs)

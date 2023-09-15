@@ -65,9 +65,10 @@ LogSampler::Region LogSampler::makeRegion(double a, double b)
 	return r;
 }
 
-LogSampler::LogSampler(util::function_t f, util::function_t fd,
-                       util::function_t fdd, double min, double max,
-                       size_t nRegs)
+LogSampler::LogSampler(std::function<double(double)> f,
+                       std::function<double(double)> fd,
+                       std::function<double(double)> fdd, double min,
+                       double max, size_t nRegs)
     : f(f), fd(fd), fdd(fdd), min(min), max(max), uni_dist(0, 1)
 {
 	assert(min < max);

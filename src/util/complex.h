@@ -47,8 +47,12 @@ template <class T> struct complex
 	T re, im;
 
 	complex() = default;
-	// explicit complex(int r) : re(r), im(0) {}
 	explicit complex(T r) : re(std::move(r)), im(0) {}
+
+	template <std::convertible_to<typename T::value_type> V>
+	complex(V const &a) noexcept : re(typename T::value_type(a)), im(0)
+	{}
+
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
 	template <class U>
 	explicit complex(complex<U> const &other) : re(other.re), im(other.im)

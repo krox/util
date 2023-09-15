@@ -57,7 +57,8 @@ class NumpyFile
 	    : file_(std::exchange(other.file_, {})),
 	      data_(std::exchange(other.data_, nullptr)),
 	      size_(std::exchange(other.size_, 0)),
-	      shape_(std::exchange(other.shape_, {}))
+	      shape_(std::exchange(other.shape_, {})),
+	      dtype_(std::exchange(other.dtype_, {}))
 	{}
 
 	NumpyFile &operator=(NumpyFile &&other) noexcept
@@ -66,6 +67,7 @@ class NumpyFile
 		data_ = std::exchange(other.data_, nullptr);
 		size_ = std::exchange(other.size_, 0);
 		shape_ = std::exchange(other.shape_, {});
+		dtype_ = std::exchange(other.dtype_, {});
 		return *this;
 	}
 

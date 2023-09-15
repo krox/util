@@ -9,7 +9,7 @@ namespace util {
 
 using std::isnan, std::abs, std::min, std::max;
 
-double solve(function_t f, double a, double b)
+double solve(util::function_view<double(double)> f, double a, double b)
 {
 	assert(!isnan(a) && !isnan(b));
 
@@ -128,7 +128,8 @@ static const double GK31_wk[] = {
 };
 
 /** returns (Gauss,Kronrod) quadrature using 15/31 function evaluations */
-static pair<double, double> integrateKronrod31(function_t f, double a, double b)
+static pair<double, double>
+integrateKronrod31(util::function_view<double(double)> f, double a, double b)
 {
 	double mid = (a + b) / 2;
 	double half = (b - a) / 2;
@@ -158,7 +159,8 @@ struct Region
 	double a, b;
 	double val, err;
 
-	Region(function_t f, double a, double b) : a(a), b(b)
+	Region(util::function_view<double(double)> f, double a, double b)
+	    : a(a), b(b)
 	{
 		auto est = integrateKronrod31(f, a, b);
 		val = est.second;
@@ -170,7 +172,8 @@ struct Region
 
 } // namespace
 
-double integrate(function_t f, double a, double b, double eps, int maxCalls)
+double integrate(util::function_view<double(double)> f, double a, double b,
+                 double eps, int maxCalls)
 {
 	priority_queue<Region> q;
 
@@ -197,7 +200,7 @@ double integrate(function_t f, double a, double b, double eps, int maxCalls)
 	return val;
 }
 
-double integrate(function_t f, double a, double b)
+double integrate(util::function_view<double(double)> f, double a, double b)
 {
 	return integrate(f, a, b, 1.0e-12, 5000);
 }
@@ -253,7 +256,7 @@ static const double GH63_w[] = {
     0.56388743665962956,  0.73094557374600897};
 } // namespace
 
-double integrate_hermite_15(function_t f)
+double integrate_hermite_15(util::function_view<double(double)> f)
 {
 	double s = GH15_w[0] * f(0);
 	for (size_t i = 1; i < 8; ++i)
@@ -261,7 +264,7 @@ double integrate_hermite_15(function_t f)
 	return s;
 }
 
-double integrate_hermite_31(function_t f)
+double integrate_hermite_31(util::function_view<double(double)> f)
 {
 	double s = GH31_w[0] * f(0);
 	for (size_t i = 1; i < 16; ++i)
@@ -269,7 +272,7 @@ double integrate_hermite_31(function_t f)
 	return s;
 }
 
-double integrate_hermite_63(function_t f)
+double integrate_hermite_63(util::function_view<double(double)> f)
 {
 	double s = GH63_w[0] * f(0);
 	for (size_t i = 1; i < 32; ++i)

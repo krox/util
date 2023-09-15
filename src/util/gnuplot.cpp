@@ -47,7 +47,7 @@ Gnuplot &Gnuplot::plotFunction(const std::string &fun, double min, double max,
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotFunction(const std::function<double(double)> &fun,
+Gnuplot &Gnuplot::plotFunction(util::function_view<double(double)> fun,
                                double a, double b, const std::string &title)
 {
 	auto oldStyle = style_;
@@ -201,7 +201,7 @@ Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title,
 }
 
 Gnuplot &Gnuplot::plotHistogram(const Histogram &hist,
-                                const std::function<double(double)> &dist,
+                                util::function_view<double(double)> dist,
                                 const std::string &title)
 {
 	double c = 1.0 / util::integrate(dist, hist.min(), hist.max());

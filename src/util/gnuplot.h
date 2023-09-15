@@ -1,8 +1,7 @@
 #ifndef UTIL_GNUPLOT_H
 #define UTIL_GNUPLOT_H
 
-#include <functional>
-
+#include "util/function_view.h"
 #include "util/span.h"
 #include "util/stats.h"
 #include "util/vector2d.h"
@@ -44,8 +43,8 @@ class Gnuplot
 	Gnuplot &plotFunction(const std::string &fun, double min, double max,
 	                      const std::string &title = "");
 
-	/** plot a function given as std::function object */
-	Gnuplot &plotFunction(const std::function<double(double)> &fun, double min,
+	/** plot a function given as function object */
+	Gnuplot &plotFunction(util::function_view<double(double)> fun, double min,
 	                      double max, const std::string &title = "");
 
 	/** plot raw data points (i, ys[i]) */
@@ -74,7 +73,7 @@ class Gnuplot
 	                       const std::string &title = "hist",
 	                       double scale = 1.0);
 	Gnuplot &plotHistogram(const Histogram &hist,
-	                       const std::function<double(double)> &dist,
+	                       util::function_view<double(double)> dist,
 	                       const std::string &title = "hist");
 	Gnuplot &plotHistogram(const IntHistogram &hist,
 	                       const std::string &title = "hist",

@@ -5,17 +5,12 @@
  * Root finding and integration in one dimension.
  */
 
-#include <functional>
+#include "util/function_view.h"
+#include "util/vector.h"
 #include <span>
 #include <stdexcept>
 
 namespace util {
-
-/**
- * Function type used throughout this module.
- * (std::function is not the most performant choice but it is the simplest)
- */
-typedef std::function<double(double)> function_t;
 
 /** exception thrown if some method does not converge */
 class numerics_exception : std::runtime_error
@@ -35,7 +30,7 @@ class numerics_exception : std::runtime_error
  *    - result will be precise to full machine precision
  *    - will throw if no reliable result can be obtained.
  */
-double solve(function_t f, double a, double b);
+double solve(util::function_view<double(double)> f, double a, double b);
 
 /**
  * Integrate f(x) for x in [a, b].
@@ -44,22 +39,23 @@ double solve(function_t f, double a, double b);
  *     (the used estimate is very pessimistic for most somewhat nice functions)
  *   - throws numerics_exception if not converged within maxCalls
  */
-double integrate(function_t f, double a, double b);
-double integrate(function_t f, double a, double b, double eps, int maxCalls);
+double integrate(util::function_view<double(double)> f, double a, double b);
+double integrate(util::function_view<double(double)> f, double a, double b,
+                 double eps, int maxCalls);
 
 /**
  * Integrate f(x) for x in (-∞,∞).
  * Implemented using Gauss-Hermite quadrature
  *   - assumes f(x) ~ exp(-x^r) for large values of |x|, with r = 2,4,6,...
  */
-double integrate_hermite_15(function_t f);
-double integrate_hermite_31(function_t f);
-double integrate_hermite_63(function_t f);
+double integrate_hermite_15(util::function_view<double(double)> f);
+double integrate_hermite_31(util::function_view<double(double)> f);
+double integrate_hermite_63(util::function_view<double(double)> f);
 
 // sum of (double precision) floating point numbers without rounding
 class FSum
 {
-	std::vector<double> parts_;
+	util::small_vector<double, 3> parts_;
 
   public:
 	FSum() = default;
@@ -76,7 +72,7 @@ class FSum
 	double subtract_double();
 
 	// debugging only
-	std::vector<double> const &parts() const { return parts_; }
+	auto const &parts() const { return parts_; }
 };
 
 // sum xs values, only rounding once. Equivalent to python's 'math.fsum'

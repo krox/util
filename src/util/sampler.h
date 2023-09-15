@@ -16,7 +16,7 @@ namespace util {
 class LogSampler
 {
 	/** log-density function and its derivatives */
-	util::function_t f, fd, fdd;
+	std::function<double(double)> f, fd, fdd;
 
 	double min, max;
 
@@ -53,8 +53,10 @@ class LogSampler
 
   public:
 	/** constructor */
-	LogSampler(util::function_t f, util::function_t fd, util::function_t fdd,
-	           double min, double max, size_t nRegs = 50);
+	LogSampler(std::function<double(double)> f,
+	           std::function<double(double)> fd,
+	           std::function<double(double)> fdd, double min, double max,
+	           size_t nRegs = 50);
 
 	/** generate one sample */
 	template <typename Rng> double operator()(Rng &rng);

@@ -5,7 +5,7 @@
  * Root finding and integration in one dimension.
  */
 
-#include "util/function_view.h"
+#include "util/functional.h"
 #include "util/vector.h"
 #include <span>
 #include <stdexcept>

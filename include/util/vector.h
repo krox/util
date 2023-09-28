@@ -1,5 +1,32 @@
 #pragma once
 
+// Container classes with contiguous storage. 'util::vector' is nearly
+// equivalent to 'std::vector', but with a few differences:
+//   - Some additional convenience:
+//     * '.pop_back()' returns the removed element
+//     * '.set_size_unsafe()' enables some low-level optimizations
+//     * '.reserve()' takes an (optional) second argument controlling growth
+//   - Some additional variants of vectors with different memory management.
+//     (note that these could not be cleanly implemented using custom allocators
+//     inside a 'std::vector')
+//     * 'util::small_vector': small-buffer optimization
+//     * 'util::static_vector': fixed capacity, no dynamic allocation
+//     * 'util::indirect_vector': size and capacity stored inside allocation
+//     * 'util::stable_vector': stable pointers and iterators (based on 'mmap')
+//   - Only accepts nothrow-moveable types.
+//     * Rationale: The overhead required to satisfy vector's strong exception
+//       guarantee without nothrow-move probably makes 'vector' undesirable to
+//       use in such a case anyway.
+//     * Future: While true for '{std,util}::vector', this requirement could be
+//       lifted for some of the variants, namely 'util::stable_vector' (and
+//       maybe 'util::static_vector')
+//   - No allocator support.
+//     * Rationale: Many interesting strategies (namely SBO) cannot be
+//       implemented using allocators anyway.
+//     * Future: Implementing a 'util::pmr_vector' which takes a
+//       'std::pmr::memory_resource' (directly, without wrapping it in an
+//       allocator) would be quite sensible if the need ever arises.
+
 #include "util/hash.h"
 #include "util/iterator.h"
 #include "util/memory.h"
@@ -584,6 +611,7 @@ auto operator<=>(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 	                                              b.end());
 }
 
+// short-form of erase-remove idiom
 template <class T, class Impl, class U>
 size_t erase(Vector<T, Impl> &c, const U &value)
 {
@@ -593,6 +621,7 @@ size_t erase(Vector<T, Impl> &c, const U &value)
 	return r;
 }
 
+// short-form of erase-remove idiom
 template <class T, class Impl, class Pred>
 size_t erase_if(Vector<T, Impl> &c, Pred pred)
 {
@@ -600,6 +629,22 @@ size_t erase_if(Vector<T, Impl> &c, Pred pred)
 	auto r = std::distance(it, c.end());
 	c.erase(it, c.end());
 	return r;
+}
+
+// sort and remove duplicates
+template <class T, class Impl> void unique_sort(Vector<T, Impl> &c)
+{
+	std::sort(c.begin(), c.end());
+	c.erase(std::unique(c.begin(), c.end()), c.end());
+}
+
+// sort and remove duplicates
+template <class T, class Impl, class Pred>
+void unique_sort(Vector<T, Impl> &c, Pred pred)
+{
+	auto not_pred = [&pred](T const &a, T const &b) { return !pred(a, b); };
+	std::sort(c.begin(), c.end(), pred);
+	c.erase(std::unique(c.begin(), c.end(), not_pred), c.end());
 }
 
 } // namespace detail

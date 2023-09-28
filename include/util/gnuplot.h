@@ -1,10 +1,9 @@
 #ifndef UTIL_GNUPLOT_H
 #define UTIL_GNUPLOT_H
 
-#include "util/function_view.h"
+#include "util/functional.h"
 #include "util/span.h"
 #include "util/stats.h"
-#include "util/vector2d.h"
 
 namespace util {
 
@@ -59,10 +58,6 @@ class Gnuplot
 	Gnuplot &plotError(gspan<const double> xs, gspan<const double> ys,
 	                   gspan<const double> err,
 	                   const std::string &title = "data");
-
-	/** plot multiple data lines */
-	Gnuplot &plotData(gspan<const double> xs, const vector2d<double> &ys,
-	                  const std::string &title = "data");
 
 	/** 3D plot of a 2D grid */
 	Gnuplot &plotData3D(ndspan<const double, 2> zs,

@@ -128,40 +128,6 @@ Gnuplot &Gnuplot::plotError(gspan<const double> xs, gspan<const double> ys,
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotData(gspan<const double> xs, const vector2d<double> &ys,
-                           const std::string &title)
-{
-	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
-	std::ofstream file(filename);
-	assert(xs.size() == ys.height() && ys.width() >= 1);
-	for (size_t i = 0; i < xs.size(); ++i)
-	{
-		file << xs[i];
-		for (size_t j = 0; j < ys.width(); ++j)
-			file << " " << ys(i, j);
-		file << "\n";
-	}
-	file.flush();
-	file.close();
-	int skips = 0;
-	for (size_t j = 0; j < ys.width(); ++j)
-	{
-		if (logy_ && !(ys(ys.height() / 2, j) > 0))
-		{
-			++skips;
-			continue;
-		}
-		fmt::print(pipe, "{} '{}' using 1:{} with {} title \"{}[{}]\"\n",
-		           (nplots + j - skips) ? "replot" : "plot", filename, j + 2,
-		           style_, title, j);
-	}
-	fmt::print("Warning: skipped {} plots due to negative values on log\n",
-	           skips);
-	fflush(pipe);
-	++nplots;
-	return *this;
-}
-
 Gnuplot &Gnuplot::plotData3D(ndspan<const double, 2> zs,
                              const std::string &title)
 {

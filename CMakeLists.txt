@@ -30,7 +30,7 @@ CPMAddPackage(
 add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
-target_include_directories(util PUBLIC src)
+target_include_directories(util PUBLIC include)
 target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
 target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
@@ -50,7 +50,7 @@ foreach(bin "json-format" "random")
 endforeach(bin)
 
 # install
-file(GLOB files_h "src/util/*.h")
+file(GLOB files_h "src/include/*.h")
 install(TARGETS util util_hdf5 DESTINATION lib)
 install(FILES ${files_h} DESTINATION include)
 

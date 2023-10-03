@@ -28,16 +28,16 @@ template <class Ex = std::runtime_error, class... Args>
 // Invokes undefined bahaviour. Will be part of std in C++23.
 #ifdef NDEBUG
 #ifdef __GNUC__
-[[noreturn]] void unreachable() noexcept { __builtin_unreachable(); }
+[[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
 #elif defined(_MSC_VER)
-[[noreturn]] void unreachable() noexcept { __assume(0); }
+[[noreturn]] inline void unreachable() noexcept { __assume(0); }
 #else
-[[noreturn]] void unreachable() noexcept
+[[noreturn]] inline void unreachable() noexcept
 { // returning from a [[noreturn]] function is UB
 }
 #endif
 #else
-[[noreturn]] void unreachable() noexcept
+[[noreturn]] inline void unreachable() noexcept
 {
 	terminate("util::unreachable called");
 }

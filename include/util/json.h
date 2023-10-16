@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fmt/format.h"
+#include "util/io.h"
 #include "util/lexer.h"
 #include "util/vector.h"
 #include <stdexcept>
@@ -292,6 +293,11 @@ class Json
 			throw ParseError(fmt::format("unexpected token '{}' at end of json",
 			                             lex->value));
 		return j;
+	}
+
+	static Json parse_file(std::string_view filename)
+	{
+		return parse(read_file(filename));
 	}
 };
 

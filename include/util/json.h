@@ -72,6 +72,9 @@ class Json
 	{
 		if (auto tok = lexer.try_match(Tok::integer()); tok)
 			return integer(parse_int<integer_type>(tok->value));
+		else if (auto tok = lexer.try_match("-"); tok)
+			return integer(
+			    -parse_int<integer_type>(lexer.match(Tok::integer()).value));
 		else if (auto tok = lexer.try_match(Tok::floating()); tok)
 			return floating(parse_float<floating_type>(tok->value));
 		else if (auto tok = lexer.try_match(Tok::string()); tok)

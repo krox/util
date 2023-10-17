@@ -22,6 +22,10 @@ TEST_CASE("json parser", "[json]")
 	k.push_back(2);
 	CHECK(fmt::format("{}", k) ==
 	      "[[4, 5, 6], null, {\"b\": \"foo\", \"a\": null}, 1, 2]");
+
+	// negative numbers
+	auto l = Json::parse("[-1, -2, -3]");
+	CHECK(fmt::format("{}", l) == "[-1, -2, -3]");
 }
 
 /*

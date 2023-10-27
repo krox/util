@@ -3,8 +3,8 @@
 // read and write memory-mapped .npy files from python's numpy library
 
 #include "util/complex.h"
+#include "util/io.h"
 #include "util/json.h"
-#include "util/memory.h"
 #include "util/span.h"
 #include <complex>
 #include <string>

@@ -771,6 +771,20 @@ class tiny_map
 	void clear() noexcept { values_.clear(); }
 	void swap(tiny_map &other) noexcept { values_.swap(other.values_); };
 	friend void swap(tiny_map &a, tiny_map &b) { a.swap(b); }
+
+	// NOTE: comparison is order-independent
+	friend bool operator==(tiny_map const &a, tiny_map const &b) noexcept
+	{
+		if (a.size() != b.size())
+			return false;
+		for (value_type const &x : a)
+		{
+			auto it = b.find(x.first);
+			if (it == b.end() || it->second != x.second)
+				return false;
+		}
+		return true;
+	}
 };
 
 } // namespace util

@@ -152,15 +152,32 @@ static_assert(sizeof(util::indirect_vector<int>) == sizeof(int *));
 
 TEST_CASE("tiny_map", "[vector][tiny_map]")
 {
-	util::tiny_map<std::string, int> a;
-	CHECK(a.size() == 0);
-	CHECK(a.empty());
-	a["one"] = 1;
-	CHECK(a.size() == 1);
-	a["two"] = 2;
-	a["one"] = 3;
-	CHECK(a.size() == 2);
-	CHECK(a["two"] == 2);
-	CHECK(a["foo"] == 0);
-	CHECK(a.size() == 3);
+	SECTION("misc")
+	{
+		util::tiny_map<std::string, int> a;
+		CHECK(a.size() == 0);
+		CHECK(a.empty());
+		a["one"] = 1;
+		CHECK(a.size() == 1);
+		a["two"] = 2;
+		a["one"] = 3;
+		CHECK(a.size() == 2);
+		CHECK(a["two"] == 2);
+		CHECK(a["foo"] == 0);
+		CHECK(a.size() == 3);
+	}
+
+	SECTION("comparison")
+	{
+		util::tiny_map<int, int> a, b, c;
+		a[1] = 1;
+		a[2] = 2;
+		b[2] = 2;
+		b[1] = 1;
+		c[1] = 2;
+		c[2] = 1;
+		CHECK(a == b);
+		CHECK(a != c);
+		CHECK(b != c);
+	}
 }

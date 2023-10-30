@@ -91,6 +91,25 @@ TEST_CASE("json custom type", "[json]")
 	CHECK(j2.get<my_lib::Foo>() == f);
 }
 
+TEST_CASE("json comments", "[json]")
+{
+	auto j = Json::parse(R"(
+		{
+			// comment
+			"a": 1,
+			"b": 2, // comment
+			// comment
+			"c": 3
+			"d": /*4
+			"e" :*/ 5
+		}
+	)");
+	CHECK(j["a"].as_integer() == 1);
+	CHECK(j["b"].as_integer() == 2);
+	CHECK(j["c"].as_integer() == 3);
+	CHECK(j["d"].as_integer() == 5);
+}
+
 /*
 TEST_CASE("numpy", "[numpy]")
 {

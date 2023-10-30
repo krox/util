@@ -182,6 +182,16 @@ class Lexer
 	/*const*/ std::string_view src_ = {};
 	Token curr_ = {Tok::none(), {}};
 
+	bool try_match_string(std::string_view s)
+	{
+		if (pos_ + s.size() > src_.size())
+			return false;
+		if (src_.substr(pos_, s.size()) != s)
+			return false;
+		pos_ += s.size();
+		return true;
+	}
+
 	// TODO: replacing std::string_view by std::bitset<128> would be faster
 	char try_match_char(std::string_view chars)
 	{
@@ -209,6 +219,36 @@ class Lexer
 		return count;
 	}
 
+	// skip whitespace and comments
+	void skip_white()
+	{
+		while (true)
+		{
+			match_all(" \t\n\r");
+			if (try_match_string("//"))
+			{
+				while (pos_ < src_.size() && src_[pos_] != '\n')
+					++pos_;
+				++pos_;
+			}
+			else if (try_match_string("/*"))
+			{
+				for (;; ++pos_)
+				{
+					if (pos_ + 1 >= src_.size())
+						throw ParseError("unterminated comment");
+					if (src_[pos_] == '*' && src_[pos_ + 1] == '/')
+					{
+						pos_ += 2;
+						break;
+					}
+				}
+			}
+			else
+				break;
+		}
+	}
+
   public:
 	Lexer() = default;
 	explicit Lexer(std::string_view buf) : src_(buf) { advance(); }
@@ -218,7 +258,7 @@ class Lexer
 	void advance()
 	{
 		// skip whitespace and quit if nothing is left
-		match_all(" \t\n\r");
+		skip_white();
 		if (pos_ == src_.size())
 		{
 			curr_ = {};

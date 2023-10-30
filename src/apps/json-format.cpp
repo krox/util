@@ -1,6 +1,7 @@
 #include "CLI/CLI.hpp"
 #include "fmt/format.h"
 #include "util/json.h"
+#include "util/lexer.h"
 #include <cassert>
 #include <iostream>
 #include <iterator>

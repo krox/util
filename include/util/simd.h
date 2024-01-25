@@ -156,20 +156,20 @@ struct alignas(sizeof(T) * W) simd_mask
 #define UTIL_DEFINE_REDUCTION(op, fun)                                         \
 	template <class T> UTIL_SIMD_INLINE T op(simd<T, 2> a) noexcept            \
 	{                                                                          \
-		using impl = simd<T, 2>::impl;                                         \
+		using impl = typename simd<T, 2>::impl;                                \
 		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
 		return impl::extract(r, 0);                                            \
 	}                                                                          \
 	template <class T> UTIL_SIMD_INLINE T op(simd<T, 4> a) noexcept            \
 	{                                                                          \
-		using impl = simd<T, 4>::impl;                                         \
+		using impl = typename simd<T, 4>::impl;                                \
 		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
 		r = impl::fun(r, impl::permute1(r));                                   \
 		return impl::extract(r, 0);                                            \
 	}                                                                          \
 	template <class T> UTIL_SIMD_INLINE T op(simd<T, 8> a) noexcept            \
 	{                                                                          \
-		using impl = simd<T, 8>::impl;                                         \
+		using impl = typename simd<T, 8>::impl;                                \
 		auto r = impl::fun(a.v_, impl::permute0(a.v_));                        \
 		r = impl::fun(r, impl::permute1(r));                                   \
 		r = impl::fun(r, impl::permute2(r));                                   \
@@ -346,7 +346,7 @@ struct fmt::formatter<util::simd<T, W>> : fmt::formatter<T>
 		for (int i = 0; i < W; ++i)
 		{
 			if (i)
-				it = format_to(it, ", ");
+				it = fmt::format_to(it, ", ");
 			formatter<T>::format(vextract(a, i), ctx);
 		}
 		*it++ = '}';

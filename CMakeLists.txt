@@ -9,7 +9,7 @@ include(cmake/CPM.cmake)
 CPMAddPackage(
 	NAME fmt
 	GITHUB_REPOSITORY fmtlib/fmt
-	GIT_TAG a0b8a92e3d1532361c2f7feb63babc5c18d00ef2 # v10.0.0
+	GIT_TAG e69e5f977d458f2650bb346dadf2ad30c5320281 # v10.2.1
 )
 
 CPMAddPackage(
@@ -33,7 +33,7 @@ set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
 target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
-target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
+target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)
@@ -45,7 +45,7 @@ target_link_libraries(util_hdf5 util)
 foreach(bin "json-format" "random")
 	add_executable(${bin} src/apps/${bin}.cpp)
 	target_compile_features(${bin} PUBLIC cxx_std_20)
-	target_compile_options(${bin} PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-stringop-overflow -Werror -O2 -march=native)
+	target_compile_options(${bin} PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)
 	target_link_libraries(${bin} util CLI11::CLI11)
 endforeach(bin)
 

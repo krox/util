@@ -47,54 +47,62 @@ template <class T> struct complex
 	T re, im;
 
 	complex() = default;
-	explicit complex(T r) : re(std::move(r)), im(0) {}
+	complex(complex const &) = default;
+	complex(complex &&) = default;
+	complex &operator=(complex const &) = default;
+	complex &operator=(complex &&) = default;
 
-	template <std::convertible_to<typename T::value_type> V>
-	complex(V const &a) noexcept : re(typename T::value_type(a)), im(0)
-	{}
+	explicit complex(auto r) : re(T(std::move(r))), im(0) {}
 
 	complex(T r, T i) : re(std::move(r)), im(std::move(i)) {}
+
+	/*template <
+	    std::convertible_to<typename std::type_identity_t<T>::value_type> V>
+	explicit complex(V const &a) noexcept : re(typename T::value_type(a)), im(0)
+	{}**/
+
 	template <class U>
-	explicit complex(complex<U> const &other) : re(other.re), im(other.im)
+	explicit complex(complex<U> const &other) noexcept
+	    : re(other.re), im(other.im)
 	{}
 
-	template <class Rng> static complex<T> random_normal(Rng &rng)
+	template <class Rng> static complex<T> random_normal(Rng &rng) noexcept
 	{
 		return {rng.template normal<T>(), rng.template normal<T>()};
 	}
 
-	T const &real() const { return re; }
-	T const &imag() const { return im; }
+	T const &real() const noexcept { return re; }
+	T const &imag() const noexcept { return im; }
 
-	bool operator==(complex const &) const = default;
+	bool operator==(complex const &) const noexcept = default;
 };
 
-template <class T> T const &real(complex<T> const &a) { return a.re; }
-template <class T> T const &imag(complex<T> const &a) { return a.im; }
+template <class T> T const &real(complex<T> const &a) noexcept { return a.re; }
+template <class T> T const &imag(complex<T> const &a) noexcept { return a.im; }
 
 using std::exp, std::sin, std::cos, std::sinh, std::cosh, std::abs, std::sqrt;
 
 // unary complex
 
-template <class T> T norm2(complex<T> const &a)
+template <class T> T norm2(complex<T> const &a) noexcept
 {
 	return a.re * a.re + a.im * a.im;
 }
-template <class T> T norm(complex<T> const &a) { return norm2(a); }
-template <class T> T abs(complex<T> const &a) { return sqrt(norm(a)); }
-template <class T> complex<T> conj(complex<T> const &a)
+template <class T> T norm(complex<T> const &a) noexcept { return norm2(a); }
+template <class T> T abs(complex<T> const &a) noexcept { return sqrt(norm(a)); }
+template <class T> complex<T> conj(complex<T> const &a) noexcept
 {
 	return {a.re, -a.im};
 }
-template <class T> complex<T> operator+(complex<T> const &a)
+template <class T> complex<T> operator+(complex<T> const &a) noexcept
 {
 	return {+a.re, +a.im};
 }
-template <class T> complex<T> operator-(complex<T> const &a)
+template <class T> complex<T> operator-(complex<T> const &a) noexcept
 {
 	return {-a.re, -a.im};
 }
-template <class T> complex<T> inverse(complex<T> const &a)
+template <class T> complex<T> inverse(complex<T> const &a) noexcept
 {
 	return conj(a) / norm(a);
 }
@@ -102,25 +110,25 @@ template <class T> complex<T> inverse(complex<T> const &a)
 // binary complex <-> complex
 
 template <class T, class U>
-auto operator+(complex<T> const &a, complex<U> const &b)
+auto operator+(complex<T> const &a, complex<U> const &b) noexcept
     -> complex<decltype(a.re + b.re)>
 {
 	return {a.re + b.re, a.im + b.im};
 }
 template <class T, class U>
-auto operator-(complex<T> const &a, complex<U> const &b)
+auto operator-(complex<T> const &a, complex<U> const &b) noexcept
     -> complex<decltype(a.re - b.re)>
 {
 	return {a.re - b.re, a.im - b.im};
 }
 template <class T, class U>
-auto operator*(complex<T> const &a, complex<U> const &b)
+auto operator*(complex<T> const &a, complex<U> const &b) noexcept
     -> complex<decltype(a.re * b.re)>
 {
 	return {a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
 }
 template <class T, class U>
-auto operator/(complex<T> const &a, complex<U> const &b)
+auto operator/(complex<T> const &a, complex<U> const &b) noexcept
     -> complex<decltype(a.re * b.re)>
 {
 	return (a * conj(b)) / norm(b);
@@ -129,42 +137,50 @@ auto operator/(complex<T> const &a, complex<U> const &b)
 // binary complex <-> real
 
 template <class T>
-complex<T> operator+(complex<T> const &a, std::type_identity_t<T> const &b)
+complex<T> operator+(complex<T> const &a,
+                     std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re + b, a.im};
 }
 template <class T>
-complex<T> operator+(std::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator+(std::type_identity_t<T> const &a,
+                     complex<T> const &b) noexcept
 {
 	return {a + b.re, b.im};
 }
 template <class T>
-complex<T> operator-(complex<T> const &a, std::type_identity_t<T> const &b)
+complex<T> operator-(complex<T> const &a,
+                     std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re - b, a.im};
 }
 template <class T>
-complex<T> operator-(std::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator-(std::type_identity_t<T> const &a,
+                     complex<T> const &b) noexcept
 {
 	return {a - b.re, -b.im};
 }
 template <class T>
-complex<T> operator*(complex<T> const &a, std::type_identity_t<T> const &b)
+complex<T> operator*(complex<T> const &a,
+                     std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re * b, a.im * b};
 }
 template <class T>
-complex<T> operator*(std::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator*(std::type_identity_t<T> const &a,
+                     complex<T> const &b) noexcept
 {
 	return {a * b.re, a * b.im};
 }
 template <class T>
-complex<T> operator/(complex<T> const &a, std::type_identity_t<T> const &b)
+complex<T> operator/(complex<T> const &a,
+                     std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re / b, a.im / b};
 }
 template <class T>
-complex<T> operator/(std::type_identity_t<T> const &a, complex<T> const &b)
+complex<T> operator/(std::type_identity_t<T> const &a,
+                     complex<T> const &b) noexcept
 {
 	return a * inverse(b);
 }
@@ -173,49 +189,49 @@ complex<T> operator/(std::type_identity_t<T> const &a, complex<T> const &b)
 
 template <class T, size_t W>
 complex<simd<T, W>> operator+(complex<simd<T, W>> const &a,
-                              std::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re + b, a.im};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator+(std::type_identity_t<T> const &a,
-                              complex<simd<T, W>> const &b)
+                              complex<simd<T, W>> const &b) noexcept
 {
 	return {a + b.re, b.im};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator-(complex<simd<T, W>> const &a,
-                              std::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re - b, a.im};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator-(std::type_identity_t<T> const &a,
-                              complex<simd<T, W>> const &b)
+                              complex<simd<T, W>> const &b) noexcept
 {
 	return {a - b.re, -b.im};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator*(complex<simd<T, W>> const &a,
-                              std::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re * b, a.im * b};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator*(std::type_identity_t<T> const &a,
-                              complex<simd<T, W>> const &b)
+                              complex<simd<T, W>> const &b) noexcept
 {
 	return {a * b.re, a * b.im};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator/(complex<simd<T, W>> const &a,
-                              std::type_identity_t<T> const &b)
+                              std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re / b, a.im / b};
 }
 template <class T, size_t W>
 complex<simd<T, W>> operator/(std::type_identity_t<T> const &a,
-                              complex<simd<T, W>> const &b)
+                              complex<simd<T, W>> const &b) noexcept
 {
 	return a * inverse(b);
 }
@@ -223,27 +239,27 @@ complex<simd<T, W>> operator/(std::type_identity_t<T> const &a,
 // op-assigns complex <-> complex
 
 template <class T, class U>
-complex<T> &operator+=(complex<T> &a, complex<U> const &b)
+complex<T> &operator+=(complex<T> &a, complex<U> const &b) noexcept
 {
 	a.re += b.re;
 	a.im += b.im;
 	return a;
 }
 template <class T, class U>
-complex<T> &operator-=(complex<T> &a, complex<U> const &b)
+complex<T> &operator-=(complex<T> &a, complex<U> const &b) noexcept
 {
 	a.re -= b.re;
 	a.im -= b.im;
 	return a;
 }
 template <class T, class U>
-complex<T> &operator*=(complex<T> &a, complex<U> const &b)
+complex<T> &operator*=(complex<T> &a, complex<U> const &b) noexcept
 {
 	a = a * b;
 	return a;
 }
 template <class T, class U>
-complex<T> &operator/=(complex<T> &a, complex<U> const &b)
+complex<T> &operator/=(complex<T> &a, complex<U> const &b) noexcept
 {
 	a = a / b;
 	return a;
@@ -251,24 +267,26 @@ complex<T> &operator/=(complex<T> &a, complex<U> const &b)
 
 // op-assigns complex <-> any
 
-template <class T, class U> complex<T> &operator+=(complex<T> &a, U const &b)
+template <class T, class U>
+complex<T> &operator+=(complex<T> &a, U const &b) noexcept
 {
 	a.re += b;
 	return a;
 }
-template <class T, class U> complex<T> &operator-=(complex<T> &a, U const &b)
+template <class T, class U>
+complex<T> &operator-=(complex<T> &a, U const &b) noexcept
 {
 	a.re -= b;
 	return a;
 }
-template <class T, class U> complex<T> &operator*=(complex<T> &a, U b)
+template <class T, class U> complex<T> &operator*=(complex<T> &a, U b) noexcept
 {
 	// beware of aliasing
 	a.re *= b;
 	a.im *= b;
 	return a;
 }
-template <class T, class U> complex<T> &operator/=(complex<T> &a, U b)
+template <class T, class U> complex<T> &operator/=(complex<T> &a, U b) noexcept
 {
 	// beware of aliasing
 	a.re /= b;
@@ -276,46 +294,46 @@ template <class T, class U> complex<T> &operator/=(complex<T> &a, U b)
 	return a;
 }
 
-template <class T> bool operator==(complex<T> const &a, T const &b)
+template <class T> bool operator==(complex<T> const &a, T const &b) noexcept
 {
 	return a.im == 0 && a.re == b;
 }
 
 // exponentials and trigonometry
 
-template <class T> complex<T> exp(complex<T> const &a)
+template <class T> complex<T> exp(complex<T> const &a) noexcept
 {
 	return exp(a.re) * complex<T>(cos(a.im), sin(a.im));
 }
-template <class T> complex<T> sin(complex<T> const &a)
+template <class T> complex<T> sin(complex<T> const &a) noexcept
 {
 	return {sin(a.re) * cosh(a.im), cos(a.re) * sinh(a.im)};
 }
-template <class T> complex<T> cos(complex<T> const &a)
+template <class T> complex<T> cos(complex<T> const &a) noexcept
 {
 	return {cos(a.re) * cosh(a.im), -sin(a.re) * sinh(a.im)};
 }
-template <class T> complex<T> sinh(complex<T> const &a)
+template <class T> complex<T> sinh(complex<T> const &a) noexcept
 {
 	return {sinh(a.re) * cos(a.im), cosh(a.re) * sin(a.im)};
 }
-template <class T> complex<T> cosh(complex<T> const &a)
+template <class T> complex<T> cosh(complex<T> const &a) noexcept
 {
 	return {cosh(a.re) * cos(a.im), sinh(a.re) * sin(a.im)};
 }
 
 // dummy operations to simplify templates that work with either real or complex
 
-inline float conj(float a) { return a; }
-inline float norm(float a) { return a * a; }
-inline float norm2(float a) { return a * a; }
-inline float real(float a) { return a; }
-inline float imag([[maybe_unused]] float a) { return 0; }
-inline double conj(double a) { return a; }
-inline double norm(double a) { return a * a; }
-inline double norm2(double a) { return a * a; }
-inline double real(double a) { return a; }
-inline double imag([[maybe_unused]] double a) { return 0; }
+inline float conj(float a) noexcept { return a; }
+inline float norm(float a) noexcept { return a * a; }
+inline float norm2(float a) noexcept { return a * a; }
+inline float real(float a) noexcept { return a; }
+inline float imag(float) noexcept { return 0; }
+inline double conj(double a) noexcept { return a; }
+inline double norm(double a) noexcept { return a * a; }
+inline double norm2(double a) noexcept { return a * a; }
+inline double real(double a) noexcept { return a; }
+inline double imag(double) noexcept { return 0; }
 
 // type traits to convert real <-> complex types
 // NOTE: we do NOT define the default cases
@@ -353,16 +371,16 @@ template <class T> using complex_t = typename ComplexType<T>::type;
 
 // overloads for (horizontal) simd
 
-template <class T> auto vsum(complex<T> const &a)
+template <class T> auto vsum(complex<T> const &a) noexcept
 {
 	return complex(vsum(a.re), vsum(a.im));
 }
-template <class T> auto vextract(complex<T> const &a, size_t lane)
+template <class T> auto vextract(complex<T> const &a, size_t lane) noexcept
 {
 	return complex(vextract(a.re, lane), vextract(a.im, lane));
 }
 template <class T, class U>
-void vinsert(complex<T> &a, size_t lane, complex<U> const &b)
+void vinsert(complex<T> &a, size_t lane, complex<U> const &b) noexcept
 {
 	vinsert(a.re, lane, b.re);
 	vinsert(a.im, lane, b.im);
@@ -375,52 +393,55 @@ template <class T> struct quaternion
 	T re, im1, im2, im3;
 
 	quaternion() = default;
-	quaternion(T r) : re(std::move(r)), im1(0), im2(0), im3(0) {}
-	quaternion(T a, T b, T c, T d)
+	quaternion(T r) noexcept : re(std::move(r)), im1(0), im2(0), im3(0) {}
+	quaternion(T a, T b, T c, T d) noexcept
 	    : re(std::move(a)), im1(std::move(b)), im2(std::move(c)),
 	      im3(std::move(d))
 	{}
 	template <class U>
-	explicit quaternion(quaternion<U> const &other)
+	explicit quaternion(quaternion<U> const &other) noexcept
 	    : re(other.re), im1(other.im1), im2(other.im2), im3(other.im3)
 	{}
 
-	template <class Rng> static quaternion<T> random_normal(Rng &rng)
+	template <class Rng> static quaternion<T> random_normal(Rng &rng) noexcept
 	{
 		return {rng.template normal<T>(), rng.template normal<T>(),
 		        rng.template normal<T>(), rng.template normal<T>()};
 	}
 
-	T const &real() const { return re; }
-	T const &imag1() const { return im1; }
-	T const &imag2() const { return im2; }
-	T const &imag3() const { return im3; }
+	T const &real() const noexcept { return re; }
+	T const &imag1() const noexcept { return im1; }
+	T const &imag2() const noexcept { return im2; }
+	T const &imag3() const noexcept { return im3; }
 
-	bool operator==(quaternion const &) const = default;
+	bool operator==(quaternion const &) const noexcept = default;
 };
 
-template <class T> T const &real(quaternion<T> const &a) { return a.re; }
+template <class T> T const &real(quaternion<T> const &a) noexcept
+{
+	return a.re;
+}
 
 // unary quaternion
 
-template <class T> T norm2(quaternion<T> const &a)
+template <class T> T norm2(quaternion<T> const &a) noexcept
 {
 	return a.re * a.re + a.im1 * a.im1 + a.im2 * a.im2 + a.im3 * a.im3;
 }
 
-template <class T> quaternion<T> conj(quaternion<T> const &a)
+template <class T> quaternion<T> conj(quaternion<T> const &a) noexcept
 {
 	return {a.re, -a.im1, -a.im2, -a.im3};
 }
-template <class T> quaternion<T> operator+(quaternion<T> const &a)
+template <class T> quaternion<T> operator+(quaternion<T> const &a) noexcept
 {
 	return {+a.re, +a.im1, +a.im2, +a.im3};
 }
-template <class T> quaternion<T> operator-(quaternion<T> const &a)
+template <class T> quaternion<T> operator-(quaternion<T> const &a) noexcept
 {
 	return {-a.re, -a.im1, -a.im2, -a.im3};
 }
-template <class T> quaternion<T> inverse(quaternion<T> const &a)
+template <class T> quaternion<T> inverse(quaternion<T> const &a) noexcept
 {
 	return conj(a) / norm(a);
 }
@@ -428,20 +449,20 @@ template <class T> quaternion<T> inverse(quaternion<T> const &a)
 // binary quaternion <-> quaternion
 
 template <class T, class U>
-auto operator+(quaternion<T> const &a, quaternion<U> const &b)
+auto operator+(quaternion<T> const &a, quaternion<U> const &b) noexcept
     -> quaternion<decltype(a.re + b.re)>
 {
 	return {a.re + b.re, a.im1 + b.im1, a.im2 + b.im2, a.im3 + b.im3};
 }
 template <class T, class U>
-auto operator-(quaternion<T> const &a, quaternion<U> const &b)
+auto operator-(quaternion<T> const &a, quaternion<U> const &b) noexcept
     -> quaternion<decltype(a.re - b.re)>
 {
 	return {a.re - b.re, a.im1 - b.im1, a.im2 - b.im2, a.im3 - b.im3};
 }
-template <class T, class U>
-auto operator*(quaternion<T> const &a, quaternion<U> const &b)
-    -> quaternion<decltype(a.re * b.re)>
+template <class T>
+quaternion<T> operator*(quaternion<T> const &a, quaternion<T> const &b) noexcept
+//-> quaternion<decltype(a.re * b.re)>
 {
 	return {a.re * b.re - a.im1 * b.im1 - a.im2 * b.im2 - a.im3 * b.im3,
 	        a.re * b.im1 + a.im1 * b.re + a.im2 * b.im3 - a.im3 * b.im2,
@@ -449,7 +470,7 @@ auto operator*(quaternion<T> const &a, quaternion<U> const &b)
 	        a.re * b.im3 + a.im1 * b.im2 - a.im2 * b.im1 + a.im3 * b.re};
 }
 template <class T, class U>
-auto operator/(quaternion<T> const &a, quaternion<U> const &b)
+auto operator/(quaternion<T> const &a, quaternion<U> const &b) noexcept
     -> quaternion<decltype(a.re * b.re)>
 {
 	return (a * conj(b)) / norm(b);
@@ -459,49 +480,49 @@ auto operator/(quaternion<T> const &a, quaternion<U> const &b)
 
 template <class T>
 quaternion<T> operator+(quaternion<T> const &a,
-                        std::type_identity_t<T> const &b)
+                        std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re + b, a.im1, a.im2, a.im3};
 }
 template <class T>
 quaternion<T> operator+(std::type_identity_t<T> const &a,
-                        quaternion<T> const &b)
+                        quaternion<T> const &b) noexcept
 {
 	return {a + b.re, b.im1, b.im2, b.im3};
 }
 template <class T>
 quaternion<T> operator-(quaternion<T> const &a,
-                        std::type_identity_t<T> const &b)
+                        std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re - b, a.im1, a.im2, a.im3};
 }
 template <class T>
 quaternion<T> operator-(std::type_identity_t<T> const &a,
-                        quaternion<T> const &b)
+                        quaternion<T> const &b) noexcept
 {
 	return {a - b.re, -b.im1, -b.im2, -b.im3};
 }
 template <class T>
 quaternion<T> operator*(quaternion<T> const &a,
-                        std::type_identity_t<T> const &b)
+                        std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re * b, a.im1 * b, a.im2 * b, a.im3 * b};
 }
 template <class T>
 quaternion<T> operator*(std::type_identity_t<T> const &a,
-                        quaternion<T> const &b)
+                        quaternion<T> const &b) noexcept
 {
 	return {a * b.re, a * b.im1, a * b.im2, a * b.im3};
 }
 template <class T>
 quaternion<T> operator/(quaternion<T> const &a,
-                        std::type_identity_t<T> const &b)
+                        std::type_identity_t<T> const &b) noexcept
 {
 	return {a.re / b, a.im1 / b, a.im2 / b, a.im3 / b};
 }
 template <class T>
 quaternion<T> operator/(std::type_identity_t<T> const &a,
-                        quaternion<T> const &b)
+                        quaternion<T> const &b) noexcept
 {
 	return a * inverse(b);
 }
@@ -509,7 +530,7 @@ quaternion<T> operator/(std::type_identity_t<T> const &a,
 // op-assigns quaternion <-> quaternion
 
 template <class T, class U>
-quaternion<T> &operator+=(quaternion<T> &a, quaternion<U> const &b)
+quaternion<T> &operator+=(quaternion<T> &a, quaternion<U> const &b) noexcept
 {
 	a.re += b.re;
 	a.im1 += b.im1;
@@ -518,7 +539,7 @@ quaternion<T> &operator+=(quaternion<T> &a, quaternion<U> const &b)
 	return a;
 }
 template <class T, class U>
-quaternion<T> &operator-=(quaternion<T> &a, quaternion<U> const &b)
+quaternion<T> &operator-=(quaternion<T> &a, quaternion<U> const &b) noexcept
 {
 	a.re -= b.re;
 	a.im1 -= b.im1;
@@ -527,20 +548,20 @@ quaternion<T> &operator-=(quaternion<T> &a, quaternion<U> const &b)
 	return a;
 }
 template <class T, class U>
-quaternion<T> &operator*=(quaternion<T> &a, quaternion<U> const &b)
+quaternion<T> &operator*=(quaternion<T> &a, quaternion<U> const &b) noexcept
 {
 	a = a * b;
 	return a;
 }
 template <class T, class U>
-quaternion<T> &operator/=(quaternion<T> &a, quaternion<U> const &b)
+quaternion<T> &operator/=(quaternion<T> &a, quaternion<U> const &b) noexcept
 {
 	a = a / b;
 	return a;
 }
 
 template <class T>
-quaternion<T> &operator*=(quaternion<T> &a, std::type_identity_t<T> b)
+quaternion<T> &operator*=(quaternion<T> &a, std::type_identity_t<T> b) noexcept
 {
 	a.re *= b;
 	a.im1 *= b;
@@ -550,7 +571,7 @@ quaternion<T> &operator*=(quaternion<T> &a, std::type_identity_t<T> b)
 }
 
 template <class T>
-quaternion<T> &operator/=(quaternion<T> &a, std::type_identity_t<T> b)
+quaternion<T> &operator/=(quaternion<T> &a, std::type_identity_t<T> b) noexcept
 {
 	a.re /= b;
 	a.im1 /= b;
@@ -559,7 +580,7 @@ quaternion<T> &operator/=(quaternion<T> &a, std::type_identity_t<T> b)
 	return a;
 }
 
-template <class T> bool operator==(quaternion<T> const &a, T const &b)
+template <class T> bool operator==(quaternion<T> const &a, T const &b) noexcept
 {
 	return a.im1 == 0 && a.im2 == 0 && a.im3 == 0 && a.re == b;
 }

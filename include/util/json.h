@@ -228,7 +228,7 @@ class Json
 };
 
 // serializer for standard types
-inline Json to_json(nullptr_t) { return Json::null(); }
+inline Json to_json(std::nullptr_t) { return Json::null(); }
 inline Json to_json(bool value) { return Json::boolean(value); }
 Json to_json(std::integral auto value) { return Json::integer(value); }
 Json to_json(std::floating_point auto value) { return Json::floating(value); }

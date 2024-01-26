@@ -213,7 +213,7 @@ class Hdf5File
 	template <typename T>
 	Hdf5Dataset write_data(std::string const &name, std::vector<T> const &data)
 	{
-		auto ds = create_data(name, {data.size()}, h5_type_id<T>());
+		auto ds = create_data(name, {hsize_t(data.size())}, h5_type_id<T>());
 		ds.write(data);
 		return ds;
 	}

@@ -31,7 +31,7 @@ class ProgressBar
 		std::string head =
 		    fmt::format("{:3}% ({} of {}) |", int(p * 100), ticks_, total_);
 		std::string tail =
-		    finished_
+		    (finished_ || p == 0)
 		        ? fmt::format("| elapsed: {:%T}               \r",
 		                      floor<seconds>(elapsed))
 		        : fmt::format("| elapsed: {:%T}, ETA: {:%T}\r",

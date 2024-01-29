@@ -166,23 +166,29 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 		return r;
 	}
 
-	T &operator[](size_t i) noexcept
+	UTIL_DEVICE T &operator[](size_t i) noexcept
 	{
 		return VectorStorage<T, N>::elements_[i];
 	}
-	T const &operator[](size_t i) const noexcept
-	{
-		return VectorStorage<T, N>::elements_[i];
-	}
-
-	T &operator()(int i) noexcept { return VectorStorage<T, N>::elements_[i]; }
-	T const &operator()(int i) const noexcept
+	UTIL_DEVICE T const &operator[](size_t i) const noexcept
 	{
 		return VectorStorage<T, N>::elements_[i];
 	}
 
-	T *data() noexcept { return VectorStorage<T, N>::elements_; }
-	T const *data() const noexcept { return VectorStorage<T, N>::elements_; }
+	UTIL_DEVICE T &operator()(int i) noexcept
+	{
+		return VectorStorage<T, N>::elements_[i];
+	}
+	UTIL_DEVICE T const &operator()(int i) const noexcept
+	{
+		return VectorStorage<T, N>::elements_[i];
+	}
+
+	UTIL_DEVICE T *data() noexcept { return VectorStorage<T, N>::elements_; }
+	UTIL_DEVICE T const *data() const noexcept
+	{
+		return VectorStorage<T, N>::elements_;
+	}
 	std::span<T> flat() noexcept { return std::span(data(), N); }
 	std::span<const T> flat() const noexcept { return std::span(data(), N); }
 };
@@ -200,7 +206,8 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 //     will lead to ambiguities in complicated (deeply nested) cases
 
 #define UTIL_UNARY_OP(V, DIM, op)                                              \
-	template <class T, int N> auto operator op(V<T, N> const &a) noexcept      \
+	template <class T, int N>                                                  \
+	UTIL_DEVICE auto operator op(V<T, N> const &a) noexcept                    \
 	{                                                                          \
 		V<decltype(op a.data()[0]), N> r;                                      \
 		for (int i = 0; i < DIM; ++i)                                          \
@@ -210,7 +217,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 
 #define UTIL_ELEMENT_WISE_OP(V, DIM, op)                                       \
 	template <class T, class U, int N>                                         \
-	auto operator op(V<T, N> const &a, V<U, N> const &b) noexcept              \
+	UTIL_DEVICE auto operator op(V<T, N> const &a, V<U, N> const &b) noexcept  \
 	{                                                                          \
 		V<decltype(a.data()[0] op b.data()[0]), N> r;                          \
 		for (int i = 0; i < DIM; ++i)                                          \
@@ -218,7 +225,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 		return r;                                                              \
 	}                                                                          \
 	template <class T, class U, int N>                                         \
-	V<T, N> &operator op##=(V<T, N> &a, V<U, N> const &b) noexcept             \
+	UTIL_DEVICE V<T, N> &operator op##=(V<T, N> &a, V<U, N> const &b) noexcept \
 	{                                                                          \
 		for (int i = 0; i < DIM; ++i)                                          \
 			a.data()[i] op## = b.data()[i];                                    \
@@ -227,7 +234,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 
 #define UTIL_SCALAR_OP(V, S, DIM, op)                                          \
 	template <class T, int N>                                                  \
-	auto operator op(V<T, N> const &a, typename S b) noexcept                  \
+	UTIL_DEVICE auto operator op(V<T, N> const &a, typename S b) noexcept      \
 	{                                                                          \
 		V<T, N> r;                                                             \
 		for (int i = 0; i < DIM; ++i)                                          \
@@ -235,7 +242,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 		return r;                                                              \
 	}                                                                          \
 	template <class T, int N>                                                  \
-	V<T, N> &operator op##=(V<T, N> &a, typename S b) noexcept                 \
+	UTIL_DEVICE V<T, N> &operator op##=(V<T, N> &a, typename S b) noexcept     \
 	{                                                                          \
 		for (int i = 0; i < DIM; ++i)                                          \
 			a.data()[i] op## = b;                                              \
@@ -244,7 +251,7 @@ template <class T, int N> struct Vector : VectorStorage<T, N>
 
 #define UTIL_SCALAR_OP_LEFT(V, S, DIM, op)                                     \
 	template <class T, int N>                                                  \
-	auto operator op(typename S a, V<T, N> const &b) noexcept                  \
+	UTIL_DEVICE auto operator op(typename S a, V<T, N> const &b) noexcept      \
 	{                                                                          \
 		V<T, N> r;                                                             \
 		for (int i = 0; i < DIM; ++i)                                          \
@@ -284,7 +291,7 @@ UTIL_SCALAR_OP_LEFT(Vector, T::value_type, N, *)
 
 // dot product of two vectors. No complex conjucation.
 template <class T, class U, int N>
-auto dot(Vector<T, N> const &a, Vector<U, N> const &b) noexcept
+UTIL_DEVICE auto dot(Vector<T, N> const &a, Vector<U, N> const &b) noexcept
     -> decltype(a(0) * b(0))
 {
 	decltype(a(0) * b(0)) r = a(0) * b(0);
@@ -294,8 +301,8 @@ auto dot(Vector<T, N> const &a, Vector<U, N> const &b) noexcept
 }
 
 template <class T, class U, int N>
-auto dot(Vector<complex<T>, N> const &a, Vector<U, N> const &b) noexcept
-    -> decltype(a(0) * b(0))
+UTIL_DEVICE auto dot(Vector<complex<T>, N> const &a,
+                     Vector<U, N> const &b) noexcept -> decltype(a(0) * b(0))
 {
 	// This function is somewhat error-prone due to different conventions:
 	// GLSL/GLM: no complex numbers at all
@@ -307,7 +314,8 @@ auto dot(Vector<complex<T>, N> const &a, Vector<U, N> const &b) noexcept
 
 // same as 'dot(...)', but with complex conjugation of the left argument
 template <class T, class U, int N>
-auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b) noexcept
+UTIL_DEVICE auto inner_product(Vector<T, N> const &a,
+                               Vector<U, N> const &b) noexcept
     -> decltype(conj(a(0)) * b(0))
 {
 	auto r = conj(a(0)) * b(0);
@@ -318,7 +326,7 @@ auto inner_product(Vector<T, N> const &a, Vector<U, N> const &b) noexcept
 
 // 3-dimensional cross product. (no complex conjugation).
 template <class T, class U>
-auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b) noexcept
+UTIL_DEVICE auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b) noexcept
     -> Vector<decltype(a(0) * b(0)), 3>
 {
 	Vector<decltype(a(0) * b(0)), 3> r;
@@ -334,7 +342,7 @@ auto cross(Vector<T, 3> const &a, Vector<U, 3> const &b) noexcept
 //     * calls 'norm2(...)' recursively, which means some nested types are
 //       collapsed, depending on the type T. For example:
 //           norm2(Vector<Matrix<complex<simd<double>>>>) -> simd<double>
-template <class T, int N> auto norm2(Vector<T, N> const &a) noexcept
+template <class T, int N> UTIL_DEVICE auto norm2(Vector<T, N> const &a) noexcept
 {
 	auto r = norm2(a(0));
 	for (int i = 1; i < N; ++i)
@@ -343,13 +351,15 @@ template <class T, int N> auto norm2(Vector<T, N> const &a) noexcept
 }
 
 // (non-squared) L^2 norm
-template <class T, int N> auto length(Vector<T, N> const &a) noexcept
+template <class T, int N>
+UTIL_DEVICE auto length(Vector<T, N> const &a) noexcept
 {
 	return sqrt(norm2(a));
 }
 
 // same as 'a / length(a)'
-template <class T, int N> Vector<T, N> normalize(Vector<T, N> const &a) noexcept
+template <class T, int N>
+UTIL_DEVICE Vector<T, N> normalize(Vector<T, N> const &a) noexcept
 {
 	// TODO: there should be a slightly faster way to compute 1/sqrt(x)
 	return a * (T(1) / length(a));
@@ -358,7 +368,8 @@ template <class T, int N> Vector<T, N> normalize(Vector<T, N> const &a) noexcept
 // geometric reflcetion of a along the normal vector n
 //     * n must be normalized already
 template <class T, class U, int N>
-Vector<T, N> reflect(Vector<T, N> const &a, Vector<U, N> const &n) noexcept
+UTIL_DEVICE Vector<T, N> reflect(Vector<T, N> const &a,
+                                 Vector<U, N> const &n) noexcept
 {
 	return a - 2 * dot(n, a) * n;
 }
@@ -374,7 +385,7 @@ template <class T, int N> struct Matrix
 
 	Matrix() = default;
 
-	Matrix(T const &a) noexcept
+	UTIL_DEVICE Matrix(T const &a) noexcept
 	{
 		for (int i = 0; i < N; ++i)
 			for (int j = 0; j < N; ++j)
@@ -382,7 +393,7 @@ template <class T, int N> struct Matrix
 	}
 
 	template <std::convertible_to<typename T::value_type> V>
-	Matrix(V const &a) noexcept
+	UTIL_DEVICE Matrix(V const &a) noexcept
 	{
 		// NOTE: the extra template-indirection with 'V' is necessary in case
 		// 'T' is not a class type (i.e. T=float/double), which makes
@@ -392,8 +403,8 @@ template <class T, int N> struct Matrix
 				(*this)(i, j) = i == j ? T(a) : T(typename T::value_type(0));
 	}
 
-	static Matrix zero() noexcept { return Matrix(T(0)); }
-	static Matrix identity() noexcept { return Matrix(T(1)); }
+	static UTIL_DEVICE Matrix zero() noexcept { return Matrix(T(0)); }
+	static UTIL_DEVICE Matrix identity() noexcept { return Matrix(T(1)); }
 
 	// create matrix with i.i.d. gaussian entries
 	template <class Rng> static Matrix random_normal(Rng &rng) noexcept
@@ -404,31 +415,31 @@ template <class T, int N> struct Matrix
 		return r;
 	}
 
-	T &operator()(int i, int j) noexcept
+	UTIL_DEVICE T &operator()(int i, int j) noexcept
 	{
 		// row major order
 		assert(0 <= i && i < N && 0 <= j && j < N);
 		return data_[i][j];
 	}
-	T const &operator()(int i, int j) const noexcept
+	UTIL_DEVICE T const &operator()(int i, int j) const noexcept
 	{
 		assert(0 <= i && i < N && 0 <= j && j < N);
 		return data_[i][j];
 	}
 
-	Vector &operator()(int i) noexcept
+	UTIL_DEVICE Vector &operator()(int i) noexcept
 	{
 		assert(0 <= i && i < N);
 		return data_[i];
 	}
-	Vector const &operator()(int i) const noexcept
+	UTIL_DEVICE Vector const &operator()(int i) const noexcept
 	{
 		assert(0 <= i && i < N);
 		return data_[i];
 	}
 
-	T *data() noexcept { return data_[0].data(); }
-	T const *data() const noexcept { return data_[0].data(); }
+	UTIL_DEVICE T *data() noexcept { return data_[0].data(); }
+	UTIL_DEVICE T const *data() const noexcept { return data_[0].data(); }
 
 	std::span<T> flat() noexcept { return std::span(data(), N * N); }
 	std::span<const T> flat() const noexcept
@@ -449,7 +460,8 @@ UTIL_SCALAR_OP_LEFT(Matrix, T::value_type, N *N, *)
 
 // matrix-vector multiplication
 template <class T, class U, int N>
-auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b) noexcept
+UTIL_DEVICE auto operator*(Matrix<T, N> const &a,
+                           Vector<U, N> const &b) noexcept
     -> Vector<decltype(a(0, 0) * b(0)), N>
 {
 	Vector<decltype(a(0, 0) * b(0)), N> r;
@@ -464,7 +476,8 @@ auto operator*(Matrix<T, N> const &a, Vector<U, N> const &b) noexcept
 
 // matrix-matrix multiplication
 template <class T, class U, int N>
-auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b) noexcept
+UTIL_DEVICE auto operator*(Matrix<T, N> const &a,
+                           Matrix<U, N> const &b) noexcept
     -> Matrix<decltype(a(0, 0) * b(0, 0)), N>
 {
 	Matrix<decltype(a(0, 0) * b(0, 0)), N> r;
@@ -479,13 +492,15 @@ auto operator*(Matrix<T, N> const &a, Matrix<U, N> const &b) noexcept
 }
 
 template <class T, class U, int N>
-Matrix<T, N> &operator*=(Matrix<T, N> &a, Matrix<U, N> const &b) noexcept
+UTIL_DEVICE Matrix<T, N> &operator*=(Matrix<T, N> &a,
+                                     Matrix<U, N> const &b) noexcept
 {
 	a = a * b;
 	return a;
 }
 
-template <class T, int N> Matrix<T, N> transpose(Matrix<T, N> const &a) noexcept
+template <class T, int N>
+UTIL_DEVICE Matrix<T, N> transpose(Matrix<T, N> const &a) noexcept
 {
 	Matrix<T, N> r;
 	for (int i = 0; i < N; ++i)
@@ -495,7 +510,8 @@ template <class T, int N> Matrix<T, N> transpose(Matrix<T, N> const &a) noexcept
 }
 
 // element-wise complex conjugation
-template <class T, int N> Matrix<T, N> conj(Matrix<T, N> const &a) noexcept
+template <class T, int N>
+UTIL_DEVICE Matrix<T, N> conj(Matrix<T, N> const &a) noexcept
 {
 	Matrix<T, N> r;
 	for (int i = 0; i < N; ++i)
@@ -505,7 +521,8 @@ template <class T, int N> Matrix<T, N> conj(Matrix<T, N> const &a) noexcept
 }
 
 // adjoint matrix, i.e., transpose and complex conjugate
-template <class T, int N> Matrix<T, N> adj(Matrix<T, N> const &a) noexcept
+template <class T, int N>
+UTIL_DEVICE Matrix<T, N> adj(Matrix<T, N> const &a) noexcept
 {
 	Matrix<T, N> r;
 	for (int i = 0; i < N; ++i)
@@ -515,7 +532,7 @@ template <class T, int N> Matrix<T, N> adj(Matrix<T, N> const &a) noexcept
 }
 
 template <class T, int N>
-Matrix<util::complex<T>, N>
+Matrix<util::complex<T>, N> UTIL_DEVICE
 hermitian_traceless(Matrix<util::complex<T>, N> const &a) noexcept
 {
 	Matrix<util::complex<T>, N> r;
@@ -539,7 +556,7 @@ hermitian_traceless(Matrix<util::complex<T>, N> const &a) noexcept
 }
 
 template <class T, int N>
-Matrix<util::complex<T>, N>
+Matrix<util::complex<T>, N> UTIL_DEVICE
 antihermitian_traceless(Matrix<util::complex<T>, N> const &a) noexcept
 {
 	Matrix<util::complex<T>, N> r;
@@ -562,7 +579,7 @@ antihermitian_traceless(Matrix<util::complex<T>, N> const &a) noexcept
 	return r;
 }
 
-template <class T, int N> T trace(Matrix<T, N> const &a) noexcept
+template <class T, int N> UTIL_DEVICE T trace(Matrix<T, N> const &a) noexcept
 {
 	T r = a(0, 0);
 	for (int i = 1; i < N; ++i)
@@ -570,19 +587,20 @@ template <class T, int N> T trace(Matrix<T, N> const &a) noexcept
 	return r;
 }
 
-template <class T> T determinant(Matrix<T, 2> const &a) noexcept
+template <class T> UTIL_DEVICE T determinant(Matrix<T, 2> const &a) noexcept
 {
 	return a(0, 0) * a(1, 1) - a(0, 1) * a(1, 0);
 }
 
-template <class T> T determinant(Matrix<T, 3> const &a) noexcept
+template <class T> UTIL_DEVICE T determinant(Matrix<T, 3> const &a) noexcept
 {
 	return a(0, 0) * (a(1, 1) * a(2, 2) - a(2, 1) * a(1, 2)) -
 	       a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) +
 	       a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
 }
 
-template <class T> Matrix<T, 2> inverse(Matrix<T, 2> const &a) noexcept
+template <class T>
+UTIL_DEVICE Matrix<T, 2> inverse(Matrix<T, 2> const &a) noexcept
 {
 	Matrix<T, 2> b;
 	b(0, 0) = a(1, 1);
@@ -592,7 +610,8 @@ template <class T> Matrix<T, 2> inverse(Matrix<T, 2> const &a) noexcept
 	return b * (T(1) / determinant(a));
 }
 
-template <class T> Matrix<T, 3> inverse(Matrix<T, 3> const &a) noexcept
+template <class T>
+UTIL_DEVICE Matrix<T, 3> inverse(Matrix<T, 3> const &a) noexcept
 {
 	Matrix<T, 3> b;
 	b(0, 0) = a(1, 1) * a(2, 2) - a(2, 1) * a(1, 2);
@@ -608,7 +627,7 @@ template <class T> Matrix<T, 3> inverse(Matrix<T, 3> const &a) noexcept
 	return b * (T(1) / determinant(a));
 }
 
-template <class T, int N> auto norm2(Matrix<T, N> const &a) noexcept
+template <class T, int N> UTIL_DEVICE auto norm2(Matrix<T, N> const &a) noexcept
 {
 	auto r = norm2(a.data()[0]);
 	for (int i = 1; i < N * N; ++i)
@@ -617,7 +636,8 @@ template <class T, int N> auto norm2(Matrix<T, N> const &a) noexcept
 }
 
 // orthonormalize the rows of a using Gram-Schmidt method
-template <class T, int N> Matrix<T, N> gram_schmidt(Matrix<T, N> a) noexcept
+template <class T, int N>
+UTIL_DEVICE Matrix<T, N> gram_schmidt(Matrix<T, N> a) noexcept
 {
 	for (int i = 0; i < N; ++i)
 	{
@@ -630,7 +650,7 @@ template <class T, int N> Matrix<T, N> gram_schmidt(Matrix<T, N> a) noexcept
 
 // matrix exponential using fixed-order Taylor approximation
 template <class T, int N>
-Matrix<T, N> exp(Matrix<T, N> const &a, int order = 12) noexcept
+UTIL_DEVICE Matrix<T, N> exp(Matrix<T, N> const &a, int order = 12) noexcept
 {
 	// use exp(A) = exp(A/16)^16 with 12th-order Taylor
 	// TODO (ideas):

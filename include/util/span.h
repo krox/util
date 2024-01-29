@@ -327,7 +327,7 @@ template <typename T, size_t N> class ndspan
 	ndspan<T, N> slice(size_t axis, size_t a, size_t b) const
 	{
 		assert(axis < N);
-		assert(0 <= a && a <= b && b <= shape_[axis]);
+		assert(a <= b && b <= shape_[axis]);
 		ndspan<T, N> r = *this;
 		r.data_ += a * stride_[axis];
 		r.shape_[axis] = b - a;

@@ -250,6 +250,27 @@ template <> class Estimator<1>
 	void clear() { n = m = m2 = m3 = m4 = 0; }
 };
 
+// records a time-series, automatically increasing the bin size to keep the
+// number of stored samples bounded.
+class BinnedSeries
+{
+	std::vector<double> samples_;
+	size_t binsize_ = 1;
+	std::vector<double> buffer_;
+	Estimator<1> est_;
+
+  public:
+	BinnedSeries() = default;
+
+	void add(double x);
+
+	double mean() const { return est_.mean(); }
+	double mean_error() const
+	{
+		return std::sqrt(est_.variance() / (samples_.size() - 1.5));
+	}
+};
+
 /** autocorrelation coefficients */
 std::vector<double> autocorrelation(std::span<const double> xs, size_t m);
 

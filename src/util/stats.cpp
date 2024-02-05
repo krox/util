@@ -192,6 +192,44 @@ template class Estimator<2>;
 template class Estimator<3>;
 template class Estimator<4>;
 
+void BinnedSeries::add(double x)
+{
+	if (binsize_ == 1)
+	{
+		samples_.push_back(x);
+		est_.add(x);
+	}
+	else
+	{
+		buffer_.push_back(x);
+		if (buffer_.size() == binsize_)
+		{
+			auto s = util::mean(buffer_);
+			buffer_.clear();
+
+			samples_.push_back(s);
+			est_.add(s);
+		}
+	}
+
+	if (samples_.size() == 4096)
+	{
+		// bin samples_ by factor 2
+		assert(samples_.size() % 2 == 0);
+		binsize_ *= 2;
+		for (size_t i = 0; i < samples_.size() / 2; ++i)
+			samples_[i] = 0.5 * (samples_[2 * i] + samples_[2 * i + 1]);
+		samples_.resize(samples_.size() / 2);
+
+		// re-compute the mean/variance/... estimations
+		// (mean is only affected by numerical errors, variance is critical
+		// in case of autocorrelation)
+		est_.clear();
+		for (auto x : samples_)
+			est_.add(x);
+	}
+}
+
 std::vector<double> autocorrelation(std::span<const double> xs, size_t m)
 {
 	m = std::min(m, xs.size() - 1);

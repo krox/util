@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16.0)
 project(util LANGUAGES C CXX)
 
+option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
+
 # dependencies
 find_package(HDF5 REQUIRED) # should be optional
 
@@ -27,13 +29,18 @@ CPMAddPackage(
 )
 
 # main library
-add_library(util src/util/gnuplot.cpp src/util/hash.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
 target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
 target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)
+
+if(UTIL_FFTW)
+	target_link_libraries(util PUBLIC fftw3)
+	target_compile_definitions(util PUBLIC UTIL_FFTW)
+endif()
 
 # optional hdf5 library
 add_library(util_hdf5 src/util/hdf5.cpp)

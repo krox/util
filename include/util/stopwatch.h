@@ -53,6 +53,8 @@ class Stopwatch
 		           .count() *
 		       1.0e-6;
 	}
+
+	void operator+=(Clock::duration dur) { dur_ += dur; }
 };
 
 // RAII-style scope guard for benchmarking blocks of code

@@ -72,6 +72,34 @@ LinearFit::LinearFit(std::span<const double> xs, std::span<const double> ys,
 
 double LinearFit::operator()(double x) const { return a + b * x; }
 
+ExponentialFit::ExponentialFit(std::span<const double> xs,
+                               std::span<const double> ys,
+                               std::span<const double> es)
+{
+	assert(ys.size() == es.size());
+	assert(xs.empty() || xs.size() == ys.size());
+
+	Estimator<2> est;
+	for (size_t i = 0; i < ys.size(); ++i)
+	{
+		if (ys[i] < 2 * es[i])
+			continue;
+		if (xs.empty())
+			est.add({double(i), std::log(ys[i])},
+			        ys[i] * ys[i] / (es[i] * es[i]));
+		else
+			est.add({xs[i], std::log(ys[i])}, ys[i] * ys[i] / (es[i] * es[i]));
+	}
+
+	b = est.cov(0, 1) / est.var(0);
+	a = std::exp(est.mean(1) - est.mean(0) * b);
+}
+
+double ExponentialFit::operator()(double x) const
+{
+	return a * std::exp(b * x);
+}
+
 void Histogram::init(double min, double max, size_t n)
 {
 	mins.resize(n);

@@ -129,6 +129,22 @@ struct LinearFit
 	double operator()(double x) const;
 };
 
+// fit exponential function f(x) = a * exp(b*x)
+//   * implemented as linear fit to log(y).
+//     (Fast and simple but not super accurate)
+//   * values that are negative within 2*err are ignored
+struct ExponentialFit
+{
+	ExponentialFit() = default;
+	ExponentialFit(std::span<const double> xs, std::span<const double> ys,
+	               std::span<const double> err);
+
+	double a = 0.0 / 0.0;
+	double b = 0.0 / 0.0;
+
+	double operator()(double x) const;
+};
+
 struct Histogram
 {
 	std::vector<double> mins;

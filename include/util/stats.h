@@ -277,4 +277,7 @@ std::vector<double> autocorrelation(std::span<const double> xs, size_t m);
 /** estimate auto-correlation time */
 double correlationTime(std::span<const double> xs);
 
+// format a number with error, e.g. "1.23(45)"
+std::string format_error(double val, double err);
+
 } // namespace util

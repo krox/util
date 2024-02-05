@@ -2,8 +2,8 @@
 #include "catch2/catch_test_macros.hpp"
 
 #include "util/numerics.h"
-
 #include "util/random.h"
+#include "util/stats.h"
 #include <cmath>
 
 using namespace util;
@@ -44,4 +44,13 @@ TEST_CASE("fsum")
 		f -= rng.uniform() * exp(rng.uniform() * 10);
 
 	CHECK(double(f) == 1.23456);
+}
+
+TEST_CASE("format_error")
+{
+	CHECK(format_error(1.5, 0.0) == "1.5");
+	CHECK(format_error(1.2344, 0.053) == "1.234(53)");
+	CHECK(format_error(1.2344, 0.0053) == "1.2344(53)");
+	CHECK(format_error(123.44, 5.3) == "123.4(5.3)");
+	CHECK(format_error(1234444, 123) == "1234444(123)");
 }

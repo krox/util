@@ -263,4 +263,38 @@ double correlationTime(std::span<const double> xs)
 	return 1.0 / 0.0; // no reliable estimation -> infinity
 }
 
+// format a value with error, e.g. "1.23(45)".
+//   * The error is shown to (typically) two digits.
+//   * Always uses 'f' style, i.e. no scientific notation. Therefore, the result
+//     will look bad if the value is very large or very small.
+std::string format_error(double val, double err)
+{
+	if (err == 0)
+		return fmt::format("{}", val);
+	if (err < 0 || err != err || err == 1.0 / 0.0)
+		return fmt::format("{}(?)", val);
+
+	int digits = 0;
+	while (int(err) < 10 && digits < 30)
+	{
+		err *= 10;
+		digits += 1;
+	}
+
+	auto ierr = int(err);
+
+	// special case: decimal point in the middle of the error
+	if (digits == 1)
+	{
+		assert(10 <= ierr && int(err) <= 99);
+		return fmt::format("{:.{}f}({}.{})", val, digits, ierr / 10, ierr % 10);
+	}
+
+	if (digits >= 2)
+		assert(ierr < 100);
+	else
+		assert(digits == 0);
+	return fmt::format("{:.{}f}({})", val, digits, int(err));
+}
+
 } // namespace util

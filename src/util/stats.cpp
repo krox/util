@@ -224,7 +224,7 @@ void BinnedSeries::add(double x)
 {
 	if (binsize_ == 1)
 	{
-		samples_.push_back(x);
+		bins_.push_back(x);
 		est_.add(x);
 	}
 	else
@@ -235,25 +235,23 @@ void BinnedSeries::add(double x)
 			auto s = util::mean(buffer_);
 			buffer_.clear();
 
-			samples_.push_back(s);
+			bins_.push_back(s);
 			est_.add(s);
 		}
 	}
 
-	if (samples_.size() == 4096)
+	if (bins_.size() >= 2 * (size_t)min_nbins_ && bins_.size() % 2 == 0)
 	{
-		// bin samples_ by factor 2
-		assert(samples_.size() % 2 == 0);
 		binsize_ *= 2;
-		for (size_t i = 0; i < samples_.size() / 2; ++i)
-			samples_[i] = 0.5 * (samples_[2 * i] + samples_[2 * i + 1]);
-		samples_.resize(samples_.size() / 2);
+		for (size_t i = 0; i < bins_.size() / 2; ++i)
+			bins_[i] = 0.5 * (bins_[2 * i] + bins_[2 * i + 1]);
+		bins_.resize(bins_.size() / 2);
 
 		// re-compute the mean/variance/... estimations
 		// (mean is only affected by numerical errors, variance is critical
 		// in case of autocorrelation)
 		est_.clear();
-		for (auto x : samples_)
+		for (auto x : bins_)
 			est_.add(x);
 	}
 }

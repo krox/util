@@ -268,22 +268,32 @@ template <> class Estimator<1>
 
 // records a time-series, automatically increasing the bin size to keep the
 // number of stored samples bounded.
+// Note: This can be used with autocorrelated data. As more samples come in,
+// binsize increases, and the '.mean_error()' function will eventually converge.
+// Intended as a simpler alternative to estimating the autocorrelation time
+// explicitly.
 class BinnedSeries
 {
-	std::vector<double> samples_;
+	std::vector<double> bins_;
+	int min_nbins_ = 128;
 	size_t binsize_ = 1;
 	std::vector<double> buffer_;
 	Estimator<1> est_;
 
   public:
-	BinnedSeries() = default;
+	BinnedSeries(int min_nbins = 128) : min_nbins_(min_nbins) {}
 
+	// add a new sample. Automatically increases the binsize to keep the number
+	// of bins in the range [min_nbins, 2*min_nbins)
 	void add(double x);
 
+	// mean of all samples so far (might not include the last, incomplete bin)
 	double mean() const { return est_.mean(); }
+
+	// estimate the error of the mean, assuming the bins are uncorrelated.
 	double mean_error() const
 	{
-		return std::sqrt(est_.variance() / (samples_.size() - 1.5));
+		return std::sqrt(est_.variance() / (bins_.size() - 1.5));
 	}
 };
 

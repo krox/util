@@ -10,6 +10,8 @@
 //           github.com/BlueBrain/HighFive
 //           github.com/steven-varga/h5cpp
 
+#ifdef UTIL_HDF5
+
 #include "hdf5/serial/hdf5.h"
 #include <cassert>
 #include <optional>
@@ -261,3 +263,5 @@ class Hdf5File
 };
 
 } // namespace util
+
+#endif

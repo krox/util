@@ -2,9 +2,12 @@ cmake_minimum_required(VERSION 3.16.0)
 project(util LANGUAGES C CXX)
 
 option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
+option(UTIL_HDF5 "link to HDF5 for I/O" OFF)
 
 # dependencies
-find_package(HDF5 REQUIRED) # should be optional
+if(UTIL_HDF5)
+	find_package(HDF5 REQUIRED)
+endif()
 
 include(cmake/CPM.cmake)
 
@@ -28,8 +31,8 @@ CPMAddPackage(
 	GIT_TAG 291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
 )
 
-# main library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
+# library
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
@@ -42,11 +45,11 @@ if(UTIL_FFTW)
 	target_compile_definitions(util PUBLIC UTIL_FFTW)
 endif()
 
-# optional hdf5 library
-add_library(util_hdf5 src/util/hdf5.cpp)
-target_include_directories(util_hdf5 PRIVATE ${HDF5_INCLUDE_DIRS})
-target_link_libraries(util_hdf5 ${HDF5_LIBRARIES})
-target_link_libraries(util_hdf5 util)
+if(UTIL_HDF5)
+	target_include_directories(util PRIVATE ${HDF5_INCLUDE_DIRS})
+	target_link_libraries(util PUBLIC ${HDF5_LIBRARIES})
+	target_compile_definitions(util PUBLIC UTIL_HDF5)
+endif()
 
 # executables
 foreach(bin "json-format" "random")
@@ -58,7 +61,7 @@ endforeach(bin)
 
 # install
 file(GLOB files_h "src/include/*.h")
-install(TARGETS util util_hdf5 DESTINATION lib)
+install(TARGETS util DESTINATION lib)
 install(FILES ${files_h} DESTINATION include)
 
 # unittests

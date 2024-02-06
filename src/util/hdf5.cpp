@@ -1,3 +1,4 @@
+#ifdef UTIL_HDF5
 
 #include "util/hdf5.h"
 
@@ -336,3 +337,5 @@ Hdf5File::get_attribute<std::vector<int>>(std::string const &name)
 }
 
 } // namespace util
+
+#endif

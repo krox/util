@@ -79,6 +79,13 @@ void fft_all(std::span<const int> shape, std::span<util::complex<double>> in,
 void fft_all(std::span<const int> shape, std::span<util::complex<double>> inout,
              int sign, int flags = FFTW_MEASURE);
 
+// convolution[a,b](x) = sum_y a(y) b(x-y)
+// setting reverse_left=true replaces a(y) with a(N-y)
+// NOTE: a complex version of this should probably do conj(a) with reverse_left
+// is true
+void periodic_convolution_1d(std::span<double> a, std::span<double> b,
+                             std::span<double> out, bool reverse_left);
+
 } // namespace util
 
 #endif

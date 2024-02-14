@@ -133,6 +133,45 @@ void fft_all(std::span<const int> shape, std::span<util::complex<double>> inout,
 	fft_all(shape, inout, inout, sign, flags);
 }
 
+void periodic_convolution_1d(std::span<double> a, std::span<double> b,
+                             std::span<double> out, bool reverse_left)
+{
+	// TODO (maybe):
+	//   1) using some real-to-real transform in FFTW, this can probably be made
+	//      properly inplace
+	//   2) the (common) case of a==b and reverse_left==true has an additional
+	//      factor 2 of symmetry to be exploited.
+	auto n = a.size();
+	double scale = 1.0 / n;
+	assert(b.size() == n);
+	assert(out.size() == n);
+
+	auto tmpa = util::aligned_allocate<util::complex<double>>(n / 2 + 1);
+	fft_r2c_1d(a, tmpa);
+
+	if (a.data() == b.data())
+	{
+		if (reverse_left)
+			for (size_t i = 0; i < n / 2 + 1; ++i)
+				tmpa[i] = util::complex<double>(norm2(tmpa[i]) * scale);
+		else
+			for (size_t i = 0; i < n / 2 + 1; ++i)
+				tmpa[i] = tmpa[i] * tmpa[i] * scale;
+	}
+	else
+	{
+		auto tmpb = util::aligned_allocate<util::complex<double>>(n / 2 + 1);
+		fft_r2c_1d(b, tmpb);
+		if (reverse_left)
+			for (size_t i = 0; i < n / 2 + 1; ++i)
+				tmpa[i] = conj(tmpa[i]) * tmpb[i] * scale;
+		else
+			for (size_t i = 0; i < n / 2 + 1; ++i)
+				tmpa[i] = tmpa[i] * tmpb[i] * scale;
+	}
+	fft_c2r_1d(tmpa, out);
+}
+
 } // namespace util
 
 #endif

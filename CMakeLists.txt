@@ -20,7 +20,7 @@ CPMAddPackage(
 CPMAddPackage(
 	NAME blake3
 	GITHUB_REPOSITORY BLAKE3-team/BLAKE3
-	GIT_TAG 3f396d223946f722ab060fe9377cd1cebacaf4c0 # a little after v1.4.0
+	GIT_TAG 5aa53f07f7188a569cadfc5daf1522972d9a9630 # 1.5.0
 	DOWNLOAD_ONLY True
 )
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
@@ -28,7 +28,7 @@ add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
 CPMAddPackage(
 	NAME cli11
 	GITHUB_REPOSITORY CLIUtils/CLI11
-	GIT_TAG 291c58789c031208f08f4f261a858b5b7083e8e2 # v2.3.2
+	GIT_TAG f4d0731cebb123ff0ace712c099dffbcd2c58e5a # v2.4.1
 )
 
 # library

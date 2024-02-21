@@ -116,7 +116,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 		{
 			T *data_;
 			uint32_t capacity_;
-		} alloc_;
+		} alloc_ = {};
 	};
 	uint32_t size_ : 31;
 	bool big_ : 1;

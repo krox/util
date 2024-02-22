@@ -88,10 +88,7 @@ class ddouble
 	double to_double() const noexcept { return high(); }
 
 #define UTIL_DDOUBLE_CONST(name, high, low)                                    \
-	static constexpr ddouble name() noexcept                                   \
-	{                                                                          \
-		return unchecked(high, low);                                           \
-	}
+	static constexpr ddouble name() noexcept { return unchecked(high, low); }
 
 	// constant naming as in std::numbers, though not exactly the same list
 	// generated with high precision MPFR, so should be precise in all digits
@@ -631,16 +628,16 @@ template <> struct fmt::formatter<util::ddouble>
 
 		// special cases and minus sign
 		if (std::isnan(a.high()))
-			return format_to(out, "nan");
+			return fmt::format_to(out, "nan");
 		if (std::signbit(a.high()))
 		{
 			*out++ = '-';
 			a = -a;
 		}
 		if (std::isinf(a.high()))
-			return format_to(out, "inf");
+			return fmt::format_to(out, "inf");
 		if (a.high() == 0.0)
-			return format_to(ctx.out(), "0.0");
+			return fmt::format_to(ctx.out(), "0.0");
 		assert(std::isfinite(a.high()));
 		assert(a > 0);
 
@@ -671,7 +668,7 @@ template <> struct fmt::formatter<util::ddouble>
 				*out++ = '.';
 		}
 
-		out = format_to(out, "e{:+03}", e);
+		out = fmt::format_to(out, "e{:+03}", e);
 
 		return out;
 	}

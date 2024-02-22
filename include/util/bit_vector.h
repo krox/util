@@ -17,9 +17,15 @@ namespace util {
  *   - beware of different semantics. e.g. '.clear()' sets all bits to zero,
  *     whereas std::vector<bool>::clear() resizes the vector
  */
-class bit_vector
+template <int features = 0> class bit_vector_impl
 {
   public:
+	enum feature_flags
+	{
+		none = 0,
+		auto_resize = 1,
+	};
+
 	/** types and constants */
 	using limb_t = size_t;
 	static constexpr size_t limb_bits = sizeof(limb_t) * 8;
@@ -31,7 +37,7 @@ class bit_vector
   public:
 	class reference
 	{
-		friend class bit_vector;
+		friend class bit_vector_impl;
 		limb_t &limb_;
 		limb_t mask_;
 		reference(limb_t &limb, size_t pos) noexcept
@@ -96,20 +102,20 @@ class bit_vector
 	}
 
 	// constructor
-	bit_vector() = default;
-	explicit bit_vector(size_t size, bool value = false)
+	bit_vector_impl() = default;
+	explicit bit_vector_impl(size_t size, bool value = false)
 	    : size_(size), data_(allocate<limb_t>(size_limbs()))
 	{
 		clear(value);
 	}
 
 	// copy-constructor / assignment
-	bit_vector(bit_vector const &b)
+	bit_vector_impl(bit_vector_impl const &b)
 	    : size_(b.size()), data_(allocate<limb_t>(size_limbs()))
 	{
 		std::memcpy(data(), b.data(), size_limbs() * sizeof(limb_t));
 	}
-	bit_vector &operator=(bit_vector const &b)
+	bit_vector_impl &operator=(bit_vector_impl const &b)
 	{
 		if (capacity_limbs() < b.size_limbs())
 			data_ = allocate<limb_t>(b.size_limbs());
@@ -124,10 +130,10 @@ class bit_vector
 	}
 
 	/** move-constructor / assigment */
-	bit_vector(bit_vector &&b) noexcept
+	bit_vector_impl(bit_vector_impl &&b) noexcept
 	    : size_(std::exchange(b.size_, 0)), data_(std::exchange(b.data_, {}))
 	{}
-	bit_vector &operator=(bit_vector &&b) noexcept
+	bit_vector_impl &operator=(bit_vector_impl &&b) noexcept
 	{
 		size_ = std::exchange(b.size_, 0);
 		data_ = std::exchange(b.data_, {});
@@ -148,9 +154,27 @@ class bit_vector
 			std::memset(data(), 0, size_limbs() * sizeof(limb_t));
 	}
 
-	/** set new bits to zero, does not reduce capacity */
+	// make sure capacity is at least newcap
+	//     * does nothing if newcap <= capacity()
+	//     * if spare=true, any reallocation will at least double the capacity
+	void reserve(size_t newcap, bool spare = false)
+	{
+		if (newcap <= capacity())
+			return;
+		if (spare)
+			newcap = std::max(newcap, 2 * capacity());
+		size_t newcap_limbs = (newcap + limb_bits - 1) / limb_bits;
+		auto newdata = allocate<limb_t>(newcap_limbs);
+		std::memcpy(newdata.data(), data(), size_limbs() * sizeof(limb_t));
+		std::memset(newdata.data() + size_limbs(), 0,
+		            (newcap_limbs - size_limbs()) * sizeof(limb_t));
+		data_ = std::move(newdata);
+	}
+
+	// set new bits to zero, does not reduce capacity
 	void resize(size_t newsize)
 	{
+		reserve(newsize, false);
 		size_t newsize_limbs = (newsize + limb_bits - 1) / limb_bits;
 
 		// decreasing size -> set all removed bits to zero
@@ -163,65 +187,63 @@ class bit_vector
 				    limb_t(-1) >> (limb_bits - newsize % limb_bits);
 		}
 
-		// increasing size above capacity -> need reallocation
-		else if (newsize > capacity())
-		{
-			auto newdata = allocate<limb_t>(newsize_limbs);
-			std::memcpy(newdata.data(), data(), size_limbs() * sizeof(limb_t));
-			std::memset(newdata.data() + size_limbs(), 0,
-			            (newsize_limbs - size_limbs()) * sizeof(limb_t));
-			data_ = std::move(newdata);
-		}
-		// else: increasing size, but capacity suffices -> do nothing, unused
-		// bits are already zero
-
 		size_ = newsize;
 	}
 
-	/** add a single element to the back */
+	// add a single element to the back
 	void push_back(bool value)
 	{
 		if (size() == capacity())
-			resize(std::max(size_t(1), capacity() * 2));
-		assert(capacity() > size());
+			reserve(size() + 1, true);
 		size_ += 1;
 		(*this)[size_ - 1] = value;
 	}
 
-	/** remove a single element from the back */
-	void pop_back() noexcept
+	/** remove and return a single element from the back */
+	bool pop_back() noexcept
 	{
 		assert(size_);
+		bool r = (*this)[size_ - 1];
 		(*this)[size_ - 1] = false;
 		size_ -= 1;
+		return r;
 	}
 
 	/** elemet access */
 	reference operator[](size_t i) noexcept
 	{
+		if constexpr (features & auto_resize)
+			if (i >= size())
+			{
+				reserve(i + 1, true);
+				resize(i + 1);
+			}
 		return reference(data_[i / limb_bits], i % limb_bits);
 	}
 	bool operator[](size_t i) const noexcept
 	{
+		if constexpr (features & auto_resize)
+			if (i >= size())
+				return false;
 		return data_[i / limb_bits] & (limb_t(1) << (i % limb_bits));
 	}
 
 	/** global bitwise operations (inplace) */
-	bit_vector &operator|=(const bit_vector &b) noexcept
+	bit_vector_impl &operator|=(const bit_vector_impl &b) noexcept
 	{
 		assert(size() == b.size());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			data_[k] |= b.data_[k];
 		return *this;
 	}
-	bit_vector &operator&=(const bit_vector &b) noexcept
+	bit_vector_impl &operator&=(const bit_vector_impl &b) noexcept
 	{
 		assert(size() == b.size());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			data_[k] &= b.data_[k];
 		return *this;
 	}
-	bit_vector &operator^=(const bit_vector &b) noexcept
+	bit_vector_impl &operator^=(const bit_vector_impl &b) noexcept
 	{
 		assert(size() == b.size());
 		for (size_t k = 0; k < size_limbs(); ++k)
@@ -230,30 +252,30 @@ class bit_vector
 	}
 
 	/** global bitwise operations (creating new objects) */
-	bit_vector operator|(const bit_vector &b) const
+	bit_vector_impl operator|(const bit_vector_impl &b) const
 	{
 		assert(size() == b.size());
-		bit_vector r;
+		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			r.data_[k] = data_[k] | b.data_[k];
 		return r;
 	}
-	bit_vector operator&(const bit_vector &b) const
+	bit_vector_impl operator&(const bit_vector_impl &b) const
 	{
 		assert(size() == b.size());
-		bit_vector r;
+		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
 			r.data_[k] = data_[k] & b.data_[k];
 		return r;
 	}
-	bit_vector operator^(const bit_vector &b) const
+	bit_vector_impl operator^(const bit_vector_impl &b) const
 	{
 		assert(size() == b.size());
-		bit_vector r;
+		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
 		for (size_t k = 0; k < size_limbs(); ++k)
@@ -295,7 +317,6 @@ class bit_vector
 			return c;
 		else
 			return size() - c;
-		return c;
 	}
 
 	/** find first set bit. returns size() if none is set */
@@ -331,5 +352,8 @@ class bit_vector
 		}
 	}
 };
+
+using bit_vector = bit_vector_impl<>;
+using bit_map = bit_vector_impl<bit_vector_impl<>::auto_resize>;
 
 } // namespace util

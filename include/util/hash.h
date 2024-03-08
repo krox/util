@@ -15,7 +15,8 @@
 namespace util {
 
 // SHA2-256
-std::array<std::byte, 32> sha256(std::span<const std::byte>) noexcept;
+std::array<std::byte, 32> sha256(std::span<const std::byte>,
+                                 int rounds = 64) noexcept;
 
 // the Keccak function, that all of SHA3 is based on
 void keccakf(std::array<uint64_t, 25> &s) noexcept;

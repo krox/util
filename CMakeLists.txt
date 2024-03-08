@@ -52,7 +52,7 @@ if(UTIL_HDF5)
 endif()
 
 # executables
-foreach(bin "json-format" "random")
+foreach(bin "json-format" "sha256sum" "random")
 	add_executable(${bin} src/apps/${bin}.cpp)
 	target_compile_features(${bin} PUBLIC cxx_std_20)
 	target_compile_options(${bin} PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)

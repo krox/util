@@ -133,8 +133,10 @@ constexpr uint32_t sha256_k[64] = {
 } // namespace
 
 void sha256_transform(std::array<uint32_t, 8> &state,
-                      std::array<uint32_t, 16> const &data) noexcept
+                      std::array<uint32_t, 16> const &data, int rounds) noexcept
 {
+	assert(0 <= rounds && rounds <= 64);
+
 	uint32_t m[64];
 
 	for (size_t i = 0; i < 16; ++i)
@@ -151,7 +153,7 @@ void sha256_transform(std::array<uint32_t, 8> &state,
 	uint32_t g = state[6];
 	uint32_t h = state[7];
 
-	for (size_t i = 0; i < 64; ++i)
+	for (int i = 0; i < rounds; ++i)
 	{
 		uint32_t t1 = h + ep1(e) + ch(e, f, g) + sha256_k[i] + m[i];
 		uint32_t t2 = ep0(a) + maj(a, b, c);
@@ -175,8 +177,10 @@ void sha256_transform(std::array<uint32_t, 8> &state,
 	state[7] += h;
 }
 
-std::array<std::byte, 32> sha256(std::span<const std::byte> data) noexcept
+std::array<std::byte, 32> sha256(std::span<const std::byte> data,
+                                 int rounds) noexcept
 {
+	assert(0 <= rounds && rounds <= 64);
 	union
 	{
 		std::array<uint32_t, 8> state;
@@ -200,7 +204,7 @@ std::array<std::byte, 32> sha256(std::span<const std::byte> data) noexcept
 	// process whole blocks
 	for (size_t i = 0; i < blocks; ++i)
 	{
-		sha256_transform(state, *(std::array<uint32_t, 16> *)buf);
+		sha256_transform(state, *(std::array<uint32_t, 16> *)buf, rounds);
 		buf += 4 * 16;
 	}
 
@@ -219,7 +223,7 @@ std::array<std::byte, 32> sha256(std::span<const std::byte> data) noexcept
 
 	if (tail >= 56)
 	{
-		sha256_transform(state, tmp);
+		sha256_transform(state, tmp, rounds);
 		memset(&tmp, 0, 4 * 16);
 	}
 
@@ -233,7 +237,7 @@ std::array<std::byte, 32> sha256(std::span<const std::byte> data) noexcept
 	tmp_bytes[58] = (uint8_t)(bitlen >> 40);
 	tmp_bytes[57] = (uint8_t)(bitlen >> 48);
 	tmp_bytes[56] = (uint8_t)(bitlen >> 56);
-	sha256_transform(state, tmp);
+	sha256_transform(state, tmp, rounds);
 
 	for (size_t i = 0; i < 8; ++i)
 		state[i] = bswap(state[i]);

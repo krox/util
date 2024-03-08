@@ -103,4 +103,23 @@ std::string read_file(std::string_view filename)
 	return s;
 }
 
+std::vector<std::byte> read_binary_file(std::string_view filename)
+{
+	static_assert(sizeof(std::byte) == 1);
+
+	auto file = open_file(filename, "rb");
+
+	std::fseek(file.get(), 0u, SEEK_END);
+	const auto size = std::ftell(file.get());
+	std::fseek(file.get(), 0u, SEEK_SET);
+
+	std::vector<std::byte> s;
+	s.resize(size);
+
+	auto read = std::fread(s.data(), 1u, size, file.get());
+	assert((size_t)read == (size_t)size);
+
+	return s;
+}
+
 } // namespace util

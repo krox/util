@@ -3,6 +3,7 @@
 #include "util/memory.h"
 #include <string>
 #include <string_view>
+#include <vector>
 
 // file IO utilities
 
@@ -55,5 +56,6 @@ class MappedFile
 };
 
 std::string read_file(std::string_view filename);
+std::vector<std::byte> read_binary_file(std::string_view filename);
 
 } // namespace util

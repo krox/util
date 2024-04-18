@@ -17,6 +17,65 @@ struct fclose_delete
 using FilePointer = std::unique_ptr<FILE, fclose_delete>;
 FilePointer open_file(std::string_view filename, char const *mode);
 
+// class for reading/writing (binary) files
+class File
+{
+	FilePointer file_;
+
+  public:
+	File() = default;
+	static File open(std::string_view file, bool writeable = false);
+	static File create(std::string_view file, bool overwrite = false);
+	void close() noexcept;
+
+	explicit operator bool() const { return bool(file_); }
+
+	// flush internal buffer
+	//   * does not guarantee disk write (due to buffering in OS)
+	void flush();
+
+	// move position in file
+	void seek(size_t pos);
+	void skip(size_t bytes);
+	size_t tell() const;
+
+	// read/write 'size' bytes from/to file
+	void read_raw(void *buffer, size_t size);
+	void write_raw(void const *buffer, size_t size);
+
+	// read write a single value of a simple type T
+	//     * 'trivially_copyable' ensures the type can be 'copied by memcpy'
+	//     * there is still plenty of room for platform-dependence (e.g.,
+	//       alignment, endianess) and wrong semantics (e.g. writing a pointer),
+	//       so be careful.
+	template <class T>
+	    requires std::is_trivially_copyable_v<T>
+	void read(T &value)
+	{
+		read_raw(&value, sizeof(T));
+	}
+	template <class T>
+	    requires std::is_trivially_copyable_v<T>
+	void write(T const &value)
+	{
+		write_raw(&value, sizeof(T));
+	}
+
+	// read/write multiple values of a simple type T
+	template <class T>
+	    requires std::is_trivially_copyable_v<T>
+	void read(T *data, size_t count)
+	{
+		read_raw(data, count * sizeof(T));
+	}
+	template <class T>
+	    requires std::is_trivially_copyable_v<T>
+	void write(T const *data, size_t count)
+	{
+		write_raw(data, count * sizeof(T));
+	}
+};
+
 class MappedFile
 {
 	void *ptr_ = nullptr;

@@ -25,6 +25,68 @@ FilePointer open_file(std::string_view filename, char const *mode)
 	return FilePointer(p);
 }
 
+File File::open(std::string_view filename, bool writeable)
+{
+	File file;
+	file.file_ = open_file(filename, writeable ? "r+" : "r");
+	return file;
+}
+
+File File::create(std::string_view filename, bool overwrite)
+{
+	File file;
+	file.file_ = open_file(filename, overwrite ? "w+" : "w+x");
+	return file;
+}
+
+void File::close() noexcept { file_.reset(); }
+
+void File::flush()
+{
+	assert(file_);
+	if (std::fflush(file_.get()))
+		throw std::runtime_error("could not flush file");
+}
+
+void File::seek(size_t pos)
+{
+	assert(file_);
+	if (std::fseek(file_.get(), pos, SEEK_SET))
+		throw std::runtime_error("could not seek in file");
+}
+
+void File::skip(size_t bytes)
+{
+	assert(file_);
+	if (std::fseek(file_.get(), bytes, SEEK_CUR))
+		throw std::runtime_error("could not seek in file");
+}
+
+size_t File::tell() const
+{
+	assert(file_);
+	auto pos = std::ftell(file_.get());
+	if (pos == -1)
+		throw std::runtime_error("could not tell position in file");
+	return pos;
+}
+
+void File::read_raw(void *buffer, size_t size)
+{
+	assert(file_);
+	auto r = std::fread(buffer, 1, size, file_.get());
+	if (r != size)
+		throw std::runtime_error("could not read from file");
+}
+
+void File::write_raw(void const *buffer, size_t size)
+{
+	assert(file_);
+	auto r = std::fwrite(buffer, 1, size, file_.get());
+	if (r != size)
+		throw std::runtime_error("could not write to file");
+}
+
 MappedFile::MappedFile(char const *filename, char const *mode, bool writeable)
 {
 	// open file

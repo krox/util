@@ -164,6 +164,7 @@ struct Histogram
 	void add(double x);
 };
 
+// histogram of non-negative integers.
 class IntHistogram
 {
 	std::vector<int64_t> bins_;
@@ -187,8 +188,12 @@ class IntHistogram
 			return 0;
 		return bins_[i];
 	}
+
+	double count() const { return count_; }
 	double sum() const { return sum_; }
 	double mean() const { return (double)sum_ / count_; }
+
+	IntHistogram &operator+=(const IntHistogram &other);
 };
 
 /**

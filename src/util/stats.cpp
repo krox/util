@@ -162,6 +162,20 @@ void IntHistogram::add(std::span<const int> xs)
 		add(x);
 }
 
+IntHistogram &IntHistogram::operator+=(const IntHistogram &b)
+{
+	if (max_ < b.max_)
+	{
+		bins_.resize(b.max_ + 1);
+		max_ = b.max_;
+	}
+	for (size_t i = 0; i < b.bins_.size(); ++i)
+		bins_[i] += b.bins_[i];
+	count_ += b.count_;
+	sum_ += b.sum_;
+	return *this;
+}
+
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }
 
 template <size_t dim> void Estimator<dim>::add(std::array<double, dim> x)

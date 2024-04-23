@@ -147,6 +147,8 @@ void IntHistogram::add(int x, int64_t weight)
 {
 	assert(x >= 0);
 	assert(x < (1 << 20));
+	// NOTE: std::vector::resize() does (typically) not over-allocate, so we
+	//       have to do the growth-factor ourselves
 	if (x >= (int)bins_.size())
 		bins_.resize(std::max(x + 1, (int)bins_.size() * 2));
 
@@ -174,6 +176,23 @@ IntHistogram &IntHistogram::operator+=(const IntHistogram &b)
 	count_ += b.count_;
 	sum_ += b.sum_;
 	return *this;
+}
+
+// returns the k-th smallest element in the histogram
+//   * if k >= count(), returns max()+1
+int IntHistogram::find_nth(int64_t n) const
+{
+	assert(n >= 0);
+	if (n >= count_)
+		return max_ + 1;
+	int64_t c = 0;
+	for (size_t i = 0; i < bins_.size(); ++i)
+	{
+		c += bins_[i];
+		if (c > n)
+			return i;
+	}
+	assert(false);
 }
 
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }

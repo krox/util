@@ -194,6 +194,10 @@ class IntHistogram
 	double mean() const { return (double)sum_ / count_; }
 
 	IntHistogram &operator+=(const IntHistogram &other);
+
+	// returns the k-th smallest element in the histogram
+	//   * if k >= count(), returns max()+1
+	int find_nth(int64_t n) const;
 };
 
 /**

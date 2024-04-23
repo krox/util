@@ -134,3 +134,21 @@ TEST_CASE("binomial pdf", "[random][binomial]")
 	test(binomial_distribution(5, 0.6));
 	test(binomial_distribution(500, 0.7));
 }
+
+TEST_CASE("IntHistogram", "[stats]")
+{
+	IntHistogram hist;
+	hist.add(3);
+	hist.add(6, 2);
+	CHECK(hist.bin(3) == 1);
+	CHECK(hist.bin(6) == 2);
+	CHECK(hist.bin(20) == 0);
+	CHECK(hist.find_nth(0) == 3);
+	CHECK(hist.find_nth(1) == 6);
+	CHECK(hist.find_nth(2) == 6);
+	CHECK(hist.find_nth(3) == 7);
+	CHECK(hist.count() == 3);
+	CHECK(hist.max() == 6);
+	CHECK(hist.mean() == 5);
+	CHECK(hist.sum() == 15);
+}

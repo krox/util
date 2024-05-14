@@ -8,6 +8,281 @@
 
 namespace util {
 
+// (non-owning) span of (limb-aligned, read-only) bits. Does not support
+// sub-spans because that would break alignment.
+class const_bit_span
+{
+  public:
+	using limb_t = size_t;
+	static constexpr size_t limb_bits = sizeof(limb_t) * 8;
+
+  private:
+	limb_t const *data_ = nullptr; // unused bits of the last limb are zero
+	size_t size_ = 0;              // number of used bits
+
+  public:
+	// size metrics
+	size_t size() const noexcept { return size_; }
+	size_t size_limbs() const noexcept
+	{
+		return (size_ + limb_bits - 1) / limb_bits;
+	}
+
+	// raw data access. beware of 'offset' when using this
+	limb_t const *data() const noexcept { return data_; }
+	std::span<const limb_t> limbs() const noexcept
+	{
+		return {data(), size_limbs()};
+	}
+
+	// constructor
+	const_bit_span() = default;
+	explicit const_bit_span(limb_t const *data, size_t size) noexcept
+	    : data_(data), size_(size)
+	{}
+
+	// elemet access
+	bool operator[](size_t i) const noexcept
+	{
+		return data_[i / limb_bits] & (limb_t(1) << (i % limb_bits));
+	}
+	bool at(size_t i) const
+	{
+		if (i >= size())
+			throw std::out_of_range("const_bit_span::at");
+		return (*this)[i];
+	}
+
+	// returns true if any bit is set to 1
+	bool any() const noexcept
+	{
+		for (size_t k = 0; k < size_limbs(); ++k)
+			if (data_[k] != limb_t(0))
+				return true;
+		return false;
+	}
+
+	// returns true if all bits are set to 1
+	bool all() const noexcept
+	{
+		// check full limbs
+		for (size_t k = 0; k < size_ / limb_bits; ++k)
+			if (data_[k] != ~limb_t(0))
+				return false;
+		// check incomplete limb
+		size_t tail = size_ % limb_bits;
+		if (tail)
+			if (data_[size_limbs() - 1] != (limb_t(1) << tail) - 1)
+				return false;
+		return true;
+	}
+
+	// returns number of bits set to value
+	size_t count(bool value = true) const noexcept
+	{
+		size_t c = 0;
+		for (size_t k = 0; k < size_limbs(); ++k)
+			c += std::popcount(data_[k]);
+		if (value)
+			return c;
+		else
+			return size() - c;
+	}
+
+	// find first set bit. returns size() if none is set
+	size_t find() const noexcept
+	{
+		for (size_t k = 0; k < size_limbs(); ++k)
+			if (data_[k])
+				return limb_bits * k + std::countr_zero(data_[k]);
+		return size_;
+	}
+};
+
+// (non-owning) reference to a single (writeable) bit
+class bit_reference
+{
+  public:
+	using limb_t = const_bit_span::limb_t;
+	static constexpr size_t limb_bits = const_bit_span::limb_bits;
+
+  private:
+	limb_t &limb_;
+	limb_t mask_;
+
+	void operator&() = delete; // prevent some misuse
+
+  public:
+	explicit bit_reference(limb_t &limb, size_t pos) noexcept
+	    : limb_(limb), mask_(limb_t(1) << pos)
+	{}
+
+	operator bool() const noexcept { return limb_ & mask_; }
+	bool operator~() const noexcept { return (limb_ & mask_) == 0; }
+
+	void set() noexcept { limb_ |= mask_; }
+	void reset() noexcept { limb_ &= ~mask_; }
+	void flip() noexcept { limb_ ^= mask_; }
+
+	bit_reference &operator=(bool x) noexcept
+	{
+		if (x)
+			set();
+		else
+			reset();
+		return *this;
+	}
+
+	bit_reference &operator|=(bool x) noexcept
+	{
+		if (x)
+			set();
+		return *this;
+	}
+
+	bit_reference &operator&=(bool x) noexcept
+	{
+		if (!x)
+			reset();
+		return *this;
+	}
+
+	bit_reference &operator^=(bool x) noexcept
+	{
+		if (x)
+			flip();
+		return *this;
+	}
+};
+
+// (non-owning) span of (limb-aligned, writeable) bits
+//   * does not support sub-spans because that would break alignment
+class bit_span
+{
+  public:
+	using limb_t = bit_reference::limb_t;
+	static constexpr size_t limb_bits = bit_reference::limb_bits;
+	using reference = bit_reference;
+
+  private:
+	limb_t *data_ = nullptr; // unused bits of the last limb are kept at zero
+	size_t size_ = 0;        // number of used bits
+
+  public:
+	// size metrics
+	size_t size() const noexcept { return size_; }
+	size_t size_limbs() const noexcept
+	{
+		return (size_ + limb_bits - 1) / limb_bits;
+	}
+
+	// raw data access. beware of 'offset' when using this
+	limb_t *data() const noexcept { return data_; }
+	std::span<limb_t> limbs() const noexcept { return {data(), size_limbs()}; }
+
+	// constructor
+	bit_span() = default;
+	explicit bit_span(limb_t *data, size_t size) noexcept
+	    : data_(data), size_(size)
+	{}
+
+	// const-cast
+	operator const_bit_span() const noexcept
+	{
+		return const_bit_span(data_, size_);
+	}
+
+	// set all (used) bits to value
+	void clear(bool value = false) noexcept
+	{
+		if (value)
+		{
+			std::memset(data(), (char)255, size_limbs() * sizeof(limb_t));
+			if (size() % limb_bits)
+				data_[size_limbs() - 1] =
+				    limb_t(-1) >> (limb_bits - size() % limb_bits);
+		}
+		else
+			std::memset(data(), 0, size_limbs() * sizeof(limb_t));
+	}
+
+	// elemet access
+	reference operator[](size_t i) const noexcept
+	{
+		return reference(data_[i / limb_bits], i % limb_bits);
+	}
+	reference at(size_t i) const
+	{
+		if (i >= size())
+			throw std::out_of_range("bit_span::at");
+		return (*this)[i];
+	}
+
+	// returns true if any bit is set to 1
+	bool any() const noexcept { return const_bit_span(*this).any(); }
+
+	// returns true if all bits are set to 1
+	bool all() const noexcept { return const_bit_span(*this).all(); }
+
+	// returns number of bits set to value
+	size_t count(bool value = true) const noexcept
+	{
+		return const_bit_span(*this).count(value);
+	}
+
+	// find first set bit. returns size() if none is set
+	size_t find() const noexcept { return const_bit_span(*this).find(); }
+
+	// sets i'th element to true. returns false if it already was
+	bool add(size_t i) noexcept
+	{
+		if ((*this)[i])
+			return false;
+		else
+		{
+			(*this)[i] = true;
+			return true;
+		}
+	}
+
+	// sets i'th element to false. returns false if it already was
+	bool remove(size_t i) noexcept
+	{
+		if (!(*this)[i])
+			return false;
+		else
+		{
+			(*this)[i] = false;
+			return true;
+		}
+	}
+};
+
+// global bitwise operations (out parameter, aliasing allowed)
+void bitwise_or(bit_span r, const_bit_span a, const_bit_span b) noexcept
+{
+	assert(r.size() == a.size() && r.size() == b.size());
+	for (size_t k = 0; k < r.size_limbs(); ++k)
+		r.data()[k] = a.data()[k] | b.data()[k];
+}
+void bitwise_and(bit_span r, const_bit_span a, const_bit_span b) noexcept
+{
+	assert(r.size() == a.size() && r.size() == b.size());
+	for (size_t k = 0; k < r.size_limbs(); ++k)
+		r.data()[k] = a.data()[k] & b.data()[k];
+}
+void bitwise_xor(bit_span r, const_bit_span a, const_bit_span b) noexcept
+{
+	assert(r.size() == a.size() && r.size() == b.size());
+	for (size_t k = 0; k < r.size_limbs(); ++k)
+		r.data()[k] = a.data()[k] ^ b.data()[k];
+}
+
+// global bitwise operations (inplace)
+void operator|=(bit_span a, const_bit_span b) noexcept { bitwise_or(a, a, b); }
+void operator&=(bit_span a, const_bit_span b) noexcept { bitwise_and(a, a, b); }
+void operator^=(bit_span a, const_bit_span b) noexcept { bitwise_xor(a, a, b); }
+
 /**
  * Similar to specialized std::vector<bool>, but
  *   - does not pretend to be container (no iterators),
@@ -107,6 +382,12 @@ template <int features = 0> class bit_vector_impl
 	    : size_(size), data_(allocate<limb_t>(size_limbs()))
 	{
 		clear(value);
+	}
+
+	operator bit_span() noexcept { return bit_span(data(), size()); }
+	operator const_bit_span() const noexcept
+	{
+		return const_bit_span(data(), size());
 	}
 
 	// copy-constructor / assignment
@@ -228,29 +509,6 @@ template <int features = 0> class bit_vector_impl
 		return data_[i / limb_bits] & (limb_t(1) << (i % limb_bits));
 	}
 
-	/** global bitwise operations (inplace) */
-	bit_vector_impl &operator|=(const bit_vector_impl &b) noexcept
-	{
-		assert(size() == b.size());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			data_[k] |= b.data_[k];
-		return *this;
-	}
-	bit_vector_impl &operator&=(const bit_vector_impl &b) noexcept
-	{
-		assert(size() == b.size());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			data_[k] &= b.data_[k];
-		return *this;
-	}
-	bit_vector_impl &operator^=(const bit_vector_impl &b) noexcept
-	{
-		assert(size() == b.size());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			data_[k] ^= b.data_[k];
-		return *this;
-	}
-
 	/** global bitwise operations (creating new objects) */
 	bit_vector_impl operator|(const bit_vector_impl &b) const
 	{
@@ -258,8 +516,7 @@ template <int features = 0> class bit_vector_impl
 		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			r.data_[k] = data_[k] | b.data_[k];
+		bitwise_or(r, *this, b);
 		return r;
 	}
 	bit_vector_impl operator&(const bit_vector_impl &b) const
@@ -268,8 +525,7 @@ template <int features = 0> class bit_vector_impl
 		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			r.data_[k] = data_[k] & b.data_[k];
+		bitwise_and(r, *this, b);
 		return r;
 	}
 	bit_vector_impl operator^(const bit_vector_impl &b) const
@@ -278,57 +534,24 @@ template <int features = 0> class bit_vector_impl
 		bit_vector_impl r;
 		r.size_ = size_;
 		r.data_ = allocate<limb_t>(size_limbs());
-		for (size_t k = 0; k < size_limbs(); ++k)
-			r.data_[k] = data_[k] ^ b.data_[k];
+		bitwise_xor(r, *this, b);
 		return r;
 	}
 
-	/** returns true if any bit is set to 1 */
-	bool any() const noexcept
-	{
-		for (size_t k = 0; k < size_limbs(); ++k)
-			if (data_[k] != limb_t(0))
-				return true;
-		return false;
-	}
-
-	/** returns true if all bits are set to 1 */
-	bool all() const noexcept
-	{
-		// check full limbs
-		for (size_t k = 0; k < size_ / limb_bits; ++k)
-			if (data_[k] != ~limb_t(0))
-				return false;
-		// check incomplete limb
-		size_t tail = size_ % limb_bits;
-		if (tail)
-			if (data_[size_limbs() - 1] != (limb_t(1) << tail) - 1)
-				return false;
-		return true;
-	}
+	// returns true if all/any bits are set to 1
+	bool any() const noexcept { return const_bit_span(*this).any(); }
+	bool all() const noexcept { return const_bit_span(*this).all(); }
 
 	// returns number of bits set to value
 	size_t count(bool value = true) const noexcept
 	{
-		size_t c = 0;
-		for (size_t k = 0; k < size_limbs(); ++k)
-			c += std::popcount(data_[k]);
-		if (value)
-			return c;
-		else
-			return size() - c;
+		return const_bit_span(*this).count(value);
 	}
 
-	/** find first set bit. returns size() if none is set */
-	size_t find() const noexcept
-	{
-		for (size_t k = 0; k < size_limbs(); ++k)
-			if (data_[k])
-				return limb_bits * k + std::countr_zero(data_[k]);
-		return size_;
-	}
+	// find first set bit. returns size() if none is set
+	size_t find() const noexcept { return const_bit_span(*this).find(); }
 
-	/** sets i'th element to true. returns false if it already was */
+	// sets i'th element to true. returns false if it already was
 	bool add(size_t i) noexcept
 	{
 		if ((*this)[i])
@@ -340,7 +563,7 @@ template <int features = 0> class bit_vector_impl
 		}
 	}
 
-	/** sets i'th element to false. returns false if it already was */
+	// sets i'th element to false. returns false if it already was
 	bool remove(size_t i) noexcept
 	{
 		if (!(*this)[i])

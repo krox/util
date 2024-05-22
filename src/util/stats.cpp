@@ -1,5 +1,6 @@
 #include "util/stats.h"
 
+#include "util/error.h"
 #include <algorithm>
 #include <cmath>
 #include <fmt/format.h>
@@ -192,7 +193,7 @@ int IntHistogram::find_nth(int64_t n) const
 		if (c > n)
 			return i;
 	}
-	assert(false);
+	unreachable();
 }
 
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }

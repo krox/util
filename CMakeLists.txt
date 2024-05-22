@@ -31,6 +31,9 @@ CPMAddPackage(
 	GIT_TAG f4d0731cebb123ff0ace712c099dffbcd2c58e5a # v2.4.1
 )
 
+# warning options
+set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror $<$<CONFIG:Release>:-Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-parameter>)
+
 # library
 add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
@@ -38,7 +41,7 @@ set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
 target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
-target_compile_options(util PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)
+target_compile_options(util PRIVATE ${UTIL_WARNING_OPTIONS} -O2 -march=native)
 
 if(UTIL_FFTW)
 	target_link_libraries(util PUBLIC fftw3)
@@ -55,7 +58,7 @@ endif()
 foreach(bin "json-format" "sha256sum" "random")
 	add_executable(${bin} src/apps/${bin}.cpp)
 	target_compile_features(${bin} PUBLIC cxx_std_20)
-	target_compile_options(${bin} PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Werror -O2 -march=native)
+	target_compile_options(${bin} PRIVATE ${UTIL_WARNING_OPTIONS} -O2 -march=native)
 	target_link_libraries(${bin} util CLI11::CLI11)
 endforeach(bin)
 
@@ -78,5 +81,5 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/simd.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PUBLIC -Wall -Wextra -Werror -g -Wno-parentheses -Wno-deprecated-declarations -march=native)
+	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g -Wno-parentheses -march=native)
 endif()

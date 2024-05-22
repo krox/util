@@ -160,7 +160,8 @@ std::string read_file(std::string_view filename)
 	s.resize(size);
 
 	auto read = std::fread(&s[0], 1u, size, file.get());
-	assert((size_t)read == (size_t)size);
+	if ((size_t)read != (size_t)size)
+		throw std::runtime_error("could not read from file");
 
 	return s;
 }
@@ -179,7 +180,8 @@ std::vector<std::byte> read_binary_file(std::string_view filename)
 	s.resize(size);
 
 	auto read = std::fread(s.data(), 1u, size, file.get());
-	assert((size_t)read == (size_t)size);
+	if ((size_t)read != (size_t)size)
+		throw std::runtime_error("could not read from file");
 
 	return s;
 }

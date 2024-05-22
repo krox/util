@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fmt/format.h"
+#include "util/error.h"
 #include <cassert>
 #include <cfloat>
 #include <cmath>
@@ -129,10 +130,10 @@ class ddouble
 	UTIL_DDOUBLE_CONST(inv_fac14,  0x1.93974a8c07c9dp-37,  0x1.05d6f8a2efd1fp-92) // 0.0000...
 
 	// special values
-	UTIL_DDOUBLE_CONST(nan,      0.0/0.0, 0.0/0.0)
-	UTIL_DDOUBLE_CONST(infinity, 1.0/0.0, 0.0    )
-	UTIL_DDOUBLE_CONST(highest,  DBL_MAX, 0.0    )
-	UTIL_DDOUBLE_CONST(lowest,  -DBL_MAX, 0.0    )
+	UTIL_DDOUBLE_CONST(nan,      std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN())
+	UTIL_DDOUBLE_CONST(infinity, std::numeric_limits<double>::infinity(), 0.0)
+	UTIL_DDOUBLE_CONST(highest,  std::numeric_limits<double>::max(), 0.0)
+	UTIL_DDOUBLE_CONST(lowest,   std::numeric_limits<double>::lowest(), 0.0)
 	// clang-format on
 
 	template <typename RNG> static ddouble random(RNG &rng)
@@ -482,7 +483,7 @@ inline ddouble sin(ddouble a)
 	case 3:
 		return -taylor(coeffs_cos, a * a);
 	}
-	assert(false);
+	unreachable();
 }
 
 inline ddouble cos(ddouble a)
@@ -506,7 +507,7 @@ inline ddouble cos(ddouble a)
 	case 3:
 		return a * taylor(coeffs_sin, a * a);
 	}
-	assert(false);
+	unreachable();
 }
 
 inline ddouble tan(ddouble a) { return sin(a) / cos(a); }
@@ -676,7 +677,7 @@ template <> struct fmt::formatter<util::ddouble>
 
 namespace Eigen {
 
-template <typename T> class NumTraits;
+template <typename T> struct NumTraits;
 
 template <> struct NumTraits<util::ddouble>
 {

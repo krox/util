@@ -109,6 +109,91 @@ template <typename T> class gspan
 	}
 };
 
+// row-major 2D span. Rows are contiguous in memory, columns have arbitrary
+// stride.
+template <typename T> class span_2d
+{
+	T *data_ = nullptr;
+	size_t height_ = 0;
+	size_t width_ = 0;
+	size_t stride_ = 0;
+
+  public:
+	using element_type = T;
+	using value_type = std::remove_cv_t<T>;
+	using size_type = size_t;
+	using index_type = std::pair<size_t, size_t>;
+
+	// constructors
+	span_2d() = default;
+	span_2d(T *data, size_t height, size_t width)
+	    : data_(data), height_(height), width_(width), stride_(width)
+	{}
+	span_2d(T *data, size_t height, size_t width, size_t stride)
+	    : data_(data), height_(height), width_(width), stride_(stride)
+	{
+		assert(stride >= width);
+	}
+	span_2d(span_2d<value_type> const &v)
+	    : data_(v.data()), height_(v.height()), width_(v.width()),
+	      stride_(v.stride())
+	{}
+
+	// member access
+	T *data() const { return data_; }
+	size_t height() const { return height_; }
+	size_t width() const { return width_; }
+	size_t stride() const { return stride_; }
+	size_t size() const { return height_ * width_; }
+
+	// single row access
+	std::span<T> row(size_t i) const
+	{
+		assert(i < height_);
+		return std::span<T>(data_ + i * stride_, width_);
+	}
+	std::span<T> operator[](size_t i) const { return row(i); }
+
+	// single column access
+	util::gspan<T> column(size_t i) const
+	{
+		assert(i < width_);
+		return util::gspan<T>(data_ + i, height_, stride_);
+	}
+
+	// single element access
+	T &operator()(size_t i, size_t j) const
+	{
+		assert(i < height_ && j < width_);
+		return data_[i * stride_ + j];
+	}
+	T &operator[](index_type ij) const { return (*this)(ij.first, ij.second); }
+
+	// multiple rows
+	span_2d<T> first_rows(size_t n) const
+	{
+		assert(n <= height_);
+		return span_2d<T>(data_, n, width_, stride_);
+	}
+	span_2d<T> last_rows(size_t n) const
+	{
+		assert(n <= height_);
+		return span_2d<T>(data_ + (height_ - n) * stride_, n, width_, stride_);
+	}
+
+	// multiple columns
+	span_2d<T> first_columns(size_t n) const
+	{
+		assert(n <= width_);
+		return span_2d<T>(data_, height_, n, stride_);
+	}
+	span_2d<T> last_columns(size_t n) const
+	{
+		assert(n <= width_);
+		return span_2d<T>(data_ + width_ - n, height_, n, stride_);
+	}
+};
+
 /** short-hand for the "erase–remove idiom" (part of std in C++20) */
 template <class T, class Alloc, class U>
 constexpr typename std::vector<T, Alloc>::size_type

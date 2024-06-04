@@ -26,6 +26,9 @@ TEST_CASE("json parser", "[json]")
 	// negative numbers
 	auto l = Json::parse("[-1, -2, -3]");
 	CHECK(fmt::format("{}", l) == "[-1, -2, -3]");
+
+	auto m = Json::parse("[-1.0, -0., -1e2]");
+	CHECK(fmt::format("{}", m) == "[-1, -0, -100]");
 }
 
 TEST_CASE("json objects", "[json]")

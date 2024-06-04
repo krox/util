@@ -9,11 +9,19 @@ Json parse_json(Lexer &lexer)
 {
 	if (auto tok = lexer.try_match(Tok::integer()); tok)
 		return Json::integer(parse_int<Json::integer_type>(tok->value));
-	else if (auto tok = lexer.try_match("-"); tok)
-		return Json::integer(
-		    -parse_int<Json::integer_type>(lexer.match(Tok::integer()).value));
 	else if (auto tok = lexer.try_match(Tok::floating()); tok)
 		return Json::floating(parse_float<Json::floating_type>(tok->value));
+	else if (lexer.try_match("-"))
+	{
+		if (auto tok = lexer.try_match(Tok::integer()); tok)
+			return Json::integer(-parse_int<Json::integer_type>(tok->value));
+		else if (auto tok = lexer.try_match(Tok::floating()); tok)
+			return Json::floating(
+			    -parse_float<Json::floating_type>(tok->value));
+		else
+			raise<ParseError>(
+			    "expected integer or floating point number after '-' in json");
+	}
 	else if (auto tok = lexer.try_match(Tok::string()); tok)
 		return Json::string(parse_string(tok->value));
 	else if (auto tok = lexer.try_match(Tok::ident()); tok)

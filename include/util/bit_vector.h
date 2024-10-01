@@ -259,19 +259,19 @@ class bit_span
 };
 
 // global bitwise operations (out parameter, aliasing allowed)
-void bitwise_or(bit_span r, const_bit_span a, const_bit_span b) noexcept
+inline void bitwise_or(bit_span r, const_bit_span a, const_bit_span b) noexcept
 {
 	assert(r.size() == a.size() && r.size() == b.size());
 	for (size_t k = 0; k < r.size_limbs(); ++k)
 		r.data()[k] = a.data()[k] | b.data()[k];
 }
-void bitwise_and(bit_span r, const_bit_span a, const_bit_span b) noexcept
+inline void bitwise_and(bit_span r, const_bit_span a, const_bit_span b) noexcept
 {
 	assert(r.size() == a.size() && r.size() == b.size());
 	for (size_t k = 0; k < r.size_limbs(); ++k)
 		r.data()[k] = a.data()[k] & b.data()[k];
 }
-void bitwise_xor(bit_span r, const_bit_span a, const_bit_span b) noexcept
+inline void bitwise_xor(bit_span r, const_bit_span a, const_bit_span b) noexcept
 {
 	assert(r.size() == a.size() && r.size() == b.size());
 	for (size_t k = 0; k < r.size_limbs(); ++k)
@@ -279,9 +279,9 @@ void bitwise_xor(bit_span r, const_bit_span a, const_bit_span b) noexcept
 }
 
 // global bitwise operations (inplace)
-void operator|=(bit_span a, const_bit_span b) noexcept { bitwise_or(a, a, b); }
-void operator&=(bit_span a, const_bit_span b) noexcept { bitwise_and(a, a, b); }
-void operator^=(bit_span a, const_bit_span b) noexcept { bitwise_xor(a, a, b); }
+inline void operator|=(bit_span a, const_bit_span b) noexcept { bitwise_or(a, a, b); }
+inline void operator&=(bit_span a, const_bit_span b) noexcept { bitwise_and(a, a, b); }
+inline void operator^=(bit_span a, const_bit_span b) noexcept { bitwise_xor(a, a, b); }
 
 /**
  * Similar to specialized std::vector<bool>, but

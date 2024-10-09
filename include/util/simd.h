@@ -336,7 +336,8 @@ struct fmt::formatter<util::simd<T, W>> : fmt::formatter<T>
 	// NOTE: parse() is inherited from formatter<T>
 
 	template <class FormatContext>
-	auto format(util::simd<T, W> a, FormatContext &ctx) -> decltype(ctx.out())
+	auto format(util::simd<T, W> a,
+	            FormatContext &ctx) const -> decltype(ctx.out())
 	{
 		static_assert(W == 2 || W == 4 || W == 8 || W == 16 || W == 32);
 

@@ -1,5 +1,6 @@
 #include "util/numpy.h"
 
+#include "fmt/ranges.h"
 #include "util/io.h"
 #include <algorithm>
 #include <numeric>

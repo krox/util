@@ -328,33 +328,33 @@ template <> struct fmt::formatter<util::Json>
 		});
 	}
 
-	template <typename It> void print_impl(It &it, Json::null_type, int)
+	template <typename It> void print_impl(It &it, Json::null_type, int) const
 	{
 		it = fmt::format_to(it, "null");
 	}
 	template <typename It>
-	void print_impl(It &it, Json::boolean_type value, int)
+	void print_impl(It &it, Json::boolean_type value, int) const
 	{
 		it = fmt::format_to(it, "{}", value ? "true" : "false");
 	}
 	template <typename It>
-	void print_impl(It &it, Json::integer_type value, int)
+	void print_impl(It &it, Json::integer_type value, int) const
 	{
 		it = fmt::format_to(it, "{}", value);
 	}
 	template <typename It>
-	void print_impl(It &it, Json::floating_type value, int)
+	void print_impl(It &it, Json::floating_type value, int) const
 	{
 		it = fmt::format_to(it, "{}", value);
 	}
 	template <typename It>
-	void print_impl(It &it, Json::string_type const &value, int)
+	void print_impl(It &it, Json::string_type const &value, int) const
 	{
 		// TODO: escape special characters
 		it = fmt::format_to(it, "\"{}\"", value);
 	}
 	template <typename It>
-	void print_impl(It &it, Json::array_type const &arr, int level)
+	void print_impl(It &it, Json::array_type const &arr, int level) const
 	{
 		// empty array -> '[]' regardless of format
 		if (arr.empty())
@@ -386,7 +386,7 @@ template <> struct fmt::formatter<util::Json>
 		*it++ = ']';
 	}
 	template <typename It>
-	void print_impl(It &it, Json::object_type const &obj, int level)
+	void print_impl(It &it, Json::object_type const &obj, int level) const
 	{
 		if (obj.empty())
 		{
@@ -416,7 +416,8 @@ template <> struct fmt::formatter<util::Json>
 		*it++ = '}';
 	}
 
-	template <typename It> void print(It &it, util::Json const &j, int level)
+	template <typename It>
+	void print(It &it, util::Json const &j, int level) const
 	{
 		j.visit([&](auto &value) { print_impl(it, value, level); });
 	}
@@ -446,7 +447,7 @@ template <> struct fmt::formatter<util::Json>
 	}
 
 	template <typename FormatContext>
-	auto format(Json const &j, FormatContext &ctx)
+	auto format(Json const &j, FormatContext &ctx) const
 	{
 		auto it = ctx.out();
 		print(it, j, 0);

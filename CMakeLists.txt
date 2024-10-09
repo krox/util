@@ -14,13 +14,15 @@ include(cmake/CPM.cmake)
 CPMAddPackage(
 	NAME fmt
 	GITHUB_REPOSITORY fmtlib/fmt
-	GIT_TAG e69e5f977d458f2650bb346dadf2ad30c5320281 # v10.2.1
+	GIT_TAG 0c9fce2ffefecfdce794e1859584e25877b7b592 # 11.0.2
+	OPTIONS
+	"FMT_SYSTEM_HEADERS ON" # mark fmt headers as "system", which silences warnings
 )
 
 CPMAddPackage(
 	NAME blake3
 	GITHUB_REPOSITORY BLAKE3-team/BLAKE3
-	GIT_TAG 5aa53f07f7188a569cadfc5daf1522972d9a9630 # 1.5.0
+	GIT_TAG 95e42b84fc4709974c7b23c7ae885989ab36c31e # 1.5.4
 	DOWNLOAD_ONLY True
 )
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
@@ -28,11 +30,11 @@ add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
 CPMAddPackage(
 	NAME cli11
 	GITHUB_REPOSITORY CLIUtils/CLI11
-	GIT_TAG f4d0731cebb123ff0ace712c099dffbcd2c58e5a # v2.4.1
+	GIT_TAG 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9 # v2.4.2
 )
 
 # warning options
-set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror $<$<CONFIG:Release>:-Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-parameter>)
+set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
 
 # library
 add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp)
@@ -72,7 +74,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	CPMAddPackage(
 		NAME Catch2
 		GITHUB_REPOSITORY catchorg/Catch2
-		GIT_TAG 2ab20a0e008845e02bd06248e61ca6e5ad1aba33 # v3.3.1
+		GIT_TAG fa43b77429ba76c462b1898d6cd2f2d7a9416b14 # v3.7.1
 	)
 
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
@@ -81,5 +83,5 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/simd.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g -Wno-parentheses -march=native)
+	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g -march=native)
 endif()

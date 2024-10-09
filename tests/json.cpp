@@ -1,10 +1,10 @@
 #include "catch2/catch_test_macros.hpp"
 
-#include "fmt/format.h"
-#include "fmt/ranges.h"
 #include "util/json.h"
 #include "util/numpy.h"
 #include "util/span.h"
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 using namespace util;
 
 TEST_CASE("json parser", "[json]")

@@ -5,7 +5,7 @@
 //   - Some additional convenience:
 //     * '.pop_back()' returns the removed element
 //     * '.set_size_unsafe()' enables some low-level optimizations
-//     * '.reserve()' takes an (optional) second argument controlling growth
+//     * '.reserve_with_spare()' combines '.reserve()' with geometric growth
 //   - Some additional variants of vectors with different memory management.
 //     (note that these could not be cleanly implemented using custom allocators
 //     inside a 'std::vector')
@@ -464,22 +464,51 @@ template <class T, class Impl> class Vector
 	// routines.
 	void set_size_unsafe(size_t s) noexcept { impl_.set_size(s); }
 
-	// Increase capacity to at least new_cap. If spare=true, capacity is
-	// increased at least geometrically
-	void reserve(size_t new_cap, bool spare = false)
+	// force a reallocation to a specific capacity. This is a backend function
+	// typically used via 'reserve()' or 'shrink_to_fit()'
+	void reallocate(size_t new_cap)
 	{
-		if (new_cap <= capacity())
-			return;
 		assert(new_cap <= max_size());
-
-		if (spare)
-			new_cap = std::clamp(2 * capacity(), new_cap, max_size());
+		assert(new_cap >= size());
 
 		auto new_impl = Impl(new_cap);
 		uninitialized_relocate_n(data(), size(), new_impl.data());
 		new_impl.set_size(size());
 		impl_.set_size(0);
 		impl_.swap(new_impl);
+	}
+
+	// Increase capacity to at least new_cap.
+	// No effect if new_cap <= capacity().
+	void reserve(size_t new_cap)
+	{
+		if (new_cap <= capacity())
+			return;
+		assert(new_cap <= max_size());
+
+		reallocate(new_cap);
+	}
+
+	// same as reserve, but increases capactiy at least geometrically when
+	// reallocating
+	void reserve_with_spare(size_t new_cap)
+	{
+		if (new_cap <= capacity())
+			return;
+		assert(new_cap <= max_size());
+
+		new_cap = std::clamp(2 * capacity(), new_cap, max_size());
+		reallocate(new_cap);
+	}
+
+	// Reduce capacity to size.
+	// NOTE: this is considered a hint, and might be ignored depending on
+	// storage backend / allocator.
+	void shrink_to_fit()
+	{
+		if (size() == capacity())
+			return;
+		reallocate(size());
 	}
 
 	// remove all elements, keeping allocated capacity
@@ -499,7 +528,7 @@ template <class T, class Impl> class Vector
 		}
 		else
 		{
-			reserve(s, true);
+			reserve_with_spare(s);
 			std::uninitialized_fill_n(data() + size(), s - size(), value);
 			set_size_unsafe(s);
 		}
@@ -510,7 +539,7 @@ template <class T, class Impl> class Vector
 	//     * aliasing not allowed
 	iterator insert(size_t pos, T const &value)
 	{
-		reserve(size() + 1, true);
+		reserve_with_spare(size() + 1);
 		std::construct_at(end(), value);
 		set_size_unsafe(size() + 1);
 		std::rotate(begin() + pos, end() - 1, end());
@@ -519,7 +548,7 @@ template <class T, class Impl> class Vector
 	template <typename It> iterator insert(size_t pos, It first, It last)
 	{
 		size_t count = std::distance(first, last);
-		reserve(size() + count, true);
+		reserve_with_spare(size() + count);
 		std::uninitialized_copy_n(first, count, end());
 		set_size_unsafe(size() + count);
 		std::rotate(begin() + pos, end() - count, end());

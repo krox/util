@@ -83,6 +83,7 @@ template <typename T> class gspan
 
 	/** field access */
 	T *data() const { return data_; }
+	bool empty() const { return size_ == 0; }
 	size_t size() const { return size_; }
 	size_t stride() const { return stride_; }
 
@@ -632,8 +633,8 @@ struct formatter<util::ndspan<T, N>> : formatter<T>
 	// NOTE: parse() is inherited from formatter<T>
 
 	template <typename FormatContext>
-	auto format(const util::ndspan<T, N> &a, FormatContext &ctx)
-	    -> decltype(ctx.out())
+	auto format(const util::ndspan<T, N> &a,
+	            FormatContext &ctx) -> decltype(ctx.out())
 	{
 		// format all elements
 		auto str_buf = std::vector<std::string>(a.size());

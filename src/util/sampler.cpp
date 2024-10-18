@@ -176,10 +176,9 @@ void LogSampler::test()
 		}
 
 		util::Gnuplot plot;
-		plot.style("lines");
-		plot.plotFunction(f, min, max, "log-prob");
-		plot.plotData(plotX, plotY, "min");
-		plot.plotData(plotX, plotY2, "max");
+		plot.plot_function(f, min, max, "log-prob");
+		plot.plot_data(plotX, plotY, "min", "lines");
+		plot.plot_data(plotX, plotY2, "max", "lines");
 	}
 
 	{
@@ -202,8 +201,8 @@ void LogSampler::test()
 		c = (double)count * (max - min) / binCount / c;
 
 		util::Gnuplot p;
-		p.plotHistogram(hist);
-		p.plotFunction([&](double x) { return c * std::exp(f(x)); }, min, max);
+		p.plot_histogram(hist);
+		p.plot_function([&](double x) { return c * std::exp(f(x)); }, min, max);
 	}
 }
 

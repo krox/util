@@ -1,105 +1,114 @@
-#ifndef UTIL_GNUPLOT_H
-#define UTIL_GNUPLOT_H
+#pragma once
 
 #include "util/functional.h"
-#include "util/span.h"
 #include "util/stats.h"
+#include <concepts>
+#include <ranges>
+#include <span>
 
 namespace util {
 
+// Handle to gnuplot process, typically corresponds to an open window. Example:
+//     Gnuplot().plot_data(std::vector<double>(...))
+//              .plot_function("sin(x)")
+//              .range_x(0, 10);
 class Gnuplot
 {
 	FILE *pipe = nullptr;
 	static int nplotsGlobal;
 	int nplots = 0;
 	const int plotID;
-	std::string style_ = "points";
 	bool logx_ = false;
 	bool logy_ = false;
 	bool logz_ = false;
 
   public:
-	/** constructor */
 	explicit Gnuplot(bool persist = true);
 	~Gnuplot();
 
-	/** non-copyable but movable due to pipe */
+	// move-only due to contained pipe
 	Gnuplot(const Gnuplot &) = delete;
 	Gnuplot &operator=(const Gnuplot &) = delete;
 
 	Gnuplot(Gnuplot &&b)
-	    : pipe(b.pipe), nplots(b.nplots), plotID(b.plotID),
-	      style_(std::move(b.style_)), logx_(b.logx_), logy_(b.logy_),
-	      logz_(b.logz_)
+	    : pipe(b.pipe), nplots(b.nplots), plotID(b.plotID), logx_(b.logx_),
+	      logy_(b.logy_), logz_(b.logz_)
 	{
 		b.pipe = nullptr;
 	}
 	Gnuplot &operator=(Gnuplot &&) = delete;
 
-	/** plot a function given by a string that gnuplot can understand */
-	Gnuplot &plotFunction(const std::string &fun,
-	                      const std::string &title = "");
-	Gnuplot &plotFunction(const std::string &fun, double min, double max,
-	                      const std::string &title = "");
+	// backend implementation.
+	//   * If 'es' is empty, no error bars are shown.
+	//   * If 'title' is empty, no title is shown.
+	//   * If 'style' is empty, 'errorbars' or 'points' is used.
+	//   * If 'xs' is empty, the x-values are assumed to be 0, 1, 2, ...
+	Gnuplot &plot_data_impl(std::span<const double> xs,
+	                        std::span<const double> ys,
+	                        std::span<const double> es, std::string_view title,
+	                        std::string_view style);
 
-	/** plot a function given as function object */
-	Gnuplot &plotFunction(util::function_view<double(double)> fun, double min,
-	                      double max, const std::string &title = "");
+	// plot a function given as function object
+	Gnuplot &plot_function(util::function_view<double(double)> fun, double min,
+	                       double max, std::string_view title = "");
 
-	/** plot raw data points (i, ys[i]) */
-	Gnuplot &plotData(gspan<const double> ys,
-	                  const std::string &title = "data");
-	Gnuplot &plotError(gspan<const double> ys, gspan<const double> err,
-	                   const std::string &title = "data");
+	// plot raw data points (i, ys[i])
+	Gnuplot &plot_data(std::span<const double> ys, std::string_view title = "",
+	                   std::string_view style = "");
+	Gnuplot &plot_error(std::span<const double> ys, std::span<const double> err,
+	                    std::string_view title = "",
+	                    std::string_view style = "");
 
-	/** plot raw data points (xs[i], ys[i]) */
-	Gnuplot &plotData(gspan<const double> xs, gspan<const double> ys,
-	                  const std::string &title = "data");
-	Gnuplot &plotError(gspan<const double> xs, gspan<const double> ys,
-	                   gspan<const double> err,
-	                   const std::string &title = "data");
+	// plot raw data points (xs[i], ys[i])
+	Gnuplot &plot_data(std::span<const double> xs, std::span<const double> ys,
+	                   std::string_view title = "data",
+	                   std::string_view style = "");
+	Gnuplot &plot_error(std::span<const double> xs, std::span<const double> ys,
+	                    std::span<const double> err,
+	                    std::string_view title = "data",
+	                    std::string_view style = "");
 
-	/** 3D plot of a 2D grid */
-	Gnuplot &plotData3D(ndspan<const double, 2> zs,
-	                    const std::string &title = "data");
-
-	/** plot a histogram */
-	Gnuplot &plotHistogram(const Histogram &hist,
-	                       const std::string &title = "hist",
-	                       double scale = 1.0);
-	Gnuplot &plotHistogram(const Histogram &hist,
-	                       util::function_view<double(double)> dist,
-	                       const std::string &title = "hist");
-	Gnuplot &plotHistogram(const IntHistogram &hist,
-	                       const std::string &title = "hist",
-	                       double scale = 1.0);
-
-	/** black horizontal line without label */
-	Gnuplot &hline(double y);
-
-	/** set style */
-	Gnuplot &style(const std::string &s)
+	// templated version for ranges
+	template <std::ranges::range R>
+	    requires std::convertible_to<std::ranges::range_value_t<R>, double>
+	Gnuplot &plot_range_data(const R &ys, std::string_view title = "",
+	                         std::string_view style = "")
 	{
-		style_ = s;
-		return *this;
+		std::vector<double> v(std::ranges::begin(ys), std::ranges::end(ys));
+		return plot_data_impl({}, std::span(v), {}, title, style);
 	}
 
-	/** set range of plot */
-	Gnuplot &setRangeX(double min, double max);
-	Gnuplot &setRangeY(double min, double max);
-	Gnuplot &setRangeZ(double min, double max);
+	// 3D plot of a 2D grid
+	Gnuplot &plot_data_3d(ndspan<const double, 2> zs,
+	                      std::string_view title = "");
 
-	/** make the plot logarithmic */
-	Gnuplot &setLogScaleX();
-	Gnuplot &setLogScaleY();
-	Gnuplot &setLogScaleZ();
+	// plot a histogram
+	Gnuplot &plot_histogram(const Histogram &hist, std::string_view title = "",
+	                        double scale = 1.0);
+	Gnuplot &plot_histogram(const Histogram &hist,
+	                        util::function_view<double(double)> dist,
+	                        std::string_view title = "");
+	Gnuplot &plot_histogram(const IntHistogram &hist,
+	                        std::string_view title = "", double scale = 1.0);
 
-	/** remove all plots (but keep settings) */
+	// black horizontal line without label
+	Gnuplot &hline(double y);
+
+	// set range of plot
+	Gnuplot &range_x(double min, double max);
+	Gnuplot &range_y(double min, double max);
+	Gnuplot &range_z(double min, double max);
+
+	// make the plot logarithmic
+	Gnuplot &log_scale_x();
+	Gnuplot &log_scale_y();
+	Gnuplot &log_scale_z();
+
+	// remove all plots (but keep some settings)
 	Gnuplot &clear();
 
-	Gnuplot &savefig(const std::string &filename);
-}; // namespace util
+	// save figure to file
+	Gnuplot &savefig(std::string_view filename);
+};
 
 } // namespace util
-
-#endif

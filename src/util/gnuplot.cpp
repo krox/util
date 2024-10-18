@@ -3,12 +3,11 @@
 #include "util/numerics.h"
 #include <fmt/format.h>
 #include <fstream>
+#include <numeric>
 
-namespace util {
+int util::Gnuplot::nplotsGlobal = 0;
 
-int Gnuplot::nplotsGlobal = 0;
-
-Gnuplot::Gnuplot(bool persist) : plotID(nplotsGlobal++)
+util::Gnuplot::Gnuplot(bool persist) : plotID(nplotsGlobal++)
 {
 	if (persist)
 		pipe = popen("gnuplot -p", "w");
@@ -22,114 +21,111 @@ Gnuplot::Gnuplot(bool persist) : plotID(nplotsGlobal++)
 	fflush(pipe);
 }
 
-Gnuplot::~Gnuplot()
+util::Gnuplot::~Gnuplot()
 {
 	if (pipe != nullptr)
 		pclose(pipe);
 }
 
-Gnuplot &Gnuplot::plotFunction(const std::string &fun, const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_data_impl(std::span<const double> xs,
+                                             std::span<const double> ys,
+                                             std::span<const double> es,
+                                             std::string_view title,
+                                             std::string_view style)
 {
-	fmt::print(pipe, "{} {} title \"{}\"\n", nplots ? "replot" : "plot", fun,
-	           (title.size() ? title : fun));
+	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
+	std::ofstream file(filename);
+
+	std::vector<double> xs_;
+	if (xs.empty())
+	{
+		xs_.resize(ys.size());
+		std::iota(xs_.begin(), xs_.end(), 0);
+		xs = xs_;
+	}
+	else
+		assert(xs.size() == ys.size());
+	if (es.empty())
+	{
+		for (size_t i = 0; i < ys.size(); ++i)
+			file << xs[i] << " " << ys[i] << "\n";
+	}
+	else
+	{
+		assert(xs.size() == es.size());
+		for (size_t i = 0; i < ys.size(); ++i)
+			file << xs[i] << " " << ys[i] << " " << es[i] << "\n";
+	}
+
+	if (ys.empty())
+	{
+		fmt::print("WARNING: tried to plot empty data (title = '{}')\n", title);
+		return *this;
+	}
+
+	if (style.empty())
+		style = es.empty() ? "points" : "errorbars";
+	if (title.empty())
+		title = "data";
+
+	file.flush();
+	file.close();
+	fmt::print(pipe, "{} '{}' using {} with {} title \"{}\"\n",
+	           (nplots ? "replot" : "plot"), filename,
+	           (es.empty() ? "1:2" : "1:2:3"), style, title);
 	fflush(pipe);
 	++nplots;
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotFunction(const std::string &fun, double min, double max,
-                               const std::string &title)
+util::Gnuplot &
+util::Gnuplot::plot_function(util::function_view<double(double)> fun, double a,
+                             double b, std::string_view title)
 {
-	fmt::print(pipe, "{} [{}:{}] {} title \"{}\"\n", nplots ? "replot" : "plot",
-	           min, max, fun, (title.size() ? title : fun));
-	fflush(pipe);
-	++nplots;
-	return *this;
-}
-
-Gnuplot &Gnuplot::plotFunction(util::function_view<double(double)> fun,
-                               double a, double b, const std::string &title)
-{
-	auto oldStyle = style_;
-	style_ = "lines";
 	std::vector<double> xs, ys;
 	for (int i = 0; i <= 100; ++i)
 	{
 		xs.push_back(a + (b - a) * i / 100);
 		ys.push_back(fun(xs.back()));
 	}
-	plotData(xs, ys, title);
-	style_ = oldStyle;
-	return *this;
+
+	return plot_data_impl(xs, ys, {}, title, "lines");
 }
 
-Gnuplot &Gnuplot::plotData(gspan<const double> ys, const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_data(std::span<const double> ys,
+                                        std::string_view title,
+                                        std::string_view style)
 {
-	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
-	std::ofstream file(filename);
-	for (size_t i = 0; i < ys.size(); ++i)
-		file << i << " " << ys[i] << "\n";
-	file.flush();
-	file.close();
-	fmt::print(pipe, "{} '{}' using 1:2 with {} title \"{}\"\n",
-	           (nplots ? "replot" : "plot"), filename, style_, title);
-	fflush(pipe);
-	++nplots;
-	return *this;
+	return plot_data_impl({}, ys, {}, title, style);
 }
 
-Gnuplot &Gnuplot::plotError(gspan<const double> ys, gspan<const double> err,
-                            const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_error(std::span<const double> ys,
+                                         std::span<const double> err,
+                                         std::string_view title,
+                                         std::string_view style)
 {
-	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
-	std::ofstream file(filename);
-	for (size_t i = 0; i < ys.size(); ++i)
-		file << i << " " << ys[i] << " " << err[i] << "\n";
-	file.flush();
-	file.close();
-	fmt::print(pipe, "{} '{}' using 1:2:3 with {} title \"{}\"\n",
-	           (nplots ? "replot" : "plot"), filename, "errorbars", title);
-	fflush(pipe);
-	++nplots;
-	return *this;
+	return plot_data_impl({}, ys, err, title, style);
 }
 
-Gnuplot &Gnuplot::plotData(gspan<const double> xs, gspan<const double> ys,
-                           const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_data(std::span<const double> xs,
+                                        std::span<const double> ys,
+                                        std::string_view title,
+                                        std::string_view style)
 {
-	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
-	std::ofstream file(filename);
-	assert(xs.size() == ys.size());
-	for (size_t i = 0; i < xs.size(); ++i)
-		file << xs[i] << " " << ys[i] << "\n";
-	file.flush();
-	file.close();
-	fmt::print(pipe, "{} '{}' using 1:2 with {} title \"{}\"\n",
-	           (nplots ? "replot" : "plot"), filename, style_, title);
-	fflush(pipe);
-	++nplots;
-	return *this;
+	return plot_data_impl(xs, ys, {}, title, style);
 }
 
-Gnuplot &Gnuplot::plotError(gspan<const double> xs, gspan<const double> ys,
-                            gspan<const double> err, const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_error(std::span<const double> xs,
+                                         std::span<const double> ys,
+                                         std::span<const double> err,
+                                         std::string_view title,
+                                         std::string_view style)
 {
-	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
-	std::ofstream file(filename);
-	assert(xs.size() == ys.size() && xs.size() == err.size());
-	for (size_t i = 0; i < ys.size(); ++i)
-		file << xs[i] << " " << ys[i] << " " << err[i] << "\n";
-	file.flush();
-	file.close();
-	fmt::print(pipe, "{} '{}' using 1:2:3 with {} title \"{}\"\n",
-	           (nplots ? "replot" : "plot"), filename, "errorbars", title);
-	fflush(pipe);
-	++nplots;
-	return *this;
+	return plot_data_impl(xs, ys, err, title, style);
 }
 
-Gnuplot &Gnuplot::plotData3D(ndspan<const double, 2> zs,
-                             const std::string &title)
+util::Gnuplot &util::Gnuplot::plot_data_3d(ndspan<const double, 2> zs,
+                                           std::string_view title)
 {
 	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
 	std::ofstream file(filename);
@@ -142,14 +138,15 @@ Gnuplot &Gnuplot::plotData3D(ndspan<const double, 2> zs,
 	file.flush();
 	file.close();
 	fmt::print(pipe, "{} '{}' matrix with {} title \"{}\"\n",
-	           (nplots ? "replot" : "splot"), filename, style_, title);
+	           (nplots ? "replot" : "splot"), filename, "points", title);
 	fflush(pipe);
 	++nplots;
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title,
-                                double scale)
+util::Gnuplot &util::Gnuplot::plot_histogram(Histogram const &hist,
+                                             std::string_view title,
+                                             double scale)
 {
 	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
 	std::ofstream file(filename);
@@ -166,20 +163,23 @@ Gnuplot &Gnuplot::plotHistogram(const Histogram &hist, const std::string &title,
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotHistogram(const Histogram &hist,
-                                util::function_view<double(double)> dist,
-                                const std::string &title)
+util::Gnuplot &
+util::Gnuplot::plot_histogram(Histogram const &hist,
+                              util::function_view<double(double)> dist,
+                              std::string_view title)
 {
 	double c = 1.0 / util::integrate(dist, hist.min(), hist.max());
-	plotHistogram(hist, title,
-	              hist.binCount() / (hist.max() - hist.min()) / hist.total);
-	plotFunction([&](double x) { return c * dist(x); }, hist.min(), hist.max());
+	plot_histogram(hist, title,
+	               hist.binCount() / (hist.max() - hist.min()) / hist.total);
+	plot_function([&](double x) { return c * dist(x); }, hist.min(),
+	              hist.max());
 
 	return *this;
 }
 
-Gnuplot &Gnuplot::plotHistogram(const IntHistogram &hist,
-                                const std::string &title, double scale)
+util::Gnuplot &util::Gnuplot::plot_histogram(const IntHistogram &hist,
+                                             std::string_view title,
+                                             double scale)
 {
 	std::string filename = fmt::format("gnuplot_{}_{}.txt", plotID, nplots);
 	std::ofstream file(filename);
@@ -195,7 +195,7 @@ Gnuplot &Gnuplot::plotHistogram(const IntHistogram &hist,
 	return *this;
 }
 
-Gnuplot &Gnuplot::hline(double y)
+util::Gnuplot &util::Gnuplot::hline(double y)
 {
 	fmt::print(pipe, "{} {} lt -1 title \"\"\n", nplots ? "replot" : "plot", y);
 	fflush(pipe);
@@ -203,28 +203,28 @@ Gnuplot &Gnuplot::hline(double y)
 	return *this;
 }
 
-Gnuplot &Gnuplot::setRangeX(double min, double max)
+util::Gnuplot &util::Gnuplot::range_x(double min, double max)
 {
 	fmt::print(pipe, "set xrange[{} : {}]\n", min, max);
 	fflush(pipe);
 	return *this;
 }
 
-Gnuplot &Gnuplot::setRangeY(double min, double max)
+util::Gnuplot &util::Gnuplot::range_y(double min, double max)
 {
 	fmt::print(pipe, "set yrange[{} : {}]\n", min, max);
 	fflush(pipe);
 	return *this;
 }
 
-Gnuplot &Gnuplot::setRangeZ(double min, double max)
+util::Gnuplot &util::Gnuplot::range_z(double min, double max)
 {
 	fmt::print(pipe, "set zrange[{} : {}]\n", min, max);
 	fflush(pipe);
 	return *this;
 }
 
-Gnuplot &Gnuplot::setLogScaleX()
+util::Gnuplot &util::Gnuplot::log_scale_x()
 {
 	fmt::print(pipe, "set logscale x\n");
 	logx_ = true;
@@ -232,7 +232,7 @@ Gnuplot &Gnuplot::setLogScaleX()
 	return *this;
 }
 
-Gnuplot &Gnuplot::setLogScaleY()
+util::Gnuplot &util::Gnuplot::log_scale_y()
 {
 	fmt::print(pipe, "set logscale y\n");
 	logy_ = true;
@@ -240,7 +240,7 @@ Gnuplot &Gnuplot::setLogScaleY()
 	return *this;
 }
 
-Gnuplot &Gnuplot::setLogScaleZ()
+util::Gnuplot &util::Gnuplot::log_scale_z()
 {
 	fmt::print(pipe, "set logscale z\n");
 	logz_ = true;
@@ -248,7 +248,7 @@ Gnuplot &Gnuplot::setLogScaleZ()
 	return *this;
 }
 
-Gnuplot &Gnuplot::clear()
+util::Gnuplot &util::Gnuplot::clear()
 {
 	fmt::print(pipe, "clear\n");
 	fflush(pipe);
@@ -256,7 +256,7 @@ Gnuplot &Gnuplot::clear()
 	return *this;
 }
 
-Gnuplot &Gnuplot::savefig(const std::string &filename)
+util::Gnuplot &util::Gnuplot::savefig(std::string_view filename)
 {
 	fmt::print(pipe, "set terminal pdf\n");
 	fmt::print(pipe, "set output \"{}\"\n", filename);
@@ -264,5 +264,3 @@ Gnuplot &Gnuplot::savefig(const std::string &filename)
 	fflush(pipe);
 	return *this;
 }
-
-} // namespace util

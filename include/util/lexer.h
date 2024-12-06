@@ -4,9 +4,13 @@
  * A simple tokenizer based on std::string_view.
  * Right now used for simple math expressions and JSON, though might be general
  * enough for some programmling languages.
+ *
+ * NOTE: this tokenizer will be removed in favor of the more simplistic
+ * util::Parser class
  */
 
 #include "util/hash_map.h"
+#include "util/string.h"
 #include <cassert>
 #include <cctype>
 #include <charconv>
@@ -16,29 +20,6 @@
 #include <string_view>
 
 namespace util {
-
-class ParseError : public std::runtime_error
-{
-  public:
-	ParseError(std::string const &what) : std::runtime_error(what) {}
-};
-
-// Parse an integer literal, throwing ParseError if not the whole s was matched.
-// Currently only parses decimal with optional minus sign. Might add hex/bin
-// in the future.
-template <typename T = int> T parse_int(std::string_view s)
-{
-	// std::from_chars(...) is supposed to be essentially the fastest routine
-	// possible (a lot less overhead compared to scanf() and such)
-
-	static_assert(std::is_integral_v<T>);
-	T value = {};
-	auto [ptr, ec] = std::from_chars(s.begin(), s.end(), value);
-	if (ec == std::errc() || ptr == s.end())
-		return value;
-	else
-		throw ParseError(fmt::format("cannot parse integer '{}'", s));
-}
 
 // Parse an integer literal, throwing ParseError if not the whole s was matched.
 // Currently only parses decimal with optional minus sign. Might add hex/bin

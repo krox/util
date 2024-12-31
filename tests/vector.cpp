@@ -2,6 +2,7 @@
 #include "catch2/catch_test_macros.hpp"
 
 #include "util/vector.h"
+#include "util/vector2d.h"
 
 #include <unordered_map>
 
@@ -180,4 +181,56 @@ TEST_CASE("tiny_map", "[vector][tiny_map]")
 		CHECK(a != c);
 		CHECK(b != c);
 	}
+}
+
+TEST_CASE("vector2d", "[vector][vector2d]")
+{
+	util::vector2d<int> a;
+	CHECK(a.empty());
+	CHECK(a.height() == 0);
+	CHECK(a.width() == 0);
+	CHECK(a.size() == 0);
+
+	a.push_back({{1, 2, 3}});
+	CHECK(!a.empty());
+	CHECK(a.height() == 1);
+	CHECK(a.width() == 3);
+	CHECK(a.size() == 3);
+	CHECK(a[0][0] == 1);
+	CHECK(a[0][1] == 2);
+	CHECK(a[0][2] == 3);
+
+	a.push_back({{4, 5, 6}});
+	CHECK(a.height() == 2);
+	CHECK(a.width() == 3);
+	CHECK(a.size() == 6);
+	CHECK(a[1][0] == 4);
+	CHECK(a[1][1] == 5);
+	CHECK(a[1][2] == 6);
+
+	a.push_back({{7, 8, 9}});
+	CHECK(a.height() == 3);
+	CHECK(a.width() == 3);
+	CHECK(a.size() == 9);
+	CHECK(a[2][0] == 7);
+	CHECK(a[2][1] == 8);
+	CHECK(a[2][2] == 9);
+
+	a.pop_back();
+	CHECK(a.height() == 2);
+	CHECK(a.width() == 3);
+	CHECK(a.size() == 6);
+
+	a.pop_back();
+	a.pop_back();
+	CHECK(a.height() == 0);
+
+	a.push_back({{1, 2}});
+	CHECK(a.height() == 1);
+	CHECK(a.width() == 2);
+
+	a.clear();
+	CHECK(a.empty());
+	CHECK(a.height() == 0);
+	CHECK(a.size() == 0);
 }

@@ -592,7 +592,7 @@ template <> struct fmt::formatter<util::ddouble>
 {
 	int precision = 30; // digits after decimal point
 
-	constexpr auto parse(format_parse_context &ctx)
+	constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin())
 	{
 		auto it = ctx.begin(), end = ctx.end();
 
@@ -622,8 +622,7 @@ template <> struct fmt::formatter<util::ddouble>
 		return it;
 	}
 
-	template <typename FormatContext>
-	auto format(util::ddouble a, FormatContext &ctx)
+	auto format(util::ddouble a, auto &ctx) const -> decltype(ctx.out())
 	{
 		auto out = ctx.out();
 

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstring>
 #include <span>
+#include <vector>
 
 namespace util {
 
@@ -279,9 +280,18 @@ inline void bitwise_xor(bit_span r, const_bit_span a, const_bit_span b) noexcept
 }
 
 // global bitwise operations (inplace)
-inline void operator|=(bit_span a, const_bit_span b) noexcept { bitwise_or(a, a, b); }
-inline void operator&=(bit_span a, const_bit_span b) noexcept { bitwise_and(a, a, b); }
-inline void operator^=(bit_span a, const_bit_span b) noexcept { bitwise_xor(a, a, b); }
+inline void operator|=(bit_span a, const_bit_span b) noexcept
+{
+	bitwise_or(a, a, b);
+}
+inline void operator&=(bit_span a, const_bit_span b) noexcept
+{
+	bitwise_and(a, a, b);
+}
+inline void operator^=(bit_span a, const_bit_span b) noexcept
+{
+	bitwise_xor(a, a, b);
+}
 
 /**
  * Similar to specialized std::vector<bool>, but

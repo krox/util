@@ -62,6 +62,9 @@ class Parser
 	// matched token. No need to call manually, thus private
 	void skip_white();
 
+	// throws ParseError, decorated with position information
+	[[noreturn]] void raise(std::string_view msg);
+
   public:
 	// Caller must ensure that the string_view remains valid for the lifetime of
 	// the parser, because the parser does not copy the source string.
@@ -87,6 +90,14 @@ class Parser
 	//     Other than that, escape sequences are not validated
 	//   * unterminated strings throw ParseError
 	std::string_view string();
+
+	// expect_* functions throw on mismatch
+	void expect(char ch);
+	void expect(std::string_view word);
+	void expect_ident(std::string_view word);
+	std::string_view expect_ident();
+	std::string_view expect_integer();
+	std::string_view expect_string();
 
 	// true if the end of the string is reached
 	bool end() const;

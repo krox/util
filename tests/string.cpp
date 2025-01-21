@@ -33,7 +33,7 @@ TEST_CASE("simple parser")
 		CHECK(!p.ident("fo"));
 		CHECK(p.match("fo"));
 		CHECK(p.match('o'));
-		CHECK(p.match(" "));
+		CHECK(!p.match(" "));
 		CHECK(p.match("bar"));
 		CHECK(!p.match("baz"));
 		CHECK(p.end());

@@ -14,6 +14,13 @@ namespace util {
 #define UTIL_DEVICE
 #endif
 
+// nothing to do with complex numbers in particular, but this file is close to
+// top of the #include hirearchy, so lets put it here
+bool is_zero(std::integral auto x) { return x == 0; }
+bool is_zero(std::floating_point auto x) { return x == 0; }
+bool is_negative(std::integral auto x) { return x < 0; }
+bool is_negative(std::floating_point auto x) { return x < 0; }
+
 /**
  * Similar to std::complex, but:
  *     - Components are directly accessible as '.re' and '.im' in addition
@@ -473,16 +480,16 @@ UTIL_DEVICE quaternion<T> inverse(quaternion<T> const &a) noexcept
 // binary quaternion <-> quaternion
 
 template <class T, class U>
-UTIL_DEVICE auto operator+(quaternion<T> const &a,
-                           quaternion<U> const &b) noexcept
-    -> quaternion<decltype(a.re + b.re)>
+UTIL_DEVICE auto
+operator+(quaternion<T> const &a,
+          quaternion<U> const &b) noexcept -> quaternion<decltype(a.re + b.re)>
 {
 	return {a.re + b.re, a.im1 + b.im1, a.im2 + b.im2, a.im3 + b.im3};
 }
 template <class T, class U>
-UTIL_DEVICE auto operator-(quaternion<T> const &a,
-                           quaternion<U> const &b) noexcept
-    -> quaternion<decltype(a.re - b.re)>
+UTIL_DEVICE auto
+operator-(quaternion<T> const &a,
+          quaternion<U> const &b) noexcept -> quaternion<decltype(a.re - b.re)>
 {
 	return {a.re - b.re, a.im1 - b.im1, a.im2 - b.im2, a.im3 - b.im3};
 }
@@ -497,9 +504,9 @@ UTIL_DEVICE quaternion<T> operator*(quaternion<T> const &a,
 	        a.re * b.im3 + a.im1 * b.im2 - a.im2 * b.im1 + a.im3 * b.re};
 }
 template <class T, class U>
-UTIL_DEVICE auto operator/(quaternion<T> const &a,
-                           quaternion<U> const &b) noexcept
-    -> quaternion<decltype(a.re * b.re)>
+UTIL_DEVICE auto
+operator/(quaternion<T> const &a,
+          quaternion<U> const &b) noexcept -> quaternion<decltype(a.re * b.re)>
 {
 	return (a * conj(b)) / norm(b);
 }

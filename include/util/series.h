@@ -63,22 +63,6 @@ bool operator==(Series<R, N> const &a, Series<U, N> const &b)
 	return true;
 }
 
-template <class R, int N> bool operator==(Series<R, N> const &a, R const &b)
-{
-	for (int i = 1; i < N; ++i)
-		if (!is_zero(a[i]))
-			return false;
-	return a[0] == b;
-}
-
-template <typename R, int N> bool operator==(Series<R, N> const &a, int b)
-{
-	for (int i = 1; i <= N; ++i)
-		if (!is_zero(a[i]))
-			return false;
-	return a[0] == b;
-}
-
 // element-wise and scalar operations. Same as for the chalk::Vector class
 UTIL_UNARY_OP(Series, N, -)
 UTIL_ELEMENT_WISE_OP(Series, N, +)
@@ -92,75 +76,36 @@ UTIL_SCALAR_OP_LEFT(Series, T::value_type, N, *)
 
 // series <-> series multiplication
 template <class R, class S, int N>
-auto operator*(Series<R, N> const &a, Series<S, N> const &b)
+auto operator*(Series<R, N> const &a,
+               Series<S, N> const &b) -> Series<decltype(a[0] * b[0]), N>
 {
 	using T = decltype(a[0] * b[0]);
-	auto r = Series<T, N>(0);
-	for (int i = 0; i < N; ++i)
+	Series<T, N> r;
+	for (int j = 0; j < N; ++j)
+		r[j] = a[0] * b[j];
+	for (int i = 1; i < N; ++i)
 		for (int j = 0; i + j < N; ++j)
 			r[i + j] += a[i] * b[j];
 	return r;
 }
 
-template <class R, int N> bool is_zero(Series<R, N> const &s)
-{
-	for (R const &c : s.coefficients())
-		if (!is_zero(c))
-			return false;
-	return true;
-}
-
 } // namespace util
 
-template <class R, int N> struct fmt::formatter<util::Series<R, N>>
+namespace fmt {
+template <class T, int N> struct formatter<util::Series<T, N>> : formatter<T>
 {
-	constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
-
-	auto format(const util::Series<R, N> &s,
+	auto format(util::Series<T, N> const &a,
 	            auto &ctx) const -> decltype(ctx.out())
 	{
-		using util::is_negative;
-		using util::is_zero;
-
-		auto it = ctx.out();
-
-		bool first = true;
-		bool printed_someting = false;
+		format_to(ctx.out(), "[");
 		for (int i = 0; i < N; ++i)
 		{
-			auto c = s[i];
-			if (is_zero(c))
-				continue;
-			printed_someting = true;
-
-			if (is_negative(c))
-			{
-				if (first)
-					it = fmt::format_to(it, "-");
-				else
-					it = fmt::format_to(it, " - ");
-				c = -c;
-			}
-			else if (!first)
-				it = fmt::format_to(it, " + ");
-			first = false;
-
-			if (i == 0)
-				it = fmt::format_to(it, "({})", c);
-			else if (!(c == 1))
-				it = fmt::format_to(it, "({})*", c);
-
-			if (i == 1)
-				it = fmt::format_to(it, "{}", "ε");
-			else if (i >= 2)
-				it = fmt::format_to(it, "{}^{}", "ε", i);
+			if (i != 0)
+				format_to(ctx.out(), ", ");
+			formatter<T>::format(a[i], ctx);
 		}
-
-		if (!printed_someting)
-			it = fmt::format_to(it, "0");
-
-		it = fmt::format_to(it, " + O({}^{})", "ε", N);
-
-		return it;
+		format_to(ctx.out(), "]");
+		return ctx.out();
 	}
 };
+} // namespace fmt

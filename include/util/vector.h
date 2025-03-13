@@ -47,7 +47,7 @@ template <typename T> class MallocStorage
 	size_t size_ = 0;
 
   public:
-	MallocStorage() = default;
+	constexpr MallocStorage() = default;
 	explicit MallocStorage(size_t cap) : data_(allocate<T>(cap)) {}
 	~MallocStorage() { std::destroy_n(data_.data(), size_); }
 
@@ -80,7 +80,7 @@ template <typename T, size_t N> class StaticStorage
 	};
 
   public:
-	StaticStorage() noexcept {};
+	constexpr StaticStorage() noexcept {};
 	StaticStorage(size_t cap) { assert(cap <= N); }
 	~StaticStorage() { std::destroy_n(data_, size_); }
 
@@ -122,7 +122,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 	bool big_ : 1;
 
   public:
-	SboStorage() noexcept : size_(0), big_(false){};
+	constexpr SboStorage() noexcept : size_(0), big_(false){};
 	SboStorage(size_t cap) : size_(0), big_(false)
 	{
 		static_assert(alignof(T) <= alignof(std::max_align_t));
@@ -165,7 +165,7 @@ template <typename T, size_t N> class MmapStorage
 	size_t size_ = 0;
 
   public:
-	MmapStorage() = default;
+	constexpr MmapStorage() = default;
 	explicit MmapStorage(size_t cap) : data_(lazy_allocate<T>(max_capacity()))
 	{
 		assert(cap < max_capacity());
@@ -204,7 +204,7 @@ template <typename T> class IndirectStorage
 	Header *header_ = nullptr;
 
   public:
-	IndirectStorage() = default;
+	constexpr IndirectStorage() = default;
 	explicit IndirectStorage(size_t cap)
 	{
 		if (cap == 0)
@@ -299,7 +299,7 @@ template <class T, class Impl> class Vector
 
 	// default/copy/move constructor
 
-	Vector() = default;
+	constexpr Vector() = default;
 
 	Vector(Vector const &other) : impl_(other.size())
 	{
@@ -641,23 +641,50 @@ auto operator<=>(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 }
 
 // short-form of erase-remove idiom
-template <class T, class Impl, class U>
-size_t erase(Vector<T, Impl> &c, const U &value)
+template <class T, class Impl>
+size_t erase(Vector<T, Impl> &c, auto const &value)
 {
-	auto it = std::remove_if(c.begin(), c.end(), value);
+	auto it = std::remove(c.begin(), c.end(), value);
 	auto r = std::distance(it, c.end());
 	c.erase(it, c.end());
 	return r;
 }
 
 // short-form of erase-remove idiom
-template <class T, class Impl, class Pred>
-size_t erase_if(Vector<T, Impl> &c, Pred pred)
+template <class T, class Impl> size_t erase_if(Vector<T, Impl> &c, auto pred)
 {
-	auto it = std::remove_if(c.begin(), c.end(), pred);
+	auto it = std::remove_if(c.begin(), c.end(), std::ref(pred));
 	auto r = std::distance(it, c.end());
 	c.erase(it, c.end());
 	return r;
+}
+
+// append elements to the end of a vector
+template <class T, class Impl>
+void append(Vector<T, Impl> &c, std::span<const T> a)
+{
+	c.insert(c.end(), a.begin(), a.end());
+}
+
+// trim elements from both ends. Returns number of erased elements.
+template <class T, class Impl>
+std::pair<size_t, size_t> trim_if(Vector<T, Impl> &c, auto &&pred)
+{
+	auto r = std::pair<size_t, size_t>(0, 0);
+	while (!c.empty() && pred(c.back()))
+	{
+		++r.second;
+		c.pop_back();
+	}
+	while (r.first < c.size() && pred(c[r.first]))
+		++r.first;
+	c.erase(c.begin(), c.begin() + r.first);
+	return r;
+}
+template <class T, class Impl>
+std::pair<size_t, size_t> trim(Vector<T, Impl> &c, auto const &needle)
+{
+	return trim_if(c, [&needle](T const &x) { return x == needle; });
 }
 
 // sort and remove duplicates

@@ -133,6 +133,23 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		CHECK((a != b && a != c && a != d && b != c && b != d && c != d));
 		CHECK((a < b && a < c && a < d && b < c && b < d && c < d));
 	}
+
+	SECTION("utility functions")
+	{
+		TestType a, b;
+		a.push_back(1);
+		a.push_back(2);
+		append(b, std::span<const Int>(a.begin(), a.end()));
+		append(b, std::span<const Int>(a.begin(), a.end()));
+		trim(b, 1);
+		CHECK(b.size() == 3);
+		erase(b, 2);
+		CHECK(b.size() == 1);
+		b.emplace_back(2);
+		b.emplace_back(3);
+		erase_if(b, [](auto const &x) { return x == 2; });
+		CHECK((b.size() == 2 && b[0] == 1 && b[1] == 3));
+	}
 }
 
 // small_vector should optimally only store buffer + 4 bytes, but not screw up

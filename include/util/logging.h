@@ -73,9 +73,7 @@ class Logger
 		for (auto &comp : g_components_)
 			if (comp.name == name)
 				return comp;
-		g_components_.emplace_back();
-		g_components_.back().name = name;
-		g_components_.back().level = g_default_level_;
+		g_components_.push_back({std::string(name), g_default_level_, 0});
 		return g_components_.back();
 	}
 
@@ -120,7 +118,7 @@ class Logger
 	{
 		sw.start();
 		auto lock = std::unique_lock(g_mutex_);
-		level_ = lookup(name).level;
+		level_ = lookup(name_).level;
 	}
 
 	~Logger() noexcept

@@ -589,9 +589,10 @@ template <int features = 0> class bit_vector_impl
 using bit_vector = bit_vector_impl<>;
 using bit_map = bit_vector_impl<bit_vector_impl<>::auto_resize>;
 
-// alternative to bit_vector with fast '.clear()' implemented by keeping a list
-// of non-zero limbs
-class sparse_bit_vector
+// alternative to 'std::set<uint32_t>' that uses a bit per (potential) element
+//   * internally its a bit_vector + explicit list of dirty limbs. Externally,
+//     the interface is kinda minimal.
+class bit_set
 {
   public:
 	// types and constants
@@ -599,71 +600,25 @@ class sparse_bit_vector
 	static constexpr size_t limb_bits = sizeof(limb_t) * 8;
 
   private:
-	size_t size_ = 0;                 // number of used bits
 	unique_memory<limb_t> data_ = {}; // all unused bits are kept at zero
 	std::vector<uint32_t> dirty_;     // list of non-zero limb indices
 
   public:
-	// size metrics
-	size_t size() const noexcept { return size_; }
-	size_t size_limbs() const noexcept
-	{
-		return (size_ + limb_bits - 1) / limb_bits;
-	}
-	size_t capacity() const noexcept { return data_.size() * limb_bits; }
-	size_t capacity_limbs() const noexcept { return data_.size(); }
-
-	// raw data access. read-only to make sure the dirty list is consistent
-	const limb_t *data() const noexcept { return data_.data(); }
-	std::span<const limb_t> limbs() const noexcept
-	{
-		return {data(), size_limbs()};
-	}
-
 	// constructor
-	sparse_bit_vector() = default;
-	explicit sparse_bit_vector(size_t size)
-	    : size_(size), data_(allocate<limb_t>(size_limbs()))
+	bit_set() = default;
+
+	// number of set bits
+	size_t size() const noexcept
 	{
-		std::memset(data_.data(), 0, size_limbs() * sizeof(limb_t));
+		size_t c = 0;
+		for (auto k : dirty_)
+			c += std::popcount(data_[k]);
+		return c;
 	}
 
-	// copy-constructor / assignment
-	sparse_bit_vector(sparse_bit_vector const &b)
-	    : size_(b.size()), data_(allocate<limb_t>(size_limbs())),
-	      dirty_(b.dirty_)
-	{
-		std::memcpy(data_.data(), b.data(), size_limbs() * sizeof(limb_t));
-	}
-	sparse_bit_vector &operator=(sparse_bit_vector const &b)
-	{
-		if (capacity_limbs() < b.size_limbs())
-			data_ = allocate<limb_t>(b.size_limbs());
-		else if (size_limbs() > b.size_limbs())
-			std::memset(data_.data() + b.size_limbs(), 0,
-			            (size_limbs() - b.size_limbs()) * sizeof(limb_t));
+	bool empty() const noexcept { return dirty_.empty(); }
 
-		std::memcpy(data_.data(), b.data(), b.size_limbs() * sizeof(limb_t));
-		size_ = b.size_;
-		dirty_ = b.dirty_;
-
-		return *this;
-	}
-
-	// move-constructor / assigment
-	sparse_bit_vector(sparse_bit_vector &&b) noexcept
-	    : size_(std::exchange(b.size_, 0)), data_(std::exchange(b.data_, {})),
-	      dirty_(std::exchange(b.dirty_, {}))
-	{}
-	sparse_bit_vector &operator=(sparse_bit_vector &&b) noexcept
-	{
-		size_ = std::exchange(b.size_, 0);
-		data_ = std::exchange(b.data_, {});
-		dirty_ = std::exchange(b.dirty_, {});
-		return *this;
-	}
-
-	// set all (used) bits to zero
+	// remove all elements (keeping allocated memory)
 	void clear() noexcept
 	{
 		for (auto k : dirty_)
@@ -671,13 +626,45 @@ class sparse_bit_vector
 		dirty_.clear();
 	}
 
-	// returns number of bits set to value
-	size_t count() const noexcept
+	// copy-constructor / assignment
+	bit_set(bit_set const &other)
+	    : data_(allocate<limb_t>(other.data_.size())), dirty_(other.dirty_)
 	{
-		size_t c = 0;
-		for (auto k : dirty_)
-			c += std::popcount(data_[k]);
-		return c;
+		std::memcpy(data_.data(), other.data_.data(),
+		            data_.size() * sizeof(limb_t));
+	}
+	bit_set &operator=(bit_set const &other)
+	{
+		if (data_.size() >= other.data_.size())
+		{
+			clear();
+		}
+		else
+		{
+			dirty_.clear();
+			data_ = allocate<limb_t>(other.data_.size());
+			std::memset(data_.data(), 0, data_.size() * sizeof(limb_t));
+		}
+
+		for (uint32_t k : other.dirty_)
+		{
+			data_[k] = other.data_[k];
+			dirty_.reserve(other.dirty_.size());
+			dirty_.push_back(k);
+		}
+
+		return *this;
+	}
+
+	// move-constructor / assigment
+	bit_set(bit_set &&b) noexcept
+	    : data_(std::exchange(b.data_, {})), dirty_(std::exchange(b.dirty_, {}))
+	{}
+	bit_set &operator=(bit_set &&b) noexcept
+	{
+		data_ = std::exchange(b.data_, {});
+		dirty_ = std::exchange(b.dirty_, {});
+		return *this;
 	}
 
 	// sets i'th element to true. returns false if it already was
@@ -686,6 +673,18 @@ class sparse_bit_vector
 		size_t k = i / limb_bits;
 		size_t pos = i % limb_bits;
 		auto mask = limb_t(1) << pos;
+
+		if (k >= data_.size())
+		{
+			assert(k <= UINT32_MAX);
+			auto new_data = allocate<limb_t>(
+			    std::clamp(2 * data_.size(), k + 1, (size_t)UINT32_MAX + 1));
+			std::memcpy(new_data.data(), data_.data(),
+			            data_.size() * sizeof(limb_t));
+			std::memset(new_data.data() + data_.size(), 0,
+			            (new_data.size() - data_.size()) * sizeof(limb_t));
+			data_ = std::move(new_data);
+		}
 
 		if (data_[k] == 0)
 		{
@@ -706,8 +705,25 @@ class sparse_bit_vector
 	{
 		size_t k = i / limb_bits;
 		size_t pos = i % limb_bits;
+		if (k >= data_.size())
+			return false;
 		auto mask = limb_t(1) << pos;
 		return (data_[k] & mask) != 0;
+	}
+
+	// returns and removes an element
+	//   * undefined order
+	uint32_t pop() noexcept
+	{
+		assert(!dirty_.empty());
+		uint32_t k = dirty_.back();
+		assert(data_[k] != 0);
+
+		int i = std::countr_zero(data_[k]);
+		data_[k] &= ~(limb_t(1) << i);
+		if (data_[k] == 0)
+			dirty_.pop_back();
+		return k * limb_bits + i;
 	}
 };
 

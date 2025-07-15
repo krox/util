@@ -91,9 +91,9 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		{
 			return &map_->values_[index_];
 		}
-		bool operator!=(iterator other) const noexcept
+		bool operator==(iterator other) const noexcept
 		{
-			return index_ != other.index_;
+			return index_ == other.index_;
 		}
 		iterator &operator++() noexcept
 		{

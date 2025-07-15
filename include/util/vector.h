@@ -614,7 +614,11 @@ template <class T, class Impl> class Vector
 		std::destroy(end() - count, end());
 		set_size_unsafe(size() - count);
 	}
-	void erase(iterator pos) { erase(pos, pos + 1); }
+	void erase(iterator pos) noexcept { erase(pos, pos + 1); }
+	void erase(size_t index) noexcept
+	{
+		erase(begin() + index, begin() + index + 1);
+	}
 
 	// swap with another vector
 

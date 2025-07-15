@@ -357,6 +357,20 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 		return 1;
 	}
 
+	friend size_t erase_if(hash_map &map, auto pred)
+	{
+		size_t count = 0;
+		for (size_t i = 0; i < map.control_.size(); ++i)
+			if (map.control_[i] &&
+			    pred(map.values_[i].first, map.values_[i].second))
+			{
+				map.control_[i] = 0;
+				map.values_[i].~value_type();
+				++count;
+			}
+		return count;
+	}
+
 	// number of buckets
 	// NOTE: Due to closed hashing, this number does not guarantee any
 	//       capacity-withouth-reallocation.

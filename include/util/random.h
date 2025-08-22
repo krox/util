@@ -19,8 +19,6 @@
  *             were supported)
  *           * in more complicated situations, it is unclear (to me) whether
  *             we want to template the parameter type or the result type
- *
- * TODO: should be able to produce multiple independent samples using SIMD
  */
 
 #include "fmt/format.h"
@@ -109,8 +107,11 @@ template <class Rng> double ziggurat_normal(Rng &rng)
 	}
 }
 
-// Originally written by Sebastiano Vigna (vigna@acm.org), 2015
-// public domain, taken from http://xoroshiro.di.unimi.it/splitmix64.c
+// This is the 'splitmix64' generator by Sebastiano Vigna.
+//   * Adapted from: xoroshiro.di.unimi.it/splitmix64.c (public domain)
+//   * Summary: The tiny 64-bit state is necessarily insufficient for serious
+//     applications. Though inside that limitation, the statistical quality is
+//     surprisingly high.
 class splitmix64
 {
 	uint64_t s = 0; // all values are allowed
@@ -120,11 +121,12 @@ class splitmix64
 	explicit constexpr splitmix64(uint64_t x) noexcept : s(x) {}
 
 	using result_type = uint64_t;
-	static constexpr uint64_t min() { return 0; }
-	static constexpr uint64_t max() { return UINT64_MAX; }
+	static constexpr uint64_t min() noexcept { return 0; }
+	static constexpr uint64_t max() noexcept { return UINT64_MAX; }
 
-	void seed(uint64_t x) { s = x; }
+	constexpr void seed(uint64_t x) noexcept { s = x; }
 
+	// generate next value in the random sequence
 	constexpr uint64_t operator()() noexcept
 	{
 		s += 0x9e3779b97f4a7c15;
@@ -135,27 +137,28 @@ class splitmix64
 	}
 };
 
-// This is xoshiro256**, version 1.0.
-// Originally written by David Blackman and Sebastiano Vigna, 2018
-// public domain, from http://xoshiro.di.unimi.it/xoshiro256starstar.c
+// This is the 'xoshiro256**' generator by David Blackman and Sebastiano Vigna.
+//   * Adapted from  xoshiro.di.unimi.it/xoshiro256starstar.c (public domain)
+//   * summary: good default RNG for all non-crypographic purposes: very fast,
+//     passes all statistical tests, long enough period even for large-scale
+//     parallel applications (assuming proper seeding of course).
+//   * TODO: implement a parallel SIMD varsion of this
 class xoshiro256
 {
-	uint64_t s[4] = {}; // should not be all zeroes
+	// all/most bits zero is a bad state. Some care required when seeding.
+	uint64_t s[4] = {};
 
   public:
 	constexpr xoshiro256() noexcept { seed(0); }
 	constexpr explicit xoshiro256(uint64_t x) noexcept { seed(x); }
-	explicit xoshiro256(std::array<std::byte, 32> const &v) noexcept
-	{
-		seed(v);
-	}
 	explicit xoshiro256(std::string_view s) noexcept { seed(s); }
+	explicit xoshiro256(std::random_device &rd) noexcept;
 
 	using result_type = uint64_t;
 	static constexpr uint64_t min() { return 0; }
 	static constexpr uint64_t max() { return UINT64_MAX; }
 
-	// set the internal state using a 64 bit seed
+	// seed from a 64 bit integer
 	constexpr void seed(uint64_t x) noexcept
 	{
 		splitmix64 gen(x);
@@ -165,25 +168,22 @@ class xoshiro256
 		s[3] = gen();
 	}
 
-	// seed from a string (which might be low-entropy human-readable)
-	void seed(std::string_view str) noexcept
+	// seed from a random device (taking full 256 bits of entropy)
+	void seed(std::random_device &rd)
 	{
-		// TODO: Redo all the seed functions in a more systematic and constexpr
-		//       way. Kind of a jumbled mess right nw.
-		uint64_t seed1 = 0xb2d7'c96c'8961'f368; // random
-		uint64_t seed2 = 0x3a5c'c68f'd334'9a26;
-		std::array<std::byte, 16> h1 = murmur3_128(str, seed1);
-		std::array<std::byte, 16> h2 = murmur3_128(str, seed2);
-		std::memcpy(&s[0], &h1, 16);
-		std::memcpy(&s[2], &h2, 16);
+		static_assert(sizeof(std::random_device::result_type) == 4);
+		s[0] = rd() | (uint64_t(rd()) << 32);
+		s[1] = rd() | (uint64_t(rd()) << 32);
+		s[2] = rd() | (uint64_t(rd()) << 32);
+		s[3] = rd() | (uint64_t(rd()) << 32);
 	}
 
-	// set internal state directly
-	//     * use with care, there are some bad regions (e.g. all/most bits zero)
-	//     * can be used something like
-	//           seed(blake3("arbitrary_seed_material"))
-	//
-	void seed(std::array<std::byte, 32> const &v) noexcept
+	// seed from a string (which might be low-entropy human-readable)
+	void seed(std::string_view str) noexcept { set_state(blake3(str)); }
+
+	// set internal state directly. Use with care, there are some bad regions
+	// (e.g. all/most bits zero)
+	void set_state(std::array<std::byte, 32> const &v) noexcept
 	{
 		std::memcpy(s, v.data(), 32);
 	}
@@ -269,10 +269,9 @@ class xoshiro256
 	{
 		if constexpr (std::is_floating_point_v<T>)
 		{
-			// NOTE: the statistical weakness of generate_fast() is mostly in
-			// the
-			//       low bits, which are typically not used when converting to a
-			//       floating point number, so this is okay here.
+			// NOTE: the statistical weakness of 'fast' variant is mostly in the
+			//       low bits, which are essetially unused when converting to a
+			//       floating point number, so it is fine to use here.
 
 			// this version can return 1.0 (depending on rounding mode)
 			return generate_fast() * 0x1p-64;
@@ -298,6 +297,8 @@ class xoshiro256
 	// bernoulli with p=1/2
 	constexpr bool bernoulli() noexcept
 	{
+		// NOTE: dont use the low bits on their own. Either high bits or
+		//       something like 'popcount%'
 		return generate_fast() & (1UL << 63);
 	}
 
@@ -1014,7 +1015,7 @@ template <size_t p> class Autoregressive
 // deduction guideline
 template <size_t N> Autoregressive(double const (&ws)[N]) -> Autoregressive<N>;
 template <size_t N>
-Autoregressive(double const (&ws)[N], normal_distribution const &)
-    -> Autoregressive<N>;
+Autoregressive(double const (&ws)[N],
+               normal_distribution const &) -> Autoregressive<N>;
 
 } // namespace util

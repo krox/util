@@ -14,10 +14,14 @@ int main(int argc, char *argv[])
 	               "seed for the random number generator (string)");
 	CLI11_PARSE(app, argc, argv);
 
+	util::xoshiro256 rng;
 	if (app.count("--seed") == 0)
-		seed = fmt::format("{}", std::random_device{}());
-
-	auto rng = util::xoshiro256(util::blake3(seed));
+	{
+		std::random_device rd;
+		rng.seed(rd);
+	}
+	else
+		rng.seed(seed);
 
 	for (uint64_t i = 0; i < count; ++i)
 		fmt::print("{}\n", rng());

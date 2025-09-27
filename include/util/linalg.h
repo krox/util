@@ -3,6 +3,7 @@
 #include "util/complex.h"
 #include <array>
 #include <cassert>
+#include <cstdint>  // for std::uint32_t, std::uint64_t
 #include <cstring>  // for std::memcpy
 #include <initializer_list>
 #include <random>
@@ -376,12 +377,25 @@ inline float rsqrt_impl(float x) noexcept
 	return y;
 }
 
-// Double precision version using standard library (could be optimized further)
+// Double precision version using fast inverse square root algorithm
 inline double rsqrt_impl(double x) noexcept
 {
-	// For now, use standard implementation
-	// Could implement similar bit manipulation for double precision
-	return 1.0 / std::sqrt(x);
+	// Fast inverse square root for double precision with bit manipulation + Newton-Raphson
+	static_assert(sizeof(double) == sizeof(std::uint64_t));
+	
+	double x2 = x * 0.5;
+	std::uint64_t i;
+	std::memcpy(&i, &x, sizeof(i));
+	i = 0x5fe6ec85e7de30daULL - (i >> 1);  // Magic number for double precision
+	double y;
+	std::memcpy(&y, &i, sizeof(y));
+	
+	// Newton-Raphson refinement: y = y * (1.5 - x2 * y * y)
+	y = y * (1.5 - x2 * y * y);  // First iteration
+	y = y * (1.5 - x2 * y * y);  // Second iteration
+	y = y * (1.5 - x2 * y * y);  // Third iteration for higher double precision
+	
+	return y;
 }
 
 // Generic template version that dispatches to appropriate implementation

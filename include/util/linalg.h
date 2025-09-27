@@ -361,8 +361,8 @@ UTIL_DEVICE auto length(Vector<T, N> const &a) noexcept
 template <class T, int N>
 UTIL_DEVICE Vector<T, N> normalize(Vector<T, N> const &a) noexcept
 {
-	// TODO: there should be a slightly faster way to compute 1/sqrt(x)
-	return a * (T(1) / length(a));
+	// Compute 1/sqrt(norm2(a)) directly to avoid intermediate sqrt computation
+	return a * (T(1) / sqrt(norm2(a)));
 }
 
 // geometric reflcetion of a along the normal vector n

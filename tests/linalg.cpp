@@ -65,3 +65,27 @@ TEMPLATE_PRODUCT_TEST_CASE("complex matrix (anti)hermitian decomposition",
 	CHECK_EQ(adj(x), x);
 	CHECK_EQ(adj(y), -y);
 }
+
+TEST_CASE("normalize function optimization", "[linalg]")
+{
+	using util::Vector;
+	using util::normalize;
+	using util::length;
+	using util::norm2;
+	
+	// Test with Vector<double, 3>
+	Vector<double, 3> v1{3.0, 4.0, 0.0};  // Has length 5.0
+	auto normalized_v1 = normalize(v1);
+	CHECK(std::abs(length(normalized_v1) - 1.0) < 1e-12);
+	
+	// Test with Vector<float, 2>
+	Vector<float, 2> v2{-1.0f, 1.0f};
+	auto normalized_v2 = normalize(v2);
+	CHECK(std::abs(length(normalized_v2) - 1.0f) < 1e-6f);
+	
+	// Test that normalize and old method give same result
+	Vector<double, 4> v3{1.0, 2.0, 3.0, 4.0};
+	auto new_normalized = normalize(v3);
+	auto old_normalized = v3 * (1.0 / length(v3));  // Old method
+	CHECK(norm2(new_normalized - old_normalized) < 1e-12);
+}

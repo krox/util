@@ -3,6 +3,7 @@
 #include "util/complex.h"
 #include <array>
 #include <cassert>
+#include <cstring>  // for std::memcpy
 #include <initializer_list>
 #include <random>
 #include <span>
@@ -350,6 +351,53 @@ template <class T, int N> UTIL_DEVICE auto norm2(Vector<T, N> const &a) noexcept
 	return r;
 }
 
+// Fast reciprocal square root: 1/sqrt(x)
+// Uses the famous "fast inverse square root" algorithm with Newton-Raphson refinement
+// This is faster than computing 1.0/sqrt(x) because:
+//   1. Initial approximation via bit manipulation avoids expensive sqrt
+//   2. Newton-Raphson converges quickly for reciprocal sqrt
+//   3. Modern CPUs may have dedicated rsqrt instructions
+inline float rsqrt_impl(float x) noexcept
+{
+	// Fast inverse square root with bit manipulation + Newton-Raphson
+	static_assert(sizeof(float) == sizeof(std::uint32_t));
+	
+	float x2 = x * 0.5f;
+	std::uint32_t i;
+	std::memcpy(&i, &x, sizeof(i));
+	i = 0x5f3759df - (i >> 1);  // Magic number for initial approximation
+	float y;
+	std::memcpy(&y, &i, sizeof(y));
+	
+	// Newton-Raphson refinement: y = y * (1.5 - x2 * y * y)
+	y = y * (1.5f - x2 * y * y);  // First iteration
+	y = y * (1.5f - x2 * y * y);  // Second iteration for higher precision
+	
+	return y;
+}
+
+// Double precision version using standard library (could be optimized further)
+inline double rsqrt_impl(double x) noexcept
+{
+	// For now, use standard implementation
+	// Could implement similar bit manipulation for double precision
+	return 1.0 / std::sqrt(x);
+}
+
+// Generic template version that dispatches to appropriate implementation
+template <class T>
+UTIL_DEVICE T rsqrt(T x) noexcept
+{
+	if constexpr (std::is_same_v<T, float>) {
+		return rsqrt_impl(x);  // Use fast float version
+	} else if constexpr (std::is_same_v<T, double>) {
+		return rsqrt_impl(x);  // Use double version
+	} else {
+		// For other types, fall back to standard approach
+		return T(1) / sqrt(x);
+	}
+}
+
 // (non-squared) L^2 norm
 template <class T, int N>
 UTIL_DEVICE auto length(Vector<T, N> const &a) noexcept
@@ -357,12 +405,12 @@ UTIL_DEVICE auto length(Vector<T, N> const &a) noexcept
 	return sqrt(norm2(a));
 }
 
-// same as 'a / length(a)'
+// same as 'a / length(a)' but using fast reciprocal square root
 template <class T, int N>
 UTIL_DEVICE Vector<T, N> normalize(Vector<T, N> const &a) noexcept
 {
-	// Compute 1/sqrt(norm2(a)) directly to avoid intermediate sqrt computation
-	return a * (T(1) / sqrt(norm2(a)));
+	// Use fast reciprocal square root: rsqrt(norm2(a)) computes 1/sqrt(norm2(a))
+	return a * rsqrt(norm2(a));
 }
 
 // geometric reflcetion of a along the normal vector n

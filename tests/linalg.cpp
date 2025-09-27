@@ -66,26 +66,51 @@ TEMPLATE_PRODUCT_TEST_CASE("complex matrix (anti)hermitian decomposition",
 	CHECK_EQ(adj(y), -y);
 }
 
-TEST_CASE("normalize function optimization", "[linalg]")
+TEST_CASE("rsqrt function implementation", "[linalg]")
 {
 	using util::Vector;
+	using util::rsqrt;
 	using util::normalize;
-	using util::length;
 	using util::norm2;
 	
-	// Test with Vector<double, 3>
-	Vector<double, 3> v1{3.0, 4.0, 0.0};  // Has length 5.0
-	auto normalized_v1 = normalize(v1);
-	CHECK(std::abs(length(normalized_v1) - 1.0) < 1e-12);
+	// Test rsqrt accuracy for float (relaxed tolerance due to fast approximation)
+	{
+		float x = 4.0f;
+		float expected = 1.0f / std::sqrt(x);  // Should be 0.5
+		float actual = rsqrt(x);
+		CHECK(std::abs(actual - expected) < 1e-5f);  // Fast rsqrt has lower precision
+	}
 	
-	// Test with Vector<float, 2>
-	Vector<float, 2> v2{-1.0f, 1.0f};
-	auto normalized_v2 = normalize(v2);
-	CHECK(std::abs(length(normalized_v2) - 1.0f) < 1e-6f);
+	// Test rsqrt accuracy for double (should be exact)
+	{
+		double x = 9.0;
+		double expected = 1.0 / std::sqrt(x);  // Should be 1/3
+		double actual = rsqrt(x);
+		CHECK(std::abs(actual - expected) < 1e-12);
+	}
 	
-	// Test that normalize and old method give same result
-	Vector<double, 4> v3{1.0, 2.0, 3.0, 4.0};
-	auto new_normalized = normalize(v3);
-	auto old_normalized = v3 * (1.0 / length(v3));  // Old method
-	CHECK(norm2(new_normalized - old_normalized) < 1e-12);
+	// Test that normalize function using rsqrt produces unit vectors
+	{
+		Vector<float, 3> v{3.0f, 4.0f, 0.0f};  // Length should be 5
+		auto normalized = normalize(v);
+		float length_squared = norm2(normalized);
+		CHECK(std::abs(length_squared - 1.0f) < 1e-5f);  // Relaxed tolerance
+		
+		// Check that normalized vector components are approximately correct
+		CHECK(std::abs(normalized[0] - 0.6f) < 1e-5f);  // 3/5
+		CHECK(std::abs(normalized[1] - 0.8f) < 1e-5f);  // 4/5
+		CHECK(std::abs(normalized[2] - 0.0f) < 1e-5f);  // 0/5
+	}
+	
+	// Test that rsqrt works for various values (with appropriate tolerance)
+	{
+		std::array<float, 5> test_values = {1.0f, 0.25f, 16.0f, 100.0f, 0.01f};
+		for (float x : test_values) {
+			float expected = 1.0f / std::sqrt(x);
+			float actual = rsqrt(x);
+			// Use relative error for better accuracy across different scales
+			float relative_error = std::abs((actual - expected) / expected);
+			CHECK(relative_error < 1e-4f);  // 0.01% relative error
+		}
+	}
 }

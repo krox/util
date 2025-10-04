@@ -319,4 +319,83 @@ template <class T> void memswap(T *a, T *b) noexcept
 	std::memcpy(static_cast<void *>(b), tmp, sizeof(T));
 }
 
+// smart pointer that deep-copies the object on copy
+template <class T> class value_ptr
+{
+	static_assert(!std::is_reference_v<T>);
+	static_assert(!std::is_void_v<T>);
+
+	std::unique_ptr<T> ptr_;
+
+  public:
+	using element_type = T;
+
+	// default = nullptr
+	constexpr value_ptr() noexcept = default;
+	constexpr value_ptr(std::nullptr_t) noexcept : ptr_(nullptr) {}
+
+	explicit value_ptr(T *ptr) noexcept : ptr_(ptr) {}
+
+	// construct in-place
+	explicit value_ptr(std::in_place_t, auto &&...args)
+	    : ptr_(std::make_unique<T>(std::forward<decltype(args)>(args)...))
+	{}
+
+	// special members
+	// implementation note: important to define these out-of-line, in order to
+	// make value_ptr work with incomplete types.
+	value_ptr(const value_ptr &other);
+	value_ptr &operator=(const value_ptr &other);
+	value_ptr(value_ptr &&other) noexcept = default;
+	value_ptr &operator=(value_ptr &&other) noexcept = default;
+	~value_ptr() noexcept;
+
+	// observers
+	T *get() noexcept { return ptr_.get(); }
+	const T *get() const noexcept { return ptr_.get(); }
+
+	T &operator*() noexcept { return *ptr_; }
+	const T &operator*() const noexcept { return *ptr_; }
+
+	T *operator->() noexcept { return ptr_.get(); }
+	const T *operator->() const noexcept { return ptr_.get(); }
+
+	explicit operator bool() const noexcept { return static_cast<bool>(ptr_); }
+
+	// modifiers
+	void reset(T *p = nullptr) noexcept { ptr_.reset(p); }
+	void swap(value_ptr &other) noexcept { ptr_.swap(other.ptr_); }
+};
+
+template <class T> value_ptr<T>::~value_ptr() noexcept = default;
+
+template <class T>
+value_ptr<T>::value_ptr(const value_ptr<T> &other)
+    : ptr_(other ? std::make_unique<T>(*other.ptr_) : nullptr)
+{}
+
+template <class T>
+value_ptr<T> &value_ptr<T>::operator=(const value_ptr<T> &other)
+{
+	if (this != &other)
+		ptr_ = other ? std::make_unique<T>(*other.ptr_) : nullptr;
+	return *this;
+}
+
+template <class T> void swap(value_ptr<T> &a, value_ptr<T> &b) noexcept
+{
+	a.swap(b);
+}
+
+template <class T>
+bool operator==(value_ptr<T> const &a, value_ptr<T> const &b) noexcept
+{
+	return a.get() == b.get();
+}
+
+template <class T> value_ptr<T> make_value(auto &&...args)
+{
+	return value_ptr<T>(std::in_place, std::forward<decltype(args)>(args)...);
+}
+
 } // namespace util

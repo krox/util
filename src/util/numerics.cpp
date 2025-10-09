@@ -27,6 +27,7 @@ double solve(util::function_view<double(double)> f, double a, double b)
 	// a should be the best guess
 	if (abs(fb) < abs(fa))
 	{
+		using std::swap;
 		swap(a, b);
 		swap(fa, fb);
 	}

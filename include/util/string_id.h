@@ -19,10 +19,8 @@
  *     of StringPool, though this module does not provide one.
  *   - The empty string is always represented by 0 and all other strings are
  *     represented by consecutive positve integers starting at 1.
- *   - string_id only support equality comparisons, not a full ordering.
- *     This avoids confusion between "a.id() < b.id()" (which is fast but mostly
- *     meaningless) and "store.str(a) < store.str(b)" (which is slow but
- *     compatible with the usual comparion of string/string_view)
+ *   - For convenience, comparison is overloaded to mean "a.id() <=> b.id". Of
+ *     course, this is not the same as "store.str(a) <=> store.str(b)".
  *   - hash<string_id> returns the id, which is perfect in the sense that
  *     there cant be any collisions. But this is of course not compatible with
  *     hash<string> or hash<string_view>.
@@ -37,11 +35,11 @@
 
 namespace util {
 
-struct string_id
+class string_id
 {
-	// could make the type of this configurable (by template paramter)
 	int16_t id_ = 0;
 
+  public:
 	string_id() = default;
 	explicit string_id(int i) : id_((int16_t)i)
 	{
@@ -54,8 +52,11 @@ struct string_id
 	explicit operator bool() const noexcept { return id_; }
 };
 
-bool operator==(string_id a, string_id b) noexcept { return a.id() == b.id(); }
-std::strong_ordering operator<=>(string_id a, string_id b) noexcept
+inline bool operator==(string_id a, string_id b) noexcept
+{
+	return a.id() == b.id();
+}
+inline std::strong_ordering operator<=>(string_id a, string_id b) noexcept
 {
 	return a.id() <=> b.id();
 }

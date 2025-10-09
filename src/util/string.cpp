@@ -170,6 +170,8 @@ std::string_view util::Parser::string()
 	raise("unterminated string (reached end of input)");
 }
 
+bool util::Parser::end() const { return pos_ == src_.size(); }
+
 void util::Parser::expect(char ch)
 {
 	if (!match(ch))
@@ -212,7 +214,11 @@ std::string_view util::Parser::expect_string()
 	return result;
 }
 
-bool util::Parser::end() const { return pos_ == src_.size(); }
+void util::Parser::expect_end()
+{
+	if (!end())
+		raise("expected end of input");
+}
 
 [[noreturn]] void util::Parser::raise(std::string_view msg)
 {

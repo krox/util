@@ -34,14 +34,20 @@ std::vector<std::string_view> split_white(std::string_view s);
 // Accepts {-}[0-9]+
 template <std::integral T = int> T parse_int(std::string_view s);
 
-// simple string parser
+// General tokenizer in the form of a pull-parser. It is intended to build
+// custom domain-specific parsers on top of this.
 //   * Does not do any allocations, only deals with 'string_view's that point to
-//     chunks of the input string.
-//   * Note: most mismatches just return false/empty. 'ParseError' is only
-//     thrown on unterminated strings and unterminated comments.
-//   * This is a pull-parser without an explicit 'Token' class. The caller
-//     typically has to	call multiple matching functions to figure out what kind
-//     of token is next.
+//     chunks of the input string. Also, there is not explicit 'Token' class.
+//     The caller has to figure out the class token coming next, either by
+//     calling multiple matching functions, or using '.peek()' to look at the
+//     next character.
+//   * The matching functions simply return false/empty if the token the next
+//     token does not match. 'ParseError' can still thrown in some cases, e.g.:
+//       - unterminated strings
+//       - unterminated comments (only of comment skipping is enabled)
+//   * Tokens are only returned as 'string_view's, no further processing is
+//     done. For example to get an actual integer value from an integer token,
+//     the caller must invoke 'util::parse_int()' or similar themselves.
 class Parser
 {
   public:
@@ -68,7 +74,7 @@ class Parser
   public:
 	// Caller must ensure that the string_view remains valid for the lifetime of
 	// the parser, because the parser does not copy the source string.
-	Parser(std::string_view src /*, Options const &opt = {}*/);
+	explicit Parser(std::string_view src /*, Options const &opt = {}*/);
 
 	// advance if match, returns false if not
 	bool match(char ch);
@@ -91,6 +97,9 @@ class Parser
 	//   * unterminated strings throw ParseError
 	std::string_view string();
 
+	// true if the end of the string is reached
+	bool end() const;
+
 	// expect_* functions throw on mismatch
 	void expect(char ch);
 	void expect(std::string_view word);
@@ -98,9 +107,7 @@ class Parser
 	std::string_view expect_ident();
 	std::string_view expect_integer();
 	std::string_view expect_string();
-
-	// true if the end of the string is reached
-	bool end() const;
+	void expect_end();
 };
 
 } // namespace util

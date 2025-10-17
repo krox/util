@@ -114,7 +114,9 @@ class MappedFile
 	explicit operator bool() const { return ptr_; }
 };
 
+// convenience functions for reading/writing entire files
 std::string read_file(std::string_view filename);
 std::vector<std::byte> read_binary_file(std::string_view filename);
+void write_file(std::string_view filename, std::string_view data);
 
 } // namespace util

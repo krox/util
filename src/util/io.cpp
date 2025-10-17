@@ -186,4 +186,14 @@ std::vector<std::byte> read_binary_file(std::string_view filename)
 	return s;
 }
 
+void write_file(std::string_view filename, std::string_view data)
+{
+	assert(!filename.empty());
+	auto file = open_file(filename, "wb");
+
+	auto written = std::fwrite(data.data(), 1u, data.size(), file.get());
+	if ((size_t)written != (size_t)data.size())
+		throw std::runtime_error("could not write to file");
+}
+
 } // namespace util

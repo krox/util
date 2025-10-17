@@ -51,21 +51,23 @@ template <std::integral T = int> T parse_int(std::string_view s);
 class Parser
 {
   public:
-	// struct Options
-	//{
-	//	bool c_comments = false;   // automatically skip /* ... */
-	//	bool cpp_comments = false; // automatically skip // ...
-	// };
+	struct Options
+	{
+		// if not empty, this string starts a comment that runs to the end of
+		// the line. Example: "//" (C/C++/Java), "#" (Python, shell)
+		std::string comment_start;
+	};
 
   private:
 	// design note: keep the source around as a whole. Could be useful for nice
 	// parse-error messages.
 	std::string_view src_;
 	size_t pos_ = 0;
-	// Options opt_ = {};
+	Options opt_ = {};
 
 	// Advances through whitespace. This is called automatically after each
-	// matched token. No need to call manually, thus private
+	// matched token. No need to call manually, thus private. Also skips
+	// comments if enabled.
 	void skip_white();
 
 	// throws ParseError, decorated with position information
@@ -74,7 +76,11 @@ class Parser
   public:
 	// Caller must ensure that the string_view remains valid for the lifetime of
 	// the parser, because the parser does not copy the source string.
-	explicit Parser(std::string_view src /*, Options const &opt = {}*/);
+	explicit Parser(std::string_view src, Options const &opt = {});
+
+	// look at the next character without advancing.
+	// returns 0 on end of input
+	char peek() const;
 
 	// advance if match, returns false if not
 	bool match(char ch);
@@ -87,7 +93,7 @@ class Parser
 	// matches [_a-zA-Z][a-zA-Z_0-9]* (or empty on mismatch)
 	std::string_view ident();
 
-	// matches [0-9]+ (returns empty on mismatch)
+	// matches -?[0-9]+ (returns empty on mismatch)
 	std::string_view integer();
 
 	// matches single- or double-quoted strings
@@ -108,6 +114,12 @@ class Parser
 	std::string_view expect_integer();
 	std::string_view expect_string();
 	void expect_end();
+
+	// convenience: 'expect_integer()' followed by 'parse_int()'
+	template <std::integral T = int> T expect_int()
+	{
+		return parse_int<T>(expect_integer());
+	}
 };
 
 } // namespace util

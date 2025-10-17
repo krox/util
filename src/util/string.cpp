@@ -72,15 +72,32 @@ template unsigned long util::parse_int<unsigned long>(std::string_view);
 template unsigned long long
     util::parse_int<unsigned long long>(std::string_view);
 
-util::Parser::Parser(std::string_view src) : src_(src) { skip_white(); }
+util::Parser::Parser(std::string_view src, Options const &opt)
+    : src_(src), opt_(opt)
+{
+	skip_white();
+}
 
 void util::Parser::skip_white()
 {
-	while (pos_ < src_.size() && std::isspace(src_[pos_]))
-		pos_++;
+	while (true)
+	{
+		while (pos_ < src_.size() && std::isspace(src_[pos_]))
+			pos_++;
+		if (!opt_.comment_start.empty() &&
+		    src_.substr(pos_, opt_.comment_start.size()) == opt_.comment_start)
+		{
+			pos_ += opt_.comment_start.size();
+			while (pos_ < src_.size() && src_[pos_] != '\n')
+				pos_++;
+		}
+		else
+			break;
+	}
 }
 
-// advance if match, returns false if not
+char util::Parser::peek() const { return pos_ < src_.size() ? src_[pos_] : 0; }
+
 bool util::Parser::match(char ch)
 {
 	if (pos_ < src_.size() && src_[pos_] == ch)
@@ -137,6 +154,10 @@ std::string_view util::Parser::ident()
 std::string_view util::Parser::integer()
 {
 	size_t start = pos_;
+	if (pos_ < src_.size() && src_[pos_] == '-')
+		pos_++;
+	if (pos_ >= src_.size() || !std::isdigit(src_[pos_]))
+		return {};
 	while (pos_ < src_.size() && std::isdigit(src_[pos_]))
 		pos_++;
 	size_t end = pos_;
@@ -224,17 +245,26 @@ void util::Parser::expect_end()
 {
 	size_t line = 1;
 	size_t col = 1;
+	size_t line_start = 0;
 	for (size_t i = 0; i < pos_; ++i)
 	{
 		if (src_[i] == '\n')
 		{
 			line++;
 			col = 1;
+			line_start = i + 1;
 		}
 		else
 			col++;
 	}
+	std::string_view source_line;
+	size_t line_end = src_.find('\n', line_start);
+
+	if (line_end == std::string_view::npos)
+		source_line = src_.substr(line_start);
+	else
+		source_line = src_.substr(line_start, line_end - line_start);
 	throw ParseError(
 	    fmt::format("input:{}:{}: error: {}\n{:>5} | {}\n{:>5} | {:>{}}^\n",
-	                line, col, msg, line, src_, "", "", col - 1));
+	                line, col, msg, line, source_line, "", "", col - 1));
 }

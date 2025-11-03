@@ -134,6 +134,17 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		CHECK((a < b && a < c && a < d && b < c && b < d && c < d));
 	}
 
+	SECTION("resize")
+	{
+		TestType a;
+		CHECK(a.size() == 0);
+		a.push_back(1);
+		CHECK(a.size() == 1);
+		a.resize(3);
+		REQUIRE(a.size() == 3);
+		CHECK(a[0] == 1);
+	}
+
 	SECTION("utility functions")
 	{
 		TestType a, b;
@@ -150,6 +161,15 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		erase_if(b, [](auto const &x) { return x == 2; });
 		CHECK((b.size() == 2 && b[0] == 1 && b[1] == 3));
 	}
+}
+
+TEST_CASE("vector of string", "[vector]")
+{
+	util::vector<std::string> a;
+	a.push_back("zero");
+	a.resize(5);
+	REQUIRE(a.size() == 5);
+	CHECK(a[0] == "zero");
 }
 
 // small_vector should optimally only store buffer + 4 bytes, but not screw up

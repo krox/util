@@ -298,7 +298,7 @@ void uninitialized_relocate_n(T *src, size_t n, T *dest) noexcept
 	else
 	{
 		for (size_t i = 0; i < n; ++i)
-			uninitialized_relocate_at(dest + i, src + i);
+			uninitialized_relocate_at(src + i, dest + i);
 	}
 }
 

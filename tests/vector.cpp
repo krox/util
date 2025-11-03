@@ -271,3 +271,139 @@ TEST_CASE("vector2d", "[vector][vector2d]")
 	CHECK(a.height() == 0);
 	CHECK(a.size() == 0);
 }
+
+TEST_CASE("array_map", "[vector][array_map]")
+{
+	SECTION("basic functionality")
+	{
+		util::array_map<size_t, int> map;
+
+		// Initially empty
+		CHECK(map.size() == 0);
+		CHECK(map.empty());
+
+		// Access out-of-bounds should auto-grow
+		map[5] = 42;
+		CHECK(map.size() == 6);
+		CHECK(map[5] == 42);
+
+		// Elements before should be default-constructed (0 for int)
+		for (size_t i = 0; i < 5; ++i)
+			CHECK(map[i] == 0);
+	}
+
+	SECTION("const access")
+	{
+		util::array_map<size_t, int> map;
+		map[2] = 99;
+
+		const auto &cmap = map;
+		CHECK(cmap[2] == 99);
+		CHECK(cmap[10] == 0);   // Should not grow, just return default
+		CHECK(map.size() == 3); // Size should not have changed
+	}
+
+	SECTION("type safety with custom key type")
+	{
+		enum class Index
+		{
+			A = 0,
+			B = 1,
+			C = 2
+		};
+		util::array_map<Index, std::string> map;
+
+		map[Index::B] = "hello";
+		CHECK(map.size() == 2);
+		CHECK(map[Index::B] == "hello");
+		CHECK(map[Index::A] == ""); // default-constructed
+	}
+
+	SECTION("iterator support")
+	{
+		util::array_map<size_t, std::string> map;
+		map[1] = "one";
+		map[3] = "three";
+		map[5] = "five";
+
+		// Test basic access
+		CHECK(map[1] == "one");
+		CHECK(map[3] == "three");
+		CHECK(map[5] == "five");
+		CHECK(map.size() == 6);
+
+		// Test values() access
+		auto &values = map.values();
+		CHECK(values.size() == 6);
+		CHECK(values[1] == "one");
+		CHECK(values[3] == "three");
+		CHECK(values[5] == "five");
+
+		// Test pair iteration (std::map compatible)
+		std::vector<std::pair<size_t, std::string>> pairs;
+		for (auto it = map.begin(); it != map.end(); ++it)
+			pairs.emplace_back(*it);
+
+		CHECK(pairs.size() == 6);
+		CHECK(pairs[0].first == 0);
+		CHECK(pairs[0].second == "");
+		CHECK(pairs[1].first == 1);
+		CHECK(pairs[1].second == "one");
+		CHECK(pairs[2].first == 2);
+		CHECK(pairs[2].second == "");
+		CHECK(pairs[3].first == 3);
+		CHECK(pairs[3].second == "three");
+		CHECK(pairs[4].first == 4);
+		CHECK(pairs[4].second == "");
+		CHECK(pairs[5].first == 5);
+		CHECK(pairs[5].second == "five");
+
+		// Test structured binding
+		size_t count = 0;
+		for (auto [key, value] : map)
+		{
+			// the '.get()' is needed because 'value' is a
+			// std::reference_wrapper and not a proper reference. Will get
+			// proper 'reference_wrapper::operator==' in C++26
+			if (key == 1)
+				CHECK(value.get() == "one");
+			if (key == 3)
+				CHECK(value.get() == "three");
+			if (key == 5)
+				CHECK(value.get() == "five");
+			count++;
+		}
+		CHECK(count == 6);
+
+		// Test values() iteration
+		size_t non_empty_count = 0;
+		for (const auto &value : map.values())
+		{
+			if (!value.empty())
+				non_empty_count++;
+		}
+		CHECK(non_empty_count == 3);
+	}
+
+	SECTION("values() iteration")
+	{
+		util::array_map<size_t, int> map;
+		map[1] = 10;
+		map[3] = 30;
+
+		// Test direct value iteration
+		std::vector<int> values;
+		for (int value : map.values())
+			values.push_back(value);
+
+		CHECK(values.size() == 4);
+		CHECK(values[0] == 0);  // default
+		CHECK(values[1] == 10); // set
+		CHECK(values[2] == 0);  // default
+		CHECK(values[3] == 30); // set
+
+		// Test modification through values()
+		map.values()[2] = 20;
+		CHECK(map[2] == 20);
+	}
+}

@@ -5,7 +5,10 @@
 //   - Some additional convenience:
 //     * '.pop_back()' returns the removed element
 //     * '.set_size_unsafe()' enables some low-level optimizations
-//     * '.reserve_with_spare()' combines '.reserve()' with geometric growth
+//     * '.{reserve/resize}_with_spare()' guarantee geometric growth in case of
+//       re-allocation. The standard only requires this behaviour for
+//       '.push_back()', and popular implelemenation of std::vector vary in this
+//       respect.
 //   - Some additional variants of vectors with different memory management.
 //     (note that these could not be cleanly implemented using custom allocators
 //     inside a 'std::vector')
@@ -38,6 +41,19 @@
 #include <type_traits>
 
 namespace util {
+
+// Concept/Trait to check that 'From' can be static_cast to 'To'
+template <typename From, typename To>
+concept StaticCastableTo = requires { static_cast<To>(std::declval<From>()); };
+template <typename From, typename To>
+concept NothrowStaticCastableTo = requires {
+	{ static_cast<To>(std::declval<From>()) } noexcept;
+};
+template <typename From, typename To>
+inline constexpr bool is_static_castable_v = StaticCastableTo<From, To>;
+template <typename From, typename To>
+inline constexpr bool is_nothrow_static_castable_v =
+    NothrowStaticCastableTo<From, To>;
 
 namespace detail {
 
@@ -521,6 +537,13 @@ template <class T, class Impl> class Vector
 	// change size. either truncating, or filling with value
 	void resize(size_t s, T const &value = T())
 	{
+		// policy for now. I think this mimics GCC's behaviour in std::vector,
+		// but more investigation might be in order.
+		resize_with_spare(s, value);
+	}
+
+	void resize_with_spare(size_t s, T const &value = T())
+	{
 		if (s <= size())
 		{
 			std::destroy_n(data() + s, size() - s);
@@ -663,6 +686,25 @@ template <class T, class Impl> size_t erase_if(Vector<T, Impl> &c, auto pred)
 	return r;
 }
 
+// erase exactly one element equal to value. throws if not found.
+template <class T, class Impl>
+void erase_one(Vector<T, Impl> &c, auto const &value)
+{
+	auto it = std::find(c.begin(), c.end(), value);
+	if (it == c.end())
+		throw std::runtime_error("util::erase_one: element not found");
+	c.erase(it);
+}
+
+// erase exactly one element satisfying pred. throws if not found.
+template <class T, class Impl> void erase_one_if(Vector<T, Impl> &c, auto pred)
+{
+	auto it = std::find_if(c.begin(), c.end(), std::ref(pred));
+	if (it == c.end())
+		throw std::runtime_error("util::erase_one_if: element not found");
+	c.erase(it);
+}
+
 // append elements to the end of a vector
 template <class T, class Impl>
 void append(Vector<T, Impl> &c, std::span<const T> a)
@@ -741,6 +783,161 @@ using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
 //       N=1 small-object-optimization going.
 template <typename T>
 using indirect_vector = detail::Vector<T, detail::IndirectStorage<T>>;
+
+// Wrapper around a util::vector emulating and associative container.
+//   * Key type must be convertible to size_t
+//   * Internal Vector grows automatically as needed
+//   * this efficient if the maximum key is close to the number of stored
+//     elements, but very wasteful otherwise
+//   * elements (wihtout keys) can be iterated efficiently using '.values()'
+//   * iterating over [key,value] pairs has some limitations because it requires
+//     on-the-fly construction of keys.
+//       - it is only enabled if Key is nothrow-constructible from size_t
+//       - it involves some proxy object instead of a clean
+//         'std::pair<const Key, value>'
+template <NothrowStaticCastableTo<size_t> Key, std::default_initializable Value>
+class array_map
+{
+	util::vector<Value> data_;
+
+  public:
+	// Type aliases
+	using key_type = Key;
+	using mapped_type = Value;
+	using value_type = std::pair<const Key, Value>;
+	using size_type = size_t;
+	using difference_type = ptrdiff_t;
+	using reference = Value &;
+	using const_reference = const Value &;
+
+	// iterator for [key,value] pairs. Constructs keys on-the-fly.
+	template <class T> class pair_iterator_impl
+	{
+		// T must be either Value or const Value
+		static_assert(std::is_same_v<T, Value> ||
+		              std::is_same_v<T, const Value>);
+
+		T *it_;
+		size_t index_;
+
+	  public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = std::pair<const Key, Value>;
+		using difference_type = ptrdiff_t;
+		using pointer = void; // Can't have a real pointer to temporary
+		using reference = std::pair<const Key, std::reference_wrapper<T>>;
+
+		pair_iterator_impl(T *it, size_t index) noexcept
+		    : it_(it), index_(index)
+		{}
+
+		reference operator*() const noexcept
+		{
+			return reference(Key(index_), std::ref(*it_));
+		}
+
+		pair_iterator_impl &operator++() noexcept
+		{
+			++it_;
+			++index_;
+			return *this;
+		}
+
+		pair_iterator_impl operator++(int) noexcept
+		{
+			auto tmp = *this;
+			++*this;
+			return tmp;
+		}
+
+		bool operator==(const pair_iterator_impl &other) const noexcept
+		{
+			return it_ == other.it_;
+		}
+	};
+
+	using iterator = pair_iterator_impl<Value>;
+	using const_iterator = pair_iterator_impl<const Value>;
+
+	// default constructor
+	array_map() = default;
+
+	// element access with auto-growth
+	Value &operator[](Key const &key)
+	{
+		size_t index = static_cast<size_t>(key);
+		if (index >= data_.size())
+			data_.resize_with_spare(index + 1);
+		return data_[index];
+	}
+
+	// const access returns default value for out-of-bounds
+	Value const &operator[](Key const &key) const
+	{
+		size_t index = static_cast<size_t>(key);
+		if (index >= data_.size())
+		{
+			static const Value default_value{};
+			return default_value;
+		}
+		return data_[index];
+	}
+
+	// some forwarded methods from the interal vector. Semantics in terms of an
+	// associative container are somewhat fuzzy, but still useful.
+	bool empty() const noexcept { return data_.empty(); }
+	size_t size() const noexcept { return data_.size(); }
+	size_t capacity() const noexcept { return data_.capacity(); }
+	size_t max_size() const noexcept { return data_.max_size(); }
+	void reserve(size_t cap) { data_.reserve(cap); }
+	void shrink_to_fit() { data_.shrink_to_fit(); }
+
+	// remove all elements, but keep allocated capacity
+	void clear() noexcept { data_.clear(); }
+
+	void swap(array_map &other) noexcept { data_.swap(other.data_); }
+	friend void swap(array_map &a, array_map &b) noexcept { a.swap(b); }
+
+	// Iterator support (std::map compatible - yields key-value pairs)
+	// Only available if Key is nothrow constructible from size_t
+	iterator begin()
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return iterator(data_.begin(), 0);
+	}
+
+	// iteration over [key,value] pairs requires on-the-fly construction of
+	// keys. For efficient iteration over values only, use '.values()' instead.
+	iterator end()
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return iterator(data_.end(), data_.size());
+	}
+	const_iterator begin() const
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return const_iterator(data_.begin(), 0);
+	}
+	const_iterator end() const
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return const_iterator(data_.end(), data_.size());
+	}
+	const_iterator cbegin() const
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return const_iterator(data_.begin(), 0);
+	}
+	const_iterator cend() const
+	    requires std::is_nothrow_constructible_v<Key, size_t>
+	{
+		return const_iterator(data_.end(), data_.size());
+	}
+
+	// direct access to values (always available, very efficient)
+	auto &values() noexcept { return data_; }
+	const auto &values() const noexcept { return data_; }
+};
 
 // Associative container implemented as unsorted vector. For sufficiently small
 // datasets this should be the most efficient datastructure. Furthermore:

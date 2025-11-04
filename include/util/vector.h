@@ -42,19 +42,6 @@
 
 namespace util {
 
-// Concept/Trait to check that 'From' can be static_cast to 'To'
-template <typename From, typename To>
-concept StaticCastableTo = requires { static_cast<To>(std::declval<From>()); };
-template <typename From, typename To>
-concept NothrowStaticCastableTo = requires {
-	{ static_cast<To>(std::declval<From>()) } noexcept;
-};
-template <typename From, typename To>
-inline constexpr bool is_static_castable_v = StaticCastableTo<From, To>;
-template <typename From, typename To>
-inline constexpr bool is_nothrow_static_castable_v =
-    NothrowStaticCastableTo<From, To>;
-
 namespace detail {
 
 template <typename T> class MallocStorage
@@ -784,27 +771,22 @@ using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
 template <typename T>
 using indirect_vector = detail::Vector<T, detail::IndirectStorage<T>>;
 
-// Wrapper around a util::vector emulating and associative container.
-//   * Key type must be convertible to size_t
-//   * Internal Vector grows automatically as needed
+// Wrapper around a util::vector that automatically grows, thus acting more like
+// an associative container with integer keys.
 //   * this efficient if the maximum key is close to the number of stored
 //     elements, but very wasteful otherwise
 //   * elements (wihtout keys) can be iterated efficiently using '.values()'
-//   * iterating over [key,value] pairs has some limitations because it requires
-//     on-the-fly construction of keys.
-//       - it is only enabled if Key is nothrow-constructible from size_t
-//       - it involves some proxy object instead of a clean
-//         'std::pair<const Key, value>'
-template <NothrowStaticCastableTo<size_t> Key, std::default_initializable Value>
-class array_map
+//   * iterating over [key,value] pairs involves some proxy object because no
+//     keys exist in memory.
+template <std::default_initializable Value> class vector_map
 {
 	util::vector<Value> data_;
 
   public:
 	// Type aliases
-	using key_type = Key;
+	using key_type = size_t;
 	using mapped_type = Value;
-	using value_type = std::pair<const Key, Value>;
+	using value_type = std::pair<const size_t, Value>;
 	using size_type = size_t;
 	using difference_type = ptrdiff_t;
 	using reference = Value &;
@@ -822,10 +804,10 @@ class array_map
 
 	  public:
 		using iterator_category = std::forward_iterator_tag;
-		using value_type = std::pair<const Key, Value>;
+		using value_type = std::pair<size_t, Value>;
 		using difference_type = ptrdiff_t;
 		using pointer = void; // Can't have a real pointer to temporary
-		using reference = std::pair<const Key, std::reference_wrapper<T>>;
+		using reference = std::pair<size_t, std::reference_wrapper<T>>;
 
 		pair_iterator_impl(T *it, size_t index) noexcept
 		    : it_(it), index_(index)
@@ -833,7 +815,7 @@ class array_map
 
 		reference operator*() const noexcept
 		{
-			return reference(Key(index_), std::ref(*it_));
+			return reference(index_, std::ref(*it_));
 		}
 
 		pair_iterator_impl &operator++() noexcept
@@ -860,21 +842,19 @@ class array_map
 	using const_iterator = pair_iterator_impl<const Value>;
 
 	// default constructor
-	array_map() = default;
+	vector_map() = default;
 
 	// element access with auto-growth
-	Value &operator[](Key const &key)
+	Value &operator[](size_t index)
 	{
-		size_t index = static_cast<size_t>(key);
 		if (index >= data_.size())
 			data_.resize_with_spare(index + 1);
 		return data_[index];
 	}
 
 	// const access returns default value for out-of-bounds
-	Value const &operator[](Key const &key) const
+	Value const &operator[](size_t index) const
 	{
-		size_t index = static_cast<size_t>(key);
 		if (index >= data_.size())
 		{
 			static const Value default_value{};
@@ -895,41 +875,23 @@ class array_map
 	// remove all elements, but keep allocated capacity
 	void clear() noexcept { data_.clear(); }
 
-	void swap(array_map &other) noexcept { data_.swap(other.data_); }
-	friend void swap(array_map &a, array_map &b) noexcept { a.swap(b); }
+	void swap(vector_map &other) noexcept { data_.swap(other.data_); }
+	friend void swap(vector_map &a, vector_map &b) noexcept { a.swap(b); }
 
 	// Iterator support (std::map compatible - yields key-value pairs)
 	// Only available if Key is nothrow constructible from size_t
-	iterator begin()
-	    requires std::is_nothrow_constructible_v<Key, size_t>
-	{
-		return iterator(data_.begin(), 0);
-	}
+	iterator begin() { return iterator(data_.begin(), 0); }
 
 	// iteration over [key,value] pairs requires on-the-fly construction of
 	// keys. For efficient iteration over values only, use '.values()' instead.
-	iterator end()
-	    requires std::is_nothrow_constructible_v<Key, size_t>
-	{
-		return iterator(data_.end(), data_.size());
-	}
-	const_iterator begin() const
-	    requires std::is_nothrow_constructible_v<Key, size_t>
-	{
-		return const_iterator(data_.begin(), 0);
-	}
+	iterator end() { return iterator(data_.end(), data_.size()); }
+	const_iterator begin() const { return const_iterator(data_.begin(), 0); }
 	const_iterator end() const
-	    requires std::is_nothrow_constructible_v<Key, size_t>
 	{
 		return const_iterator(data_.end(), data_.size());
 	}
-	const_iterator cbegin() const
-	    requires std::is_nothrow_constructible_v<Key, size_t>
-	{
-		return const_iterator(data_.begin(), 0);
-	}
+	const_iterator cbegin() const { return const_iterator(data_.begin(), 0); }
 	const_iterator cend() const
-	    requires std::is_nothrow_constructible_v<Key, size_t>
 	{
 		return const_iterator(data_.end(), data_.size());
 	}
@@ -1041,6 +1003,207 @@ class tiny_map
 				return false;
 		}
 		return true;
+	}
+};
+
+// same semantics as vector_map<vector<Value>>, but safer:
+//   * does not expose the inner vector<Value>, which avoids some pitfalls
+//     around dangling references.
+//   * Adding values is done more explicitly using
+//     'v.add(key, value)' instead of 'v[key].push_back(value)'
+//   * accessing returns a std::span instead of a vector reference. This is
+//     safer because the span will remain valid, even if the vector is moved due
+//     to reallocation of the outer vector.
+template <class Value> class vector_multimap
+{
+	util::vector<util::vector<Value>> data_;
+
+  public:
+	// Type aliases
+	using key_type = size_t;
+	using value_type = Value;
+	using size_type = size_t;
+
+	// iterator for [key,span] pairs. Constructs keys on-the-fly, yields spans
+	// of values. Only iterates over keys that have at least one value.
+	class pair_iterator_impl
+	{
+		const util::vector<Value> *it_;
+		const util::vector<Value> *end_;
+		size_t index_;
+
+		void skip_empty() noexcept
+		{
+			while (it_ != end_ && it_->empty())
+			{
+				++it_;
+				++index_;
+			}
+		}
+
+	  public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = std::pair<const size_t, std::span<const Value>>;
+		using difference_type = ptrdiff_t;
+		using pointer = void; // Can't have a real pointer to temporary
+		using reference = std::pair<const size_t, std::span<const Value>>;
+
+		pair_iterator_impl(const util::vector<Value> *it,
+		                   const util::vector<Value> *end,
+		                   size_t index) noexcept
+		    : it_(it), end_(end), index_(index)
+		{
+			skip_empty();
+		}
+
+		reference operator*() const noexcept
+		{
+			return reference(index_, std::span<const Value>(*it_));
+		}
+
+		pair_iterator_impl &operator++() noexcept
+		{
+			++it_;
+			++index_;
+			skip_empty();
+			return *this;
+		}
+
+		pair_iterator_impl operator++(int) noexcept
+		{
+			auto tmp = *this;
+			++*this;
+			return tmp;
+		}
+
+		bool operator==(const pair_iterator_impl &other) const noexcept
+		{
+			return it_ == other.it_;
+		}
+	};
+
+	using iterator = pair_iterator_impl;
+	using const_iterator = pair_iterator_impl;
+
+	// Constructors
+	vector_multimap() = default;
+
+	// remove all elements, keeping some allocated capacity
+	void clear() noexcept { data_.clear(); }
+
+	// add an element. Only invalidates spans/references for the given key, not
+	// any other keys.
+	void add(size_t index, Value const &value)
+	{
+		if (index >= data_.size())
+			data_.resize_with_spare(index + 1);
+		data_[index].push_back(value);
+	}
+
+	// ditto
+	void add(size_t index, Value &&value)
+	{
+		if (index >= data_.size())
+			data_.resize_with_spare(index + 1);
+		data_[index].push_back(std::move(value));
+	}
+
+	// ditto
+	template <class... Args> void emplace(size_t index, Args &&...args)
+	{
+		if (index >= data_.size())
+			data_.resize_with_spare(index + 1);
+		data_[index].emplace_back(std::forward<Args>(args)...);
+	}
+
+	// element access. Just returns empty span for unknown keys.
+	std::span<const Value> operator[](size_t index) const noexcept
+	{
+		if (index >= data_.size())
+			return {};
+		return data_[index];
+	}
+	std::span<Value> operator[](size_t index) noexcept
+	{
+		if (index >= data_.size())
+			return {};
+		return data_[index];
+	}
+
+	// erase operations
+	size_t erase(size_t index, Value const &value)
+	{
+		if (index >= data_.size())
+			return 0;
+		return detail::erase(data_[index], value);
+	}
+	size_t erase_if(size_t index, auto pred)
+	{
+		if (index >= data_.size())
+			return 0;
+		return detail::erase_if(data_[index], pred);
+	}
+	void erase_one(size_t index, Value const &value)
+	{
+		if (index >= data_.size())
+			throw std::runtime_error(
+			    "util::vector_multimap::erase_one: key not found");
+		detail::erase_one(data_[index], value);
+	}
+	void unique_sort(size_t index)
+	{
+		if (index >= data_.size())
+			return;
+		detail::unique_sort(data_[index]);
+	}
+	void unique_sort(size_t index, auto comp)
+	{
+		if (index >= data_.size())
+			return;
+		detail::unique_sort(data_[index], comp);
+	}
+
+	// total number of stored elements
+	size_t count_elements() const noexcept
+	{
+		size_t total = 0;
+		for (const auto &vec : data_)
+			total += vec.size();
+		return total;
+	}
+
+	// number of keys with at least one value
+	size_t count_used_keys() const noexcept
+	{
+		size_t count = 0;
+		for (const auto &vec : data_)
+			if (!vec.empty())
+				++count;
+		return count;
+	}
+
+	// Iterator support (only iterates over keys with values)
+	// Only available if Key is nothrow constructible from size_t
+	iterator begin() const
+	{
+		return iterator(data_.data(), data_.data() + data_.size(), 0);
+	}
+
+	iterator end() const
+	{
+		return iterator(data_.data() + data_.size(),
+		                data_.data() + data_.size(), data_.size());
+	}
+
+	const_iterator cbegin() const
+	{
+		return iterator(data_.data(), data_.data() + data_.size(), 0);
+	}
+
+	const_iterator cend() const
+	{
+		return iterator(data_.data() + data_.size(),
+		                data_.data() + data_.size(), data_.size());
 	}
 };
 

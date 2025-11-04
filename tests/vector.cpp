@@ -272,11 +272,11 @@ TEST_CASE("vector2d", "[vector][vector2d]")
 	CHECK(a.size() == 0);
 }
 
-TEST_CASE("array_map", "[vector][array_map]")
+TEST_CASE("vector_map", "[vector][vector_map]")
 {
 	SECTION("basic functionality")
 	{
-		util::array_map<size_t, int> map;
+		util::vector_map<int> map;
 
 		// Initially empty
 		CHECK(map.size() == 0);
@@ -294,7 +294,7 @@ TEST_CASE("array_map", "[vector][array_map]")
 
 	SECTION("const access")
 	{
-		util::array_map<size_t, int> map;
+		util::vector_map<int> map;
 		map[2] = 99;
 
 		const auto &cmap = map;
@@ -303,25 +303,9 @@ TEST_CASE("array_map", "[vector][array_map]")
 		CHECK(map.size() == 3); // Size should not have changed
 	}
 
-	SECTION("type safety with custom key type")
-	{
-		enum class Index
-		{
-			A = 0,
-			B = 1,
-			C = 2
-		};
-		util::array_map<Index, std::string> map;
-
-		map[Index::B] = "hello";
-		CHECK(map.size() == 2);
-		CHECK(map[Index::B] == "hello");
-		CHECK(map[Index::A] == ""); // default-constructed
-	}
-
 	SECTION("iterator support")
 	{
-		util::array_map<size_t, std::string> map;
+		util::vector_map<std::string> map;
 		map[1] = "one";
 		map[3] = "three";
 		map[5] = "five";
@@ -387,7 +371,7 @@ TEST_CASE("array_map", "[vector][array_map]")
 
 	SECTION("values() iteration")
 	{
-		util::array_map<size_t, int> map;
+		util::vector_map<int> map;
 		map[1] = 10;
 		map[3] = 30;
 
@@ -406,4 +390,238 @@ TEST_CASE("array_map", "[vector][array_map]")
 		map.values()[2] = 20;
 		CHECK(map[2] == 20);
 	}
+}
+
+TEST_CASE("vector_multimap basic operations", "[vector_multimap]")
+{
+	util::vector_multimap<std::string> vm;
+
+	REQUIRE(vm.count_elements() == 0);
+	REQUIRE(vm.count_used_keys() == 0);
+
+	// Add some values
+	vm.add(0, "hello");
+	vm.add(0, "world");
+	vm.add(2, "foo");
+	vm.add(2, "bar");
+	vm.add(2, "baz");
+
+	REQUIRE(vm.count_elements() == 5);
+	REQUIRE(vm.count_used_keys() == 2); // keys 0 and 2
+
+	// Test element access
+	auto span0 = vm[0];
+	REQUIRE(span0.size() == 2);
+	REQUIRE(span0[0] == "hello");
+	REQUIRE(span0[1] == "world");
+
+	auto span1 = vm[1]; // empty key
+	REQUIRE(span1.empty());
+
+	auto span2 = vm[2];
+	REQUIRE(span2.size() == 3);
+	REQUIRE(span2[0] == "foo");
+	REQUIRE(span2[1] == "bar");
+	REQUIRE(span2[2] == "baz");
+
+	// Test out of bounds access
+	auto span10 = vm[10];
+	REQUIRE(span10.empty());
+}
+
+TEST_CASE("vector_multimap move semantics", "[vector_multimap]")
+{
+	util::vector_multimap<std::string> vm;
+
+	std::string test_str = "movable";
+	vm.add(0, std::move(test_str));
+
+	REQUIRE(vm[0].size() == 1);
+	REQUIRE(vm[0][0] == "movable");
+	REQUIRE(test_str.empty()); // moved from
+}
+
+TEST_CASE("vector_multimap emplace", "[vector_multimap]")
+{
+	util::vector_multimap<std::pair<int, std::string>> vm;
+
+	vm.emplace(0, 42, "test");
+	vm.emplace(0, 100, "another");
+
+	REQUIRE(vm[0].size() == 2);
+	REQUIRE(vm[0][0].first == 42);
+	REQUIRE(vm[0][0].second == "test");
+	REQUIRE(vm[0][1].first == 100);
+	REQUIRE(vm[0][1].second == "another");
+}
+
+TEST_CASE("vector_multimap query operations", "[vector_multimap]")
+{
+	util::vector_multimap<int> vm;
+
+	vm.add(0, 10);
+	vm.add(0, 20);
+	vm.add(2, 30);
+
+	REQUIRE(vm[0].size() == 2);
+	REQUIRE(vm[1].size() == 0);
+	REQUIRE(vm[2].size() == 1);
+	REQUIRE(vm[5].size() == 0);
+}
+
+TEST_CASE("vector_multimap erase operations", "[vector_multimap]")
+{
+	util::vector_multimap<int> vm;
+
+	// Set up test data
+	vm.add(0, 10);
+	vm.add(0, 21); // odd number
+	vm.add(0, 10); // duplicate
+	vm.add(0, 33); // odd number
+	vm.add(1, 40);
+	vm.add(1, 50);
+
+	SECTION("erase all occurrences of value")
+	{
+		size_t erased = vm.erase(0, 10);
+		REQUIRE(erased == 2); // removed both 10s
+		auto span = vm[0];
+		REQUIRE(span.size() == 2);
+		REQUIRE(span[0] == 21);
+		REQUIRE(span[1] == 33);
+
+		// Erase non-existent value
+		REQUIRE(vm.erase(0, 999) == 0);
+		// Erase from non-existent key
+		REQUIRE(vm.erase(99, 10) == 0);
+	}
+
+	SECTION("erase_if with predicate")
+	{
+		// Remove all even numbers from key 0
+		size_t erased = vm.erase_if(0, [](int x) { return x % 2 == 0; });
+		REQUIRE(erased == 2); // removed 10, 10
+		auto span = vm[0];
+		REQUIRE(span.size() == 2);
+		REQUIRE(span[0] == 21);
+		REQUIRE(span[1] == 33);
+
+		// Key 1 should be unchanged
+		REQUIRE(vm[1].size() == 2);
+
+		// Erase from non-existent key
+		REQUIRE(vm.erase_if(99, [](int) { return true; }) == 0);
+	}
+
+	SECTION("erase_one")
+	{
+		vm.erase_one(0, 10); // Remove exactly one 10
+		auto span = vm[0];
+		REQUIRE(span.size() == 3);
+		// Should still have one 10, plus 20 and 30
+		REQUIRE(std::count(span.begin(), span.end(), 10) == 1);
+
+		// Try to erase non-existent value
+		REQUIRE_THROWS_AS(vm.erase_one(0, 999), std::runtime_error);
+		// Try to erase from non-existent key
+		REQUIRE_THROWS_AS(vm.erase_one(99, 10), std::runtime_error);
+	}
+}
+
+TEST_CASE("vector_multimap unique_sort", "[vector_multimap]")
+{
+	util::vector_multimap<int> vm;
+
+	// Add unsorted data with duplicates
+	vm.add(0, 30);
+	vm.add(0, 10);
+	vm.add(0, 20);
+	vm.add(0, 10); // duplicate
+	vm.add(0, 30); // duplicate
+
+	vm.unique_sort(0);
+
+	auto span = vm[0];
+	REQUIRE(span.size() == 3); // duplicates removed
+	REQUIRE(span[0] == 10);    // sorted
+	REQUIRE(span[1] == 20);
+	REQUIRE(span[2] == 30);
+
+	// unique_sort on non-existent key should not crash
+	vm.unique_sort(99);
+
+	SECTION("unique_sort with custom comparator")
+	{
+		util::vector_multimap<int> vm2;
+		vm2.add(0, 30);
+		vm2.add(0, 10);
+		vm2.add(0, 20);
+		vm2.add(0, 10);
+
+		// Sort in descending order
+		vm2.unique_sort(0, std::greater<int>());
+
+		auto span2 = vm2[0];
+		REQUIRE(span2.size() == 3);
+		REQUIRE(span2[0] == 30);
+		REQUIRE(span2[1] == 20);
+		REQUIRE(span2[2] == 10);
+	}
+}
+
+TEST_CASE("vector_multimap reference stability via spans", "[vector_multimap]")
+{
+	util::vector_multimap<int> vm;
+
+	// Add initial values
+	vm.add(0, 100);
+	vm.add(0, 200);
+
+	// Get a span to the values
+	auto span = vm[0];
+	REQUIRE(span.size() == 2);
+	REQUIRE(span[0] == 100);
+	REQUIRE(span[1] == 200);
+
+	// Add many more values to force reallocation of outer vector
+	for (int i = 3; i < 100; ++i)
+	{
+		vm.add(i, i * 10);
+	}
+
+	// The span should still be valid and contain the same data
+	// (this is the key safety feature - spans remain valid)
+	REQUIRE(span.size() == 2);
+	REQUIRE(span[0] == 100);
+	REQUIRE(span[1] == 200);
+
+	// But getting a new span should still work
+	auto new_span = vm[0];
+	REQUIRE(new_span.size() == 2);
+	REQUIRE(new_span[0] == 100);
+	REQUIRE(new_span[1] == 200);
+}
+
+TEST_CASE("vector_multimap reserve operations", "[vector_multimap]")
+{
+	util::vector_multimap<int> vm;
+
+	vm.add(5, 42);
+
+	for (int i = 0; i < 50; ++i)
+		vm.add(5, i);
+
+	REQUIRE(vm[5].size() == 51); // 1 initial + 50 added
+}
+
+TEST_CASE("vector_multimap clear", "[vector_multimap]")
+{
+	util::vector_multimap<std::string> vm;
+
+	vm.add(0, "test");
+	vm.add(1, "data");
+
+	vm.clear();
+	REQUIRE(vm.count_elements() == 0);
+	REQUIRE(vm.count_used_keys() == 0);
 }

@@ -142,17 +142,29 @@ class splitmix64
 //   * summary: good default RNG for all non-crypographic purposes: very fast,
 //     passes all statistical tests, long enough period even for large-scale
 //     parallel applications (assuming proper seeding of course).
+//   * NOTE: the default constructor produces a reproducible, fixed sequence.
+//     For actual unpredictableness, use something like:
+//       std::random_device rd;
+//       auto rng = util::xoshiro256(rd);     // good: full 256 bits of entropy
+//       // auto rng = util::xoshiro256(rd()); // bad: only 32 bits of entropy
 //   * TODO: implement a parallel SIMD varsion of this
 class xoshiro256
 {
-	// all/most bits zero is a bad state. Some care required when seeding.
-	uint64_t s[4] = {};
+	// proper random seed (https://xkcd.com/221/)
+	uint64_t s[4] = {0x96e6894f9b65d344, 0x6daee646384208ad, 0x5a1d2bd4e398da13,
+	                 0x500e2c89319b8469};
 
   public:
-	constexpr xoshiro256() noexcept { seed(0); }
+	// the default constructor produces a fixed pseudo-random sequence, not
+	// equal to anything that is reached via the seeding functions
+	constexpr xoshiro256() noexcept = default;
+
+	// constructor with explicit seeds
 	constexpr explicit xoshiro256(uint64_t x) noexcept { seed(x); }
 	explicit xoshiro256(std::string_view s) noexcept { seed(s); }
-	explicit xoshiro256(std::random_device &rd) noexcept;
+
+	// seed from random device (takes full 256 bits of entropy)
+	explicit xoshiro256(std::random_device &rd) { seed(rd); }
 
 	using result_type = uint64_t;
 	static constexpr uint64_t min() { return 0; }

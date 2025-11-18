@@ -400,11 +400,11 @@ TEST_CASE("vector_multimap basic operations", "[vector_multimap]")
 	REQUIRE(vm.count_used_keys() == 0);
 
 	// Add some values
-	vm.add(0, "hello");
-	vm.add(0, "world");
-	vm.add(2, "foo");
-	vm.add(2, "bar");
-	vm.add(2, "baz");
+	vm.insert(0, "hello");
+	vm.insert(0, "world");
+	vm.insert(2, "foo");
+	vm.insert(2, "bar");
+	vm.insert(2, "baz");
 
 	REQUIRE(vm.count_elements() == 5);
 	REQUIRE(vm.count_used_keys() == 2); // keys 0 and 2
@@ -434,7 +434,7 @@ TEST_CASE("vector_multimap move semantics", "[vector_multimap]")
 	util::vector_multimap<std::string> vm;
 
 	std::string test_str = "movable";
-	vm.add(0, std::move(test_str));
+	vm.insert(0, std::move(test_str));
 
 	REQUIRE(vm[0].size() == 1);
 	REQUIRE(vm[0][0] == "movable");
@@ -459,9 +459,9 @@ TEST_CASE("vector_multimap query operations", "[vector_multimap]")
 {
 	util::vector_multimap<int> vm;
 
-	vm.add(0, 10);
-	vm.add(0, 20);
-	vm.add(2, 30);
+	vm.insert(0, 10);
+	vm.insert(0, 20);
+	vm.insert(2, 30);
 
 	REQUIRE(vm[0].size() == 2);
 	REQUIRE(vm[1].size() == 0);
@@ -474,12 +474,12 @@ TEST_CASE("vector_multimap erase operations", "[vector_multimap]")
 	util::vector_multimap<int> vm;
 
 	// Set up test data
-	vm.add(0, 10);
-	vm.add(0, 21); // odd number
-	vm.add(0, 10); // duplicate
-	vm.add(0, 33); // odd number
-	vm.add(1, 40);
-	vm.add(1, 50);
+	vm.insert(0, 10);
+	vm.insert(0, 21); // odd number
+	vm.insert(0, 10); // duplicate
+	vm.insert(0, 33); // odd number
+	vm.insert(1, 40);
+	vm.insert(1, 50);
 
 	SECTION("erase all occurrences of value")
 	{
@@ -533,11 +533,11 @@ TEST_CASE("vector_multimap unique_sort", "[vector_multimap]")
 	util::vector_multimap<int> vm;
 
 	// Add unsorted data with duplicates
-	vm.add(0, 30);
-	vm.add(0, 10);
-	vm.add(0, 20);
-	vm.add(0, 10); // duplicate
-	vm.add(0, 30); // duplicate
+	vm.insert(0, 30);
+	vm.insert(0, 10);
+	vm.insert(0, 20);
+	vm.insert(0, 10); // duplicate
+	vm.insert(0, 30); // duplicate
 
 	vm.unique_sort(0);
 
@@ -553,10 +553,10 @@ TEST_CASE("vector_multimap unique_sort", "[vector_multimap]")
 	SECTION("unique_sort with custom comparator")
 	{
 		util::vector_multimap<int> vm2;
-		vm2.add(0, 30);
-		vm2.add(0, 10);
-		vm2.add(0, 20);
-		vm2.add(0, 10);
+		vm2.insert(0, 30);
+		vm2.insert(0, 10);
+		vm2.insert(0, 20);
+		vm2.insert(0, 10);
 
 		// Sort in descending order
 		vm2.unique_sort(0, std::greater<int>());
@@ -574,8 +574,8 @@ TEST_CASE("vector_multimap reference stability via spans", "[vector_multimap]")
 	util::vector_multimap<int> vm;
 
 	// Add initial values
-	vm.add(0, 100);
-	vm.add(0, 200);
+	vm.insert(0, 100);
+	vm.insert(0, 200);
 
 	// Get a span to the values
 	auto span = vm[0];
@@ -586,7 +586,7 @@ TEST_CASE("vector_multimap reference stability via spans", "[vector_multimap]")
 	// Add many more values to force reallocation of outer vector
 	for (int i = 3; i < 100; ++i)
 	{
-		vm.add(i, i * 10);
+		vm.insert(i, i * 10);
 	}
 
 	// The span should still be valid and contain the same data
@@ -606,10 +606,10 @@ TEST_CASE("vector_multimap reserve operations", "[vector_multimap]")
 {
 	util::vector_multimap<int> vm;
 
-	vm.add(5, 42);
+	vm.insert(5, 42);
 
 	for (int i = 0; i < 50; ++i)
-		vm.add(5, i);
+		vm.insert(5, i);
 
 	REQUIRE(vm[5].size() == 51); // 1 initial + 50 added
 }
@@ -618,8 +618,8 @@ TEST_CASE("vector_multimap clear", "[vector_multimap]")
 {
 	util::vector_multimap<std::string> vm;
 
-	vm.add(0, "test");
-	vm.add(1, "data");
+	vm.insert(0, "test");
+	vm.insert(1, "data");
 
 	vm.clear();
 	REQUIRE(vm.count_elements() == 0);

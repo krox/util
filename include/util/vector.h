@@ -1010,7 +1010,7 @@ class tiny_map
 //   * does not expose the inner vector<Value>, which avoids some pitfalls
 //     around dangling references.
 //   * Adding values is done more explicitly using
-//     'v.add(key, value)' instead of 'v[key].push_back(value)'
+//     'v.insert(key, value)' instead of 'v[key].push_back(value)'
 //   * accessing returns a std::span instead of a vector reference. This is
 //     safer because the span will remain valid, even if the vector is moved due
 //     to reallocation of the outer vector.
@@ -1088,12 +1088,17 @@ template <class Value> class vector_multimap
 	// Constructors
 	vector_multimap() = default;
 
+	// upper bound on keys
+	// note: the name "extent" is used to avoid confusion with the number of
+	//       stored elements.
+	size_t extent() const noexcept { return data_.size(); }
+
 	// remove all elements, keeping some allocated capacity
 	void clear() noexcept { data_.clear(); }
 
 	// add an element. Only invalidates spans/references for the given key, not
 	// any other keys.
-	void add(size_t index, Value const &value)
+	void insert(size_t index, Value const &value)
 	{
 		if (index >= data_.size())
 			data_.resize_with_spare(index + 1);
@@ -1101,7 +1106,7 @@ template <class Value> class vector_multimap
 	}
 
 	// ditto
-	void add(size_t index, Value &&value)
+	void insert(size_t index, Value &&value)
 	{
 		if (index >= data_.size())
 			data_.resize_with_spare(index + 1);
@@ -1131,6 +1136,14 @@ template <class Value> class vector_multimap
 	}
 
 	// erase operations
+	size_t erase(size_t index)
+	{
+		if (index >= data_.size())
+			return 0;
+		size_t r = data_[index].size();
+		data_[index].clear();
+		return r;
+	}
 	size_t erase(size_t index, Value const &value)
 	{
 		if (index >= data_.size())

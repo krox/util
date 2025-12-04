@@ -299,6 +299,8 @@ template <class T, class Impl> class Vector
 	using const_pointer = const T *;
 	using iterator = T *;
 	using const_iterator = const T *;
+	using reverse_iterator = std::reverse_iterator<iterator>;
+	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
 	// default/copy/move constructor
 
@@ -452,7 +454,25 @@ template <class T, class Impl> class Vector
 	T *end() noexcept { return data() + size(); }
 	T const *end() const noexcept { return data() + size(); }
 	T const *cend() const noexcept { return data() + size(); }
-	// TODO: reverse iterators
+
+	reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+	const_reverse_iterator rbegin() const noexcept
+	{
+		return const_reverse_iterator(end());
+	}
+	const_reverse_iterator crbegin() const noexcept
+	{
+		return const_reverse_iterator(cend());
+	}
+	reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+	const_reverse_iterator rend() const noexcept
+	{
+		return const_reverse_iterator(begin());
+	}
+	const_reverse_iterator crend() const noexcept
+	{
+		return const_reverse_iterator(cbegin());
+	}
 
 	// size metrics
 

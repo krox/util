@@ -693,23 +693,26 @@ template <class T, class Impl> size_t erase_if(Vector<T, Impl> &c, auto pred)
 	return r;
 }
 
-// erase exactly one element equal to value. throws if not found.
+// erase the first element equal to value. returns true if found.
 template <class T, class Impl>
-void erase_one(Vector<T, Impl> &c, auto const &value)
+bool erase_one(Vector<T, Impl> &c, auto const &value) noexcept
 {
 	auto it = std::find(c.begin(), c.end(), value);
 	if (it == c.end())
-		throw std::runtime_error("util::erase_one: element not found");
+		return false;
 	c.erase(it);
+	return true;
 }
 
-// erase exactly one element satisfying pred. throws if not found.
-template <class T, class Impl> void erase_one_if(Vector<T, Impl> &c, auto pred)
+// erase the first element matching pred. returns true if found.
+template <class T, class Impl>
+bool erase_one_if(Vector<T, Impl> &c, auto pred) noexcept
 {
 	auto it = std::find_if(c.begin(), c.end(), std::ref(pred));
 	if (it == c.end())
-		throw std::runtime_error("util::erase_one_if: element not found");
+		return false;
 	c.erase(it);
+	return true;
 }
 
 // append elements to the end of a vector

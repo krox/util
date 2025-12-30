@@ -86,6 +86,10 @@ class Parser
 	bool match(char ch);
 	bool match(std::string_view word);
 
+	// matches everything up to the next whitespace or end of string
+	// returns empty on end of string
+	std::string_view word();
+
 	// similar to 'match(std::string_view)', but only matches if the next
 	// character after the word is not a letter or digit
 	bool ident(std::string_view word);

@@ -120,6 +120,19 @@ bool util::Parser::match(std::string_view word)
 	return false;
 }
 
+std::string_view util::Parser::word()
+{
+	if (pos_ >= src_.size())
+		return {};
+
+	size_t start = pos_;
+	while (pos_ < src_.size() && !std::isspace(src_[pos_]))
+		pos_++;
+	size_t end = pos_;
+	skip_white();
+	return src_.substr(start, end - start);
+}
+
 bool util::Parser::ident(std::string_view word)
 {
 	if (src_.substr(pos_, word.size()) == word)

@@ -1,1 +1,4 @@
 build/
+python/
+.venv
+.vscode

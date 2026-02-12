@@ -521,10 +521,8 @@ TEST_CASE("vector_multimap erase operations", "[vector_multimap]")
 		// Should still have one 10, plus 20 and 30
 		REQUIRE(std::count(span.begin(), span.end(), 10) == 1);
 
-		// Try to erase non-existent value
-		REQUIRE_THROWS_AS(vm.erase_one(0, 999), std::runtime_error);
-		// Try to erase from non-existent key
-		REQUIRE_THROWS_AS(vm.erase_one(99, 10), std::runtime_error);
+		REQUIRE_FALSE(vm.erase_one(0, 999));
+		REQUIRE_FALSE(vm.erase_one(99, 19));
 	}
 }
 

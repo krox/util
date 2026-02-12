@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <stdexcept>
 #include <type_traits>
 
 namespace util {
@@ -1179,12 +1180,11 @@ template <class Value> class vector_multimap
 			return 0;
 		return detail::erase_if(data_[index], pred);
 	}
-	void erase_one(size_t index, Value const &value)
+	bool erase_one(size_t index, Value const &value)
 	{
 		if (index >= data_.size())
-			throw std::runtime_error(
-			    "util::vector_multimap::erase_one: key not found");
-		detail::erase_one(data_[index], value);
+			return false;
+		return detail::erase_one(data_[index], value);
 	}
 	void unique_sort(size_t index)
 	{

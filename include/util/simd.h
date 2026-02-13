@@ -13,7 +13,7 @@
 // force inline of low level SIMD functions
 #define UTIL_SIMD_INLINE __attribute__((always_inline)) inline
 
-#if __AVX__
+#if defined(UTIL_SIMD_BACKEND_AVX)
 
 #include "util/bits/simd_avx.h"
 
@@ -40,21 +40,20 @@ template <> struct simd_impl<double, 4>
 };
 } // namespace util
 
-#elif _OPENMP
+#else
 
-#define UTIL_SIMD_FOR(i, n) _Pragma("omp simd") for (int i = 0; i < n; ++i)
 #include "util/bits/simd_generic.h"
-#undef UTIL_SIMD_FOR
+
 namespace util {
-static constexpr size_t simd_native_bytes = 32; // 256 bit, arbitrary
+
+static constexpr size_t simd_native_bytes = 32; // 256 bit fallback
+
 template <class T, int W> struct simd_impl
 {
 	using impl = simd_generic<T, W>;
 };
 } // namespace util
 
-#else
-#error "no SIMD support found (maybe just missing '-march=native' ?)"
 #endif
 
 namespace util {

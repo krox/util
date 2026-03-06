@@ -5,6 +5,12 @@ include(CheckCXXSourceCompiles)
 
 option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
 option(UTIL_HDF5 "link to HDF5 for I/O" OFF)
+option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" OFF)
+
+set(UTIL_SQLITE3_ENABLED ${UTIL_SQLITE3})
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+	set(UTIL_SQLITE3_ENABLED ON)
+endif()
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
 set(UTIL_SIMD_BACKEND_ALLOWED AUTO AVX GENERIC)
@@ -54,6 +60,26 @@ if(UTIL_HDF5)
 endif()
 
 include(cmake/CPM.cmake)
+include(FetchContent)
+
+if(UTIL_SQLITE3_ENABLED)
+	set(UTIL_SQLITE3_AMALGAMATION_VERSION "3500400" CACHE STRING "SQLite amalgamation version number from sqlite.org")
+	set(UTIL_SQLITE3_AMALGAMATION_YEAR "2025" CACHE STRING "sqlite.org release year directory for the selected amalgamation")
+
+	FetchContent_Declare(
+		sqlite3_amalgamation
+		URL "https://www.sqlite.org/${UTIL_SQLITE3_AMALGAMATION_YEAR}/sqlite-amalgamation-${UTIL_SQLITE3_AMALGAMATION_VERSION}.zip"
+		DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+	)
+	FetchContent_GetProperties(sqlite3_amalgamation)
+	if(NOT sqlite3_amalgamation_POPULATED)
+		FetchContent_Populate(sqlite3_amalgamation)
+	endif()
+
+	if(NOT EXISTS "${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c" OR NOT EXISTS "${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.h")
+		message(FATAL_ERROR "Downloaded amalgamation at ${sqlite3_amalgamation_SOURCE_DIR} does not contain sqlite3.c and sqlite3.h")
+	endif()
+endif()
 
 CPMAddPackage(
 	NAME fmt
@@ -81,7 +107,7 @@ CPMAddPackage(
 set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
 
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/stats.cpp src/util/string.cpp)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
@@ -100,6 +126,12 @@ if(UTIL_HDF5)
 	target_include_directories(util PRIVATE ${HDF5_INCLUDE_DIRS})
 	target_link_libraries(util PUBLIC ${HDF5_LIBRARIES})
 	target_compile_definitions(util PUBLIC UTIL_HDF5)
+endif()
+
+if(UTIL_SQLITE3_ENABLED)
+	target_sources(util PRIVATE ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c)
+	target_include_directories(util PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
+	target_compile_definitions(util PUBLIC UTIL_SQLITE3)
 endif()
 
 # executables
@@ -126,7 +158,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g)

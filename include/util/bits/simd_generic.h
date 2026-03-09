@@ -32,10 +32,29 @@ struct simd_generic
 	}
 
 	static UTIL_SIMD_INLINE vector make(scalar a, scalar b) noexcept
+	    requires(N >= 2)
 	{
 		vector r{};
 		for (int i = 0; i < N; ++i)
 			r[i] = (i & 1) ? b : a;
+		return r;
+	}
+
+	static UTIL_SIMD_INLINE vector make(scalar a, scalar b, scalar c, scalar d) noexcept
+	    requires(N >= 4)
+	{
+		vector r{};
+		for (int i = 0; i < N; ++i)
+			r[i] = (i & 2) ? ((i & 1) ? d : c) : ((i & 1) ? b : a);
+		return r;
+	}
+
+	static UTIL_SIMD_INLINE vector make(scalar a, scalar b, scalar c, scalar d, scalar e, scalar f, scalar g, scalar h) noexcept
+	    requires(N >= 8)
+	{
+		vector r{};
+		for (int i = 0; i < N; ++i)
+			r[i] = (i & 4) ? ((i & 2) ? ((i & 1) ? h : g) : ((i & 1) ? f : e)) : ((i & 2) ? ((i & 1) ? d : c) : ((i & 1) ? b : a));
 		return r;
 	}
 
@@ -49,12 +68,43 @@ struct simd_generic
 	}
 
 	static UTIL_SIMD_INLINE mask make_mask(bool a, bool b) noexcept
+	    requires(N >= 2)
 	{
 		mask r{};
 		const integer value_a = a ? static_cast<integer>(-1) : 0;
 		const integer value_b = b ? static_cast<integer>(-1) : 0;
 		for (int i = 0; i < N; ++i)
 			r[i] = (i & 1) ? value_b : value_a;
+		return r;
+	}
+
+	static UTIL_SIMD_INLINE mask make_mask(bool a, bool b, bool c, bool d) noexcept
+	    requires(N >= 4)
+	{
+		mask r{};
+		const integer value_a = a ? static_cast<integer>(-1) : 0;
+		const integer value_b = b ? static_cast<integer>(-1) : 0;
+		const integer value_c = c ? static_cast<integer>(-1) : 0;
+		const integer value_d = d ? static_cast<integer>(-1) : 0;
+		for (int i = 0; i < N; ++i)
+			r[i] = (i & 2) ? ((i & 1) ? value_d : value_c) : ((i & 1) ? value_b : value_a);
+		return r;
+	}
+
+	static UTIL_SIMD_INLINE mask make_mask(bool a, bool b, bool c, bool d, bool e, bool f, bool g, bool h) noexcept
+	    requires(N >= 8)
+	{
+		mask r{};
+		const integer value_a = a ? static_cast<integer>(-1) : 0;
+		const integer value_b = b ? static_cast<integer>(-1) : 0;
+		const integer value_c = c ? static_cast<integer>(-1) : 0;
+		const integer value_d = d ? static_cast<integer>(-1) : 0;
+		const integer value_e = e ? static_cast<integer>(-1) : 0;
+		const integer value_f = f ? static_cast<integer>(-1) : 0;
+		const integer value_g = g ? static_cast<integer>(-1) : 0;
+		const integer value_h = h ? static_cast<integer>(-1) : 0;
+		for (int i = 0; i < N; ++i)
+			r[i] = (i & 4) ? ((i & 2) ? ((i & 1) ? value_h : value_g) : ((i & 1) ? value_f : value_e)) : ((i & 2) ? ((i & 1) ? value_d : value_c) : ((i & 1) ? value_b : value_a));
 		return r;
 	}
 

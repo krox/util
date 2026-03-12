@@ -623,3 +623,52 @@ TEST_CASE("vector_multimap clear", "[vector_multimap]")
 	REQUIRE(vm.count_elements() == 0);
 	REQUIRE(vm.count_used_keys() == 0);
 }
+
+TEST_CASE("vector<byte> push_back_raw single value", "[vector]")
+{
+	util::vector<std::byte> v;
+
+	// Test with single int value
+	int value = 0x12345678;
+	v.push_back_raw(value);
+
+	REQUIRE(v.size() == sizeof(int));
+	// Verify bytes are correctly stored
+	int *ptr = reinterpret_cast<int *>(v.data());
+	REQUIRE(*ptr == value);
+
+	// Test with another value
+	short short_value = 0x1234;
+	v.push_back_raw(short_value);
+
+	REQUIRE(v.size() == sizeof(int) + sizeof(short));
+	short *short_ptr = reinterpret_cast<short *>(v.data() + sizeof(int));
+	REQUIRE(*short_ptr == short_value);
+}
+
+TEST_CASE("vector<byte> push_back_raw span of values", "[vector]")
+{
+	util::vector<std::byte> v;
+
+	// Test with span of int values
+	const std::vector<int> values = {0x11223344, 0x55667788, (int)0x99aabbccU};
+	v.push_back_raw(std::span<const int>(values));
+
+	REQUIRE(v.size() == values.size() * sizeof(int));
+	int *ptr = reinterpret_cast<int *>(v.data());
+	for (size_t i = 0; i < values.size(); ++i)
+		REQUIRE(ptr[i] == values[i]);
+
+	// Test appending more values
+	const std::vector<short> more_values = {100, 200, 300};
+	v.push_back_raw(std::span<const short>(more_values));
+
+	REQUIRE(v.size() ==
+	        values.size() * sizeof(int) + more_values.size() * sizeof(short));
+
+	// Test with empty span (should not change size)
+	size_t size_before = v.size();
+	const std::vector<int> empty;
+	v.push_back_raw(std::span<const int>(empty));
+	REQUIRE(v.size() == size_before);
+}

@@ -395,6 +395,9 @@ template <class T>
 static constexpr bool is_contiguously_hashable_v =
     is_contiguously_hashable<T>::value;
 
+template <class T>
+concept contiguously_hashable = is_contiguously_hashable_v<T>;
+
 template <class T1, class T2>
 struct is_contiguously_hashable<std::pair<T1, T2>>
     : std::integral_constant<bool, is_contiguously_hashable_v<T1> &&

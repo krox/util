@@ -630,6 +630,25 @@ template <class T, class Impl> class Vector
 	void push_back(T const &value) { emplace_back(value); }
 	void push_back(T &&value) { emplace_back(std::move(value)); }
 
+	// add raw bytes to the back
+	template <contiguously_hashable U>
+	void push_back_raw(U const &value)
+	    requires std::is_same_v<T, std::byte>
+	{
+		reserve_with_spare(size() + sizeof(U));
+		std::memcpy(end(), &value, sizeof(U));
+		set_size_unsafe(size() + sizeof(U));
+	}
+
+	template <contiguously_hashable U>
+	void push_back_raw(std::span<const U> values)
+	    requires std::is_same_v<T, std::byte>
+	{
+		reserve_with_spare(size() + values.size() * sizeof(U));
+		std::memcpy(end(), values.data(), values.size() * sizeof(U));
+		set_size_unsafe(size() + values.size() * sizeof(U));
+	}
+
 	T pop_back()
 	{
 		T r = relocate(&back());

@@ -35,8 +35,10 @@
 #include "util/memory.h"
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <stdexcept>
 #include <type_traits>
@@ -814,6 +816,63 @@ using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
 template <typename T>
 using indirect_vector = detail::Vector<T, detail::IndirectStorage<T>>;
 
+enum class filter_action : uint8_t
+{
+	drop,
+	keep,
+	keep_rest,
+	drop_rest,
+	keep_drop_rest,
+	drop_keep_rest,
+};
+
+// in-place filtering backend that compacts [first,last) and returns the new
+// logical end.
+//   * this is effectively a mor powerful variant of 'std::remove_if'
+//   * tail is left in valid-but-unspecified state.
+template <std::forward_iterator It>
+It filter_inplace(It first, It last,
+                  std::invocable<std::iter_reference_t<It>> auto pred)
+{
+	auto out = first;
+	for (auto it = first; it != last; ++it)
+	{
+		filter_action action = std::invoke(pred, *it);
+		switch (action)
+		{
+		case filter_action::drop:
+			break;
+		case filter_action::keep:
+			if (out != it)
+				*out = std::move(*it);
+			++out;
+			break;
+		case filter_action::keep_rest:
+			if (out != it)
+				return std::move(it, last, out);
+			else
+				return last;
+		case filter_action::drop_rest:
+			return out;
+		case filter_action::keep_drop_rest:
+			if (out != it)
+				*out = std::move(*it);
+			++out;
+			return out;
+		case filter_action::drop_keep_rest:
+			++it;
+			return std::move(it, last, out);
+		}
+	}
+	return out;
+}
+
+void filter_inplace(auto &c, auto pred)
+{
+	auto it = filter_inplace(std::begin(c), std::end(c), std::ref(pred));
+	c.erase(it, std::end(c));
+}
+
 // Wrapper around a util::vector that automatically grows, thus acting more like
 // an associative container with integer keys.
 //   * this efficient if the maximum key is close to the number of stored
@@ -1178,7 +1237,8 @@ template <class Value> class vector_multimap
 		return data_[index];
 	}
 
-	// erase operations
+	// erase all elements of a given key, returning the number of erased
+	// elements.
 	size_t erase(size_t index)
 	{
 		if (index >= data_.size())
@@ -1187,24 +1247,54 @@ template <class Value> class vector_multimap
 		data_[index].clear();
 		return r;
 	}
+
+	// erase all elements of a given key that are equal to value, returning the
+	// number of erased elements.
 	size_t erase(size_t index, Value const &value)
 	{
 		if (index >= data_.size())
 			return 0;
 		return detail::erase(data_[index], value);
 	}
-	size_t erase_if(size_t index, auto pred)
-	{
-		if (index >= data_.size())
-			return 0;
-		return detail::erase_if(data_[index], pred);
-	}
+
+	// erase at most one element of a given key that is equal to value. Returns
+	// true if an element was erased.
 	bool erase_one(size_t index, Value const &value)
 	{
 		if (index >= data_.size())
 			return false;
 		return detail::erase_one(data_[index], value);
 	}
+
+	// erase all elements of a given key that match pred, returning the number
+	// of erased elements.
+	size_t erase_if(size_t index, auto pred)
+	{
+		if (index >= data_.size())
+			return 0;
+		return detail::erase_if(data_[index], pred);
+	}
+
+	// more general filtering of elements of a given key.
+	//   * As an extra feature, adding/removing elements inside the predicate is
+	//     allowed as long as only other keys are modified. This is useful for
+	//     algorithms that need to move elements between keys.
+	void filter_inplace(size_t index, auto pred)
+	{
+		if (index >= data_.size())
+			return;
+		// important: just calling 'filter_inplace(data_[index], pred)' would be
+		// incorrect, because 'pred' is allowed to modify other keys, which
+		// could trigger reallocation of the outer vector. Therefore we call
+		// filter_inplace with iterators and index into 'data_' again
+		// afterwards.
+		auto begin = data_[index].begin();
+		auto end = data_[index].end();
+		auto new_end = util::filter_inplace(begin, end, std::ref(pred));
+		data_[index].erase(new_end, end);
+	}
+
+	// sort and remove duplicates for a given key
 	void unique_sort(size_t index)
 	{
 		if (index >= data_.size())

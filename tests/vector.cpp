@@ -5,6 +5,7 @@
 #include "util/vector2d.h"
 
 #include <unordered_map>
+#include <vector>
 
 // wrapper around int that tracks all special members
 struct Int
@@ -160,6 +161,100 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		b.emplace_back(3);
 		erase_if(b, [](auto const &x) { return x == 2; });
 		CHECK((b.size() == 2 && b[0] == 1 && b[1] == 3));
+	}
+
+	SECTION("filter_action")
+	{
+		auto make = []() { return TestType{1, 2, 3, 4}; };
+
+		SECTION("drop")
+		{
+			auto c = make();
+			util::filter_inplace(c, [](auto const &x) {
+				return (x % 2 == 0) ? util::filter_action::drop
+				                    : util::filter_action::keep;
+			});
+			CHECK(c == TestType{1, 3});
+		}
+
+		SECTION("keep")
+		{
+			auto c = make();
+			util::filter_inplace(
+			    c, [](auto const &) { return util::filter_action::keep; });
+			CHECK(c == TestType{1, 2, 3, 4});
+		}
+
+		SECTION("keep_rest")
+		{
+			auto c = make();
+			util::filter_inplace(c, [](auto const &x) {
+				if (x == 1)
+					return util::filter_action::drop;
+				if (x == 3)
+					return util::filter_action::keep_rest;
+				return util::filter_action::keep;
+			});
+			CHECK(c == TestType{2, 3, 4});
+		}
+
+		SECTION("drop_rest")
+		{
+			auto c = make();
+			util::filter_inplace(c, [](auto const &x) {
+				if (x == 3)
+					return util::filter_action::drop_rest;
+				return util::filter_action::keep;
+			});
+			CHECK(c == TestType{1, 2});
+		}
+
+		SECTION("keep_drop_rest")
+		{
+			auto c = make();
+			util::filter_inplace(c, [](auto const &x) {
+				if (x == 3)
+					return util::filter_action::keep_drop_rest;
+				return util::filter_action::keep;
+			});
+			CHECK(c == TestType{1, 2, 3});
+		}
+
+		SECTION("drop_keep_rest")
+		{
+			auto c = make();
+			util::filter_inplace(c, [](auto const &x) {
+				if (x == 3)
+					return util::filter_action::drop_keep_rest;
+				return util::filter_action::keep;
+			});
+			CHECK(c == TestType{1, 2, 4});
+		}
+	}
+}
+
+TEST_CASE("filter_inplace generic", "[vector]")
+{
+	SECTION("container overload std::vector")
+	{
+		auto v = std::vector<int>{1, 2, 3, 4, 5};
+		util::filter_inplace(v, [](int x) {
+			return (x % 2 == 0) ? util::filter_action::drop
+			                    : util::filter_action::keep;
+		});
+		CHECK(v == std::vector<int>{1, 3, 5});
+	}
+
+	SECTION("iterator overload keeps logical tail")
+	{
+		auto v = std::vector<int>{1, 2, 3, 4, 5};
+		auto e = util::filter_inplace(v.begin(), v.end(), [](int x) {
+			if (x == 3)
+				return util::filter_action::keep_drop_rest;
+			return util::filter_action::keep;
+		});
+		CHECK(std::vector<int>(v.begin(), e) == std::vector<int>{1, 2, 3});
+		CHECK(v.size() == 5);
 	}
 }
 

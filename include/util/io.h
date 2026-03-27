@@ -1,6 +1,8 @@
 #pragma once
 
 #include "util/memory.h"
+#include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -114,7 +116,14 @@ class MappedFile
 	explicit operator bool() const { return ptr_; }
 };
 
+// zstd compression/decompression
+std::string decompress(std::span<const std::byte> data);
+std::vector<std::byte> compress(std::string_view text,
+                                int compression_level = 3);
+
 // convenience functions for reading/writing entire files
+//   * reading a text file automatically detects and unpacks zstd compression.
+//     Reading binary files does not do this.
 std::string read_file(std::string_view filename);
 std::vector<std::byte> read_binary_file(std::string_view filename);
 void write_file(std::string_view filename, std::string_view data);

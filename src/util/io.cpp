@@ -3,12 +3,32 @@
 #include "fmt/format.h"
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifdef UTIL_ZSTD
+#include <zstd.h>
+#endif
+
 namespace util {
+
+namespace {
+
+constexpr std::byte ZSTD_FRAME_MAGIC[] = {std::byte{0x28}, std::byte{0xB5},
+                                          std::byte{0x2F}, std::byte{0xFD}};
+
+bool has_zstd_magic(std::span<const std::byte> data)
+{
+	if (data.size() < sizeof(ZSTD_FRAME_MAGIC))
+		return false;
+	return std::memcmp(data.data(), ZSTD_FRAME_MAGIC,
+	                   sizeof(ZSTD_FRAME_MAGIC)) == 0;
+}
+
+} // namespace
 
 void fclose_delete::operator()(FILE *p)
 {
@@ -148,6 +168,63 @@ void MappedFile::close() noexcept
 	ptr_ = nullptr;
 }
 
+std::string decompress(std::span<const std::byte> data)
+{
+#ifdef UTIL_ZSTD
+	auto dctx = ZSTD_createDCtx();
+	if (!dctx)
+		throw std::runtime_error(
+		    "zstd decompression failed: could not allocate dctx");
+
+	std::string out;
+	out.reserve(ZSTD_DStreamOutSize());
+
+	std::vector<char> chunk(ZSTD_DStreamOutSize());
+	ZSTD_inBuffer in = {data.data(), data.size(), 0};
+
+	while (in.pos < in.size)
+	{
+		ZSTD_outBuffer out_buf = {chunk.data(), chunk.size(), 0};
+		auto const ret = ZSTD_decompressStream(dctx, &out_buf, &in);
+		if (ZSTD_isError(ret))
+		{
+			ZSTD_freeDCtx(dctx);
+			throw std::runtime_error(fmt::format(
+			    "zstd decompression failed: {}", ZSTD_getErrorName(ret)));
+		}
+
+		out.append(chunk.data(), out_buf.pos);
+	}
+
+	ZSTD_freeDCtx(dctx);
+	return out;
+#else
+	(void)data;
+	throw std::runtime_error(
+	    "util built without zstd support (enable UTIL_ZSTD to decompress)");
+#endif
+}
+
+std::vector<std::byte> compress(std::string_view text, int compression_level)
+{
+#ifdef UTIL_ZSTD
+	auto const max_size = ZSTD_compressBound(text.size());
+	std::vector<std::byte> out(max_size);
+	auto const written = ZSTD_compress(out.data(), out.size(), text.data(),
+	                                   text.size(), compression_level);
+	if (ZSTD_isError(written))
+		throw std::runtime_error(fmt::format("zstd compression failed: {}",
+		                                     ZSTD_getErrorName(written)));
+	out.resize(written);
+	return out;
+#else
+	(void)text;
+	(void)compression_level;
+	throw std::runtime_error(
+	    "util built without zstd support (enable UTIL_ZSTD to compress)");
+#endif
+}
+
 std::string read_file(std::string_view filename)
 {
 	auto file = open_file(filename, "rb");
@@ -162,6 +239,13 @@ std::string read_file(std::string_view filename)
 	auto read = std::fread(&s[0], 1u, size, file.get());
 	if ((size_t)read != (size_t)size)
 		throw std::runtime_error("could not read from file");
+
+	if (has_zstd_magic(
+	        std::span(reinterpret_cast<const std::byte *>(s.data()), s.size())))
+	{
+		return decompress(
+		    std::span(reinterpret_cast<const std::byte *>(s.data()), s.size()));
+	}
 
 	return s;
 }

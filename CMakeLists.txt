@@ -7,12 +7,15 @@ option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
 option(UTIL_HDF5 "link to HDF5 for I/O" OFF)
 option(UTIL_LUA "link to Lua for scripting" OFF)
 option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" OFF)
+option(UTIL_ZSTD "build with vendored zstd compression support" OFF)
 
 set(UTIL_SQLITE3_ENABLED ${UTIL_SQLITE3})
 set(UTIL_LUA_ENABLED ${UTIL_LUA})
+set(UTIL_ZSTD_ENABLED ${UTIL_ZSTD})
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	set(UTIL_SQLITE3_ENABLED ON)
 	set(UTIL_LUA_ENABLED ON)
+	set(UTIL_ZSTD_ENABLED ON)
 endif()
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
@@ -113,6 +116,19 @@ CPMAddPackage(
 	GIT_TAG 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9 # v2.4.2
 )
 
+if(UTIL_ZSTD_ENABLED)
+	CPMAddPackage(
+		NAME zstd
+		GITHUB_REPOSITORY facebook/zstd
+		GIT_TAG 794ea1b0afca0f020f4e57b6732332231fb23c70 # v1.5.6
+		SOURCE_SUBDIR build/cmake
+		OPTIONS
+		"ZSTD_BUILD_PROGRAMS OFF"
+		"ZSTD_BUILD_TESTS OFF"
+		"ZSTD_BUILD_CONTRIB OFF"
+	)
+endif()
+
 # warning options
 set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
 
@@ -151,6 +167,23 @@ if(UTIL_SQLITE3_ENABLED)
 	target_compile_definitions(util PUBLIC UTIL_SQLITE3)
 endif()
 
+if(UTIL_ZSTD_ENABLED)
+	if(TARGET libzstd_static)
+		set(UTIL_ZSTD_TARGET libzstd_static)
+	elseif(TARGET zstd::libzstd_static)
+		set(UTIL_ZSTD_TARGET zstd::libzstd_static)
+	elseif(TARGET libzstd_shared)
+		set(UTIL_ZSTD_TARGET libzstd_shared)
+	elseif(TARGET zstd::libzstd_shared)
+		set(UTIL_ZSTD_TARGET zstd::libzstd_shared)
+	else()
+		message(FATAL_ERROR "Could not find a zstd library target from vendored dependency")
+	endif()
+
+	target_link_libraries(util PUBLIC ${UTIL_ZSTD_TARGET})
+	target_compile_definitions(util PUBLIC UTIL_ZSTD)
+endif()
+
 # executables
 foreach(bin "json-format" "sha256sum" "random")
 	add_executable(${bin} src/apps/${bin}.cpp)
@@ -182,7 +215,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/io.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g)

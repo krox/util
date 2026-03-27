@@ -5,11 +5,14 @@ include(CheckCXXSourceCompiles)
 
 option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
 option(UTIL_HDF5 "link to HDF5 for I/O" OFF)
+option(UTIL_LUA "link to Lua for scripting" OFF)
 option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" OFF)
 
 set(UTIL_SQLITE3_ENABLED ${UTIL_SQLITE3})
+set(UTIL_LUA_ENABLED ${UTIL_LUA})
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	set(UTIL_SQLITE3_ENABLED ON)
+	set(UTIL_LUA_ENABLED ON)
 endif()
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
@@ -54,13 +57,20 @@ endif()
 
 message(STATUS "util SIMD backend: ${UTIL_SIMD_BACKEND_RESOLVED} (requested: ${UTIL_SIMD_BACKEND})")
 
+include(FetchContent)
+
 # dependencies
 if(UTIL_HDF5)
 	find_package(HDF5 REQUIRED)
 endif()
 
+if(UTIL_LUA_ENABLED)
+	find_package(Lua REQUIRED)
+	set(UTIL_LUA_INCLUDE_DIRS ${LUA_INCLUDE_DIR})
+	set(UTIL_LUA_LIBRARIES ${LUA_LIBRARIES})
+endif()
+
 include(cmake/CPM.cmake)
-include(FetchContent)
 
 if(UTIL_SQLITE3_ENABLED)
 	set(UTIL_SQLITE3_AMALGAMATION_VERSION "3500400" CACHE STRING "SQLite amalgamation version number from sqlite.org")
@@ -128,6 +138,13 @@ if(UTIL_HDF5)
 	target_compile_definitions(util PUBLIC UTIL_HDF5)
 endif()
 
+if(UTIL_LUA_ENABLED)
+	target_sources(util PRIVATE src/util/lua.cpp)
+	target_include_directories(util PUBLIC ${UTIL_LUA_INCLUDE_DIRS})
+	target_link_libraries(util PUBLIC ${UTIL_LUA_LIBRARIES})
+	target_compile_definitions(util PUBLIC UTIL_LUA)
+endif()
+
 if(UTIL_SQLITE3_ENABLED)
 	target_sources(util PRIVATE ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c)
 	target_include_directories(util PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
@@ -141,6 +158,13 @@ foreach(bin "json-format" "sha256sum" "random")
 	target_compile_options(${bin} PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
 	target_link_libraries(${bin} util CLI11::CLI11)
 endforeach(bin)
+
+if(UTIL_LUA_ENABLED)
+	add_executable(lua-repl src/apps/lua-repl.cpp)
+	target_compile_features(lua-repl PUBLIC cxx_std_20)
+	target_compile_options(lua-repl PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
+	target_link_libraries(lua-repl util)
+endif()
 
 # install
 file(GLOB files_h "src/include/*.h")
@@ -158,7 +182,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g)

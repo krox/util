@@ -12,11 +12,13 @@ option(UTIL_ZSTD "build with vendored zstd compression support" OFF)
 set(UTIL_SQLITE3_ENABLED ${UTIL_SQLITE3})
 set(UTIL_LUA_ENABLED ${UTIL_LUA})
 set(UTIL_ZSTD_ENABLED ${UTIL_ZSTD})
+
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	set(UTIL_SQLITE3_ENABLED ON)
 	set(UTIL_LUA_ENABLED ON)
 	set(UTIL_ZSTD_ENABLED ON)
 endif()
+
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
 set(UTIL_SIMD_BACKEND_ALLOWED AUTO AVX GENERIC)
@@ -85,6 +87,7 @@ if(UTIL_SQLITE3_ENABLED)
 		DOWNLOAD_EXTRACT_TIMESTAMP FALSE
 	)
 	FetchContent_GetProperties(sqlite3_amalgamation)
+
 	if(NOT sqlite3_amalgamation_POPULATED)
 		FetchContent_Populate(sqlite3_amalgamation)
 	endif()
@@ -116,6 +119,13 @@ CPMAddPackage(
 	GIT_TAG 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9 # v2.4.2
 )
 
+CPMAddPackage(
+	NAME linenoise
+	GITHUB_REPOSITORY antirez/linenoise
+	GIT_TAG master
+	DOWNLOAD_ONLY True
+)
+
 if(UTIL_ZSTD_ENABLED)
 	CPMAddPackage(
 		NAME zstd
@@ -133,11 +143,12 @@ endif()
 set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
 
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp ${linenoise_SOURCE_DIR}/linenoise.c)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
 target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
+target_include_directories(util PRIVATE ${linenoise_SOURCE_DIR})
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
 target_compile_options(util PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
 target_compile_options(util PUBLIC ${UTIL_SIMD_COMPILE_OPTIONS})

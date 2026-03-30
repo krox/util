@@ -1,7 +1,7 @@
 #include "fmt/format.h"
+#include "util/linenoise.h"
 #include "util/lua.h"
 
-#include <iostream>
 #include <string>
 
 namespace {
@@ -16,17 +16,14 @@ bool is_syntax_error(std::string const &msg)
 int main()
 {
 	util::Lua lua;
+	util::Linenoise linenoise("lua-repl");
 
-	std::string line;
 	while (true)
 	{
-		fmt::print("lua> ");
-		if (!std::getline(std::cin, line))
+		auto line = linenoise("lua> ");
+		if (line.empty() || line == ":quit" || line == ":q" || line == "quit" ||
+		    line == "exit")
 			break;
-		if (line == ":quit" || line == ":q" || line == "quit" || line == "exit")
-			break;
-		if (line.empty())
-			continue;
 
 		try
 		{

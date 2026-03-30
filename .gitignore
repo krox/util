@@ -2,3 +2,4 @@ build/
 python/
 .venv
 .vscode
+.*_history

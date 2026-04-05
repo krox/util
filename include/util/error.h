@@ -50,6 +50,8 @@ template <class... Args>
 void assume(bool cond, fmt::format_string<Args...> str = "util::assume failed",
             Args &&...args) noexcept
 {
+	(void)str;
+	((void)args, ...);
 	if (cond) [[likely]]
 		return;
 

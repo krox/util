@@ -16,11 +16,31 @@ extern "C"
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace util {
+
+template <class T> struct lua_struct_traits;
+
+template <class T>
+concept lua_struct_type =
+    requires { lua_struct_traits<std::remove_cvref_t<T>>::fields; };
+
+template <class Struct, class Member> struct LuaField
+{
+	std::string_view name;
+	Member Struct::*member;
+};
+
+template <class Struct, class Member>
+constexpr LuaField<Struct, Member> lua_field(std::string_view name,
+                                             Member Struct::*member)
+{
+	return {name, member};
+}
 
 class LuaError : public std::runtime_error
 {
@@ -175,14 +195,16 @@ class Lua
 		R call_value(lua_State *L, std::index_sequence<I...>)
 		{
 			check_arity(L);
-			return fn(Lua::read_value<Args>(L, static_cast<int>(I) + 1)...);
+			return fn(Lua::read_value<std::remove_cvref_t<Args>>(
+			    L, static_cast<int>(I) + 1)...);
 		}
 
 		template <std::size_t... I>
 		void call_void(lua_State *L, std::index_sequence<I...>)
 		{
 			check_arity(L);
-			fn(Lua::read_value<Args>(L, static_cast<int>(I) + 1)...);
+			fn(Lua::read_value<std::remove_cvref_t<Args>>(
+			    L, static_cast<int>(I) + 1)...);
 		}
 
 		void check_arity(lua_State *L) const
@@ -204,6 +226,8 @@ class Lua
 			return static_cast<T>(read_floating(L, index));
 		else if constexpr (std::is_same_v<std::remove_cvref_t<T>, std::string>)
 			return read_string(L, index);
+		else if constexpr (is_lua_struct_v<std::remove_cvref_t<T>>)
+			return read_struct<std::remove_cvref_t<T>>(L, index);
 		else if constexpr (is_std_vector_v<std::remove_cvref_t<T>>)
 			return read_vector<T>(L, index);
 		else
@@ -224,6 +248,8 @@ class Lua
 		else if constexpr (std::is_same_v<std::remove_cvref_t<T>,
 		                                  std::string_view>)
 			lua_pushlstring(L, value.data(), value.size());
+		else if constexpr (is_lua_struct_v<std::remove_cvref_t<T>>)
+			push_struct(L, value);
 		else if constexpr (is_std_span_v<std::remove_cvref_t<T>>)
 			push_sequence(L, value);
 		else if constexpr (is_std_vector_v<std::remove_cvref_t<T>>)
@@ -251,7 +277,112 @@ class Lua
 	static constexpr bool is_std_span_v =
 	    is_std_span<std::remove_cvref_t<T>>::value;
 
+	template <class T>
+	static constexpr bool is_lua_struct_v =
+	    lua_struct_type<std::remove_cvref_t<T>>;
+
 	template <class T> static constexpr bool always_false_v = false;
+
+	template <class Struct, class Member>
+	static bool assign_struct_field(lua_State *L, Struct &out,
+	                                std::string_view key, int index,
+	                                LuaField<Struct, Member> const &field)
+	{
+		if (field.name != key)
+			return false;
+
+		try
+		{
+			out.*(field.member) = read_value<Member>(L, index);
+		}
+		catch (LuaError const &e)
+		{
+			throw LuaError("invalid value for field '" + std::string(key) +
+			               "': " + e.what());
+		}
+
+		return true;
+	}
+
+	template <class Struct, class Tuple, std::size_t... I>
+	static bool assign_struct_field(lua_State *L, Struct &out,
+	                                std::string_view key, int index,
+	                                Tuple const &fields,
+	                                std::index_sequence<I...>)
+	{
+		return (assign_struct_field(L, out, key, index, std::get<I>(fields)) ||
+		        ...);
+	}
+
+	template <class Struct>
+	static bool assign_struct_field(lua_State *L, Struct &out,
+	                                std::string_view key, int index)
+	{
+		using Traits = lua_struct_traits<Struct>;
+		return assign_struct_field(
+		    L, out, key, index, Traits::fields,
+		    std::make_index_sequence<std::tuple_size_v<
+		        std::remove_reference_t<decltype(Traits::fields)>>>{});
+	}
+
+	template <class Struct> static Struct read_struct(lua_State *L, int index)
+	{
+		if (!lua_istable(L, index))
+			throw LuaError("expected Lua table");
+
+		StackGuard guard(L);
+		int abs = lua_absindex(L, index);
+		Struct out{};
+
+		lua_pushnil(L);
+		while (lua_next(L, abs) != 0)
+		{
+			if (!lua_isstring(L, -2))
+				throw LuaError("expected string key in Lua table");
+
+			size_t len = 0;
+			char const *key = lua_tolstring(L, -2, &len);
+			if (key == nullptr)
+				throw LuaError("expected string key in Lua table");
+
+			std::string_view name(key, len);
+			if (!assign_struct_field(L, out, name, -1))
+				throw LuaError("unknown Lua table key '" + std::string(name) +
+				               "'");
+
+			lua_pop(L, 1);
+		}
+
+		return out;
+	}
+
+	template <class Struct, class Member>
+	static void push_struct_field(lua_State *L, Struct const &value,
+	                              LuaField<Struct, Member> const &field)
+	{
+		push_value(L, value.*(field.member));
+		lua_setfield(L, -2, std::string(field.name).c_str());
+	}
+
+	template <class Struct, class Tuple, std::size_t... I>
+	static void push_struct_fields(lua_State *L, Struct const &value,
+	                               Tuple const &fields,
+	                               std::index_sequence<I...>)
+	{
+		(push_struct_field(L, value, std::get<I>(fields)), ...);
+	}
+
+	template <class Struct>
+	static void push_struct(lua_State *L, Struct const &value)
+	{
+		using Traits = lua_struct_traits<Struct>;
+		using Fields = std::remove_reference_t<decltype(Traits::fields)>;
+
+		lua_createtable(L, 0, static_cast<int>(std::tuple_size_v<Fields>));
+		push_struct_fields(
+		    L, value, Traits::fields,
+		    std::make_index_sequence<std::tuple_size_v<Fields>>{});
+	}
 
 	template <class Seq>
 	static void push_sequence(lua_State *L, Seq const &value)

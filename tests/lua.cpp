@@ -1,4 +1,5 @@
 #include "catch2/catch_test_macros.hpp"
+#include "catch2/matchers/catch_matchers_string.hpp"
 
 #include "util/lua.h"
 
@@ -8,6 +9,28 @@
 #include <vector>
 
 using namespace util;
+
+namespace {
+
+struct SolverOptions
+{
+	double tol = 1.0e-10;
+	int steps = 1000;
+	bool verbose = false;
+	std::string label = "default";
+};
+
+} // namespace
+
+template <> struct util::lua_struct_traits<SolverOptions>
+{
+	using Self = SolverOptions;
+	static constexpr auto fields =
+	    std::make_tuple(util::lua_field("tol", &Self::tol),
+	                    util::lua_field("steps", &Self::steps),
+	                    util::lua_field("verbose", &Self::verbose),
+	                    util::lua_field("label", &Self::label));
+};
 
 TEST_CASE("lua scripting", "[lua]")
 {
@@ -92,4 +115,66 @@ TEST_CASE("lua conversion failures keep state usable", "[lua]")
 
 	lua.run("x = 123");
 	CHECK(lua.get<int>("x") == 123);
+}
+
+TEST_CASE("lua registered structs decode named option tables", "[lua]")
+{
+	Lua lua;
+	SolverOptions seen;
+
+	lua.set("solve", [&](SolverOptions const &opts) { seen = opts; });
+
+	lua.run("solve{}");
+	CHECK(seen.tol == 1.0e-10);
+	CHECK(seen.steps == 1000);
+	CHECK(seen.verbose == false);
+	CHECK(seen.label == "default");
+
+	lua.run("solve{tol=1.0e-8, steps=42, verbose=true, label='fast'}");
+	CHECK(seen.tol == 1.0e-8);
+	CHECK(seen.steps == 42);
+	CHECK(seen.verbose == true);
+	CHECK(seen.label == "fast");
+}
+
+TEST_CASE("lua registered structs reject unknown keys and bad field types",
+          "[lua]")
+{
+	Lua lua;
+	lua.set("solve", [](SolverOptions const &) {});
+
+	CHECK_THROWS_WITH(lua.run("solve{stpes=10}"),
+	                  Catch::Matchers::ContainsSubstring("stpes"));
+	CHECK_THROWS_WITH(lua.run("solve{steps='foo'}"),
+	                  Catch::Matchers::ContainsSubstring("steps"));
+	CHECK_THROWS_WITH(
+	    lua.run("solve{steps='foo'}"),
+	    Catch::Matchers::ContainsSubstring("expected Lua integer"));
+}
+
+TEST_CASE("lua registered structs return to Lua as named tables", "[lua]")
+{
+	Lua lua;
+
+	lua.set("defaults", [] {
+		return SolverOptions{
+		    .tol = 1.0e-7, .steps = 77, .verbose = true, .label = "from-cpp"};
+	});
+	lua.set("capture", [](SolverOptions const &opts) { return opts; });
+
+	lua.run(
+	    "returned = defaults(); tol = returned.tol; steps = returned.steps; "
+	    "verbose = returned.verbose; label = returned.label; "
+	    "echoed = capture(returned)");
+
+	CHECK(lua.get<double>("tol") == 1.0e-7);
+	CHECK(lua.get<int>("steps") == 77);
+	CHECK(lua.get<bool>("verbose") == true);
+	CHECK(lua.get<std::string>("label") == "from-cpp");
+
+	SolverOptions echoed = lua.get<SolverOptions>("echoed");
+	CHECK(echoed.tol == 1.0e-7);
+	CHECK(echoed.steps == 77);
+	CHECK(echoed.verbose == true);
+	CHECK(echoed.label == "from-cpp");
 }

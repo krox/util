@@ -254,6 +254,26 @@ template class Estimator<2>;
 template class Estimator<3>;
 template class Estimator<4>;
 
+Estimate estimate_log_mean_exp(std::span<const double> xs, double base)
+{
+	assert(std::isfinite(base));
+	assert(base > 1.0);
+
+	if (xs.size() <= 2)
+		return {0.0 / 0.0, 0.0 / 0.0};
+
+	// shifting everything my max(X) avoids numerical overflow/underflow
+	double anchor = xs[0];
+	for (double x : xs)
+		anchor = std::max(anchor, x);
+
+	// estimate mean(base^(X - anchor))
+	auto est = estimate_mean(
+	    xs, [anchor, base](double x) { return std::pow(base, x - anchor); });
+
+	return anchor + log(est) * (1.0 / std::log(base));
+}
+
 void BinnedSeries::add(double x)
 {
 	if (binsize_ == 1)

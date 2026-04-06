@@ -5,9 +5,80 @@
 #include "util/span.h"
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace util {
+
+// value + (presumably Gaussian) error estimation
+struct Estimate
+{
+	double value_;
+	double variance_ = 0;
+
+	double value() const { return value_; }
+	double error() const { return std::sqrt(variance_); }
+	double variance() const { return variance_; }
+
+	Estimate(double value, double variance) : value_(value), variance_(variance)
+	{}
+	Estimate(double value) : value_(value), variance_(0) {}
+};
+
+// Note: these operator overloads assume independent estimates. Use with care.
+inline Estimate operator+(Estimate a, Estimate b)
+{
+	return Estimate(a.value() + b.value(), a.variance() + b.variance());
+}
+inline Estimate operator-(Estimate a, Estimate b)
+{
+	return Estimate(a.value() - b.value(), a.variance() + b.variance());
+}
+inline Estimate operator*(Estimate a, Estimate b)
+{
+	double value = a.value() * b.value();
+	double variance = a.value() * a.value() * b.variance() +
+	                  b.value() * b.value() * a.variance();
+	return Estimate(value, variance);
+}
+
+// natural logarithm
+//   * error propagation is purely Gaussian, so potentially not great
+inline Estimate log(Estimate a)
+{
+	double value = std::log(a.value());
+	double variance = a.variance() / (a.value() * a.value());
+	return Estimate(value, variance);
+}
+
+// variance of f(x_i)
+template <typename F> Estimate estimate_mean(gspan<const double> xs, F f)
+{
+	// there are surprisingly many ways to compute the variance:
+	//    * <(x-<x>)^2>:
+	//      numerically stable, but requires two passes over the data
+	//    * <x^2> - <x>^2:
+	//      instable, but only requires one pass
+	//    * "Welford's online algorithm":
+	//      stable, only one pass but somewhat inefficient (division in loop)
+	//    * approximate mean and then run Welford on shifted data:
+	//      slowest version, but numerically essentially perfect. Would be
+	//      cool to encounter an actual usecase.
+	//
+	// Here, we choose Welford's algorithm, because we want to guarantee that
+	// f is only evaluated once for every element, without allocating any
+	// temporary memory. Other than that, stability is more important than
+	// performance.
+	double mean = 0, sum2 = 0;
+	for (size_t i = 0; i < xs.size(); ++i)
+	{
+		double fx = f(xs[i]);
+		double dx = fx - mean;
+		mean += dx / (i + 1);
+		sum2 += dx * (fx - mean);
+	}
+	return Estimate(mean, sum2 / xs.size() / (xs.size() - 1));
+}
 
 // simple population statistics
 
@@ -26,21 +97,7 @@ template <typename F> double mean(gspan<const double> xs, F f)
 // variance of f(x_i)
 template <typename F> double variance(gspan<const double> xs, F f)
 {
-	// there are surprisingly many ways to compute the variance:
-	//    * <(x-<x>)^2>:
-	//      numerically stable, but requires two passes over the data
-	//    * <x^2> - <x>^2:
-	//      instable, but only requires one pass
-	//    * "Welford's online algorithm":
-	//      stable, only one pass but somewhat inefficient (division in loop)
-	//    * approximate mean and then run Welford on shifted data:
-	//      slowest version, but numerically essentially perfect. Would be
-	//      cool to encounter an actual usecase.
-	//
-	// Here, we choose Welford's algorithm, because we want to guarantee that
-	// f is only evaluated once for every element, without allocating any
-	// temporary memory. Other than that, stability is more important than
-	// performance.
+	// see 'estimate_mean' for details on the algorithm.
 	double mean = 0, sum2 = 0;
 	for (size_t i = 0; i < xs.size(); ++i)
 	{
@@ -260,6 +317,8 @@ template <> class Estimator<1>
 
 	double mean() const { return m; }
 
+	double mean_error() const { return std::sqrt(variance() / n); }
+
 	double variance() const { return m2 / (n - 1); }
 
 	double skewness() const { return m3 / n / std::pow(variance(), 1.5); }
@@ -274,6 +333,12 @@ template <> class Estimator<1>
 	// reset everything
 	void clear() { n = m = m2 = m3 = m4 = 0; }
 };
+
+// Estimates log(E(exp(X))) from a sample of X
+//   * safe from overflow in exponential
+//   * quality if error estimate is limited due to non-Gaussian distribution of
+//     exp(X), even if X itself is nicely behaved
+Estimate estimate_log_mean_exp(std::span<const double> xs, double base);
 
 // records a time-series, automatically increasing the bin size to keep the
 // number of stored samples bounded.

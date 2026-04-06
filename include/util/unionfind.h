@@ -95,8 +95,8 @@ class UnionFind
 	int compSize(int a) const { return size_[root(a)]; }
 
 	/**
-	 * Returns: Array of size `.length` such that each connected component
-	 *          has a unique number between 0 and .nComps+1
+	 * Returns: Array of size `.size` such that each connected component
+	 *          has a unique number between 0 and .nComps-1
 	 *
 	 * If `minSize > 1`, all elements in components smaller than minSize
 	 * are ignored and indicated as `-1` in the output.
@@ -116,6 +116,23 @@ class UnionFind
 			comp[i] = comp[root(i)];
 
 		return comp;
+	}
+
+	std::vector<std::vector<int>> compList(int minSize = 1) const
+	{
+		std::vector<std::vector<int>> r;
+		r.reserve(nComp_);
+		auto c = components(minSize);
+		for (int i = 0; i < (int)c.size(); ++i)
+			if (c[i] >= 0)
+			{
+				if (c[i] >= (int)r.size())
+					r.resize(c[i] + 1);
+				r[c[i]].push_back(i);
+			}
+		for (auto &v : r)
+			assert(v.size() >= (size_t)minSize);
+		return r;
 	}
 
 	std::vector<int> compSizes(int minSize = 1) const

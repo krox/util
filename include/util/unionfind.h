@@ -1,151 +1,111 @@
-#ifndef UTIL_UNIONFIND_H
-#define UTIL_UNIONFIND_H
+#pragma once
 
 #include "util/span.h"
 #include <algorithm>
+#include <cassert>
 #include <climits>
 #include <vector>
 
 namespace util {
-/**
- *  "Disjoint-set data structure".
- *  Quite beautiful, but very special-purpose data structure. So if you don't
- *  know what this is, don't worry, you don't need it.
- */
+
+// Disjoint-set data structure, also known as union-find.
+// implementation details:
+//   * When joining two components, the smaller one is merged into the larger
+//     one. This guarantees worst-case logarithmic time complexities.
+//   * Additionally, some non-const operations do path compression, which can
+//     result in near-constant ("inverse Ackermann") time complexities. But it
+//     is not worthwhile to sacrifice const-correctness for this optimization,
+//     so this is just done opportunistically without strict guarantees.
 class UnionFind
 {
-	std::vector<int> par_, size_;
-	int nComp_ = 0;
+	// main data structure: roots are indicated by 'parent_[i] == i', 'size_' is
+	// only valid for roots.
+	std::vector<int> parent_, size_;
+
+	// track number of components explicitly for convenience
+	int singleton_count_ = 0; // components of size 1
+	int large_count_ = 0;     // components of size > 1
+
+	// find root-node with and without path compression
+	int root(int a);
+	int root(int a) const;
 
   public:
-	int root(int a)
-	{
-		assert(0 <= a && a < (int)par_.size());
-		while (par_[a] != a)
-			a = par_[a] = par_[par_[a]];
-		return a;
-	}
-
-	int root(int a) const
-	{
-		assert(0 <= a && a < (int)par_.size());
-		while (par_[a] != a)
-			a = par_[a];
-		return a;
-	}
-
+	// default constructor, 0 nodes, 0 components
 	UnionFind() = default;
 
-	/** constructor that starts with n disjoint components, numbered 0 to n-1 */
-	UnionFind(size_t n) : par_(n), size_(n, 1), nComp_((int)n)
+	// Constructor that starts with n disjoint components, numbered 0 to n-1.
+	explicit UnionFind(size_t n);
+
+	// Resets to all-disconnected state with the same number of nodes.
+	void clear();
+
+	// Number of nodes.
+	int size() const noexcept { return parent_.size(); }
+
+	// Number of singleton/non-singleton/all components.
+	int singleton_count() const noexcept { return singleton_count_; }
+	int large_count() const noexcept { return large_count_; }
+	int component_count() const noexcept
 	{
-		assert(n <= INT_MAX);
-		for (int i = 0; i < (int)par_.size(); ++i)
-			par_[i] = i;
+		return singleton_count_ + large_count_;
 	}
 
-	/** resets to all-disconnected state */
-	void clear()
+	// Join the components of elements a and b.
+	// Returns true if newly joined, false if they already were joined.
+	bool join(int a, int b) noexcept;
+
+	// Join components of a[0]..a[$-1] into one.
+	void join(std::span<const int> a) noexcept;
+
+	// Returns true if a and b are currently joined.
+	bool is_joined(int a, int b) const noexcept { return root(a) == root(b); }
+
+	// Size of the component which a belongs to.
+	int component_size(int a) const noexcept { return size_[root(a)]; }
+
+	class Components;
+
+	// explicit build list of nodes in each component.
+	// TODO: result is not fully unique yet. Order of components is by
+	// decreasing size, but undefined between components of the same size.
+	Components components() const;
+};
+
+class UnionFind::Components
+{
+	std::vector<int> nodes_;
+	std::vector<int> offsets_;
+	int singleton_count_ = 0;
+
+	Components(std::vector<int> nodes, std::vector<int> offsets,
+	           int singleton_count);
+
+	friend class UnionFind;
+
+  public:
+	// same size metrics as UnionFind
+	int size() const noexcept { return (int)nodes_.size(); }
+	int singleton_count() const noexcept { return singleton_count_; }
+	int large_count() const noexcept
 	{
-		for (int i = 0; i < (int)par_.size(); ++i)
-		{
-			par_[i] = i;
-			size_[i] = 1;
-		}
-		nComp_ = (int)par_.size();
+		return component_count() - singleton_count_;
+	}
+	int component_count() const noexcept { return (int)offsets_.size() - 1; }
+
+	// components in descending order of size, i.e. id=0 is the largest one.
+	std::span<const int> component(int id) const noexcept
+	{
+		assert(0 <= id && id < component_count());
+		return std::span<const int>(nodes_.data() + offsets_[id],
+		                            offsets_[id + 1] - offsets_[id]);
 	}
 
-	/** number of nodes */
-	size_t size() const { return par_.size(); }
-
-	/** number of components */
-	size_t nComp() const { return nComp_; }
-
-	/**
-	 * Join the components of elements a and b.
-	 * Returns: true if newly joint, false if they already were joined.
-	 */
-	bool join(int a, int b)
+	std::span<const int> singletons() const noexcept
 	{
-		a = root(a);
-		b = root(b);
-		if (a == b)
-			return false;
-		if (size_[a] < size_[b])
-			std::swap(a, b);
-		par_[b] = a;
-		size_[a] += size_[b];
-		nComp_ -= 1;
-		return true;
-	}
-
-	/** Join components of a[0]..a[$-1] into one */
-	void join(std::span<const int> a)
-	{
-		if (a.size() == 0)
-			return;
-		for (int x : a)
-			join(x, a[0]);
-	}
-
-	/** returns true if a and b are currently joined */
-	bool isJoined(int a, int b) const { return root(a) == root(b); }
-
-	/** size of the component which a belongs to */
-	int compSize(int a) const { return size_[root(a)]; }
-
-	/**
-	 * Returns: Array of size `.size` such that each connected component
-	 *          has a unique number between 0 and .nComps-1
-	 *
-	 * If `minSize > 1`, all elements in components smaller than minSize
-	 * are ignored and indicated as `-1` in the output.
-	 */
-	std::vector<int> components(int minSize = 1) const
-	{
-		auto comp = std::vector<int>(par_.size(), -1);
-
-		// label roots
-		int count = 0;
-		for (int i = 0; i < (int)par_.size(); ++i)
-			if (par_[i] == i && size_[i] >= minSize)
-				comp[i] = count++;
-
-		// label everything
-		for (int i = 0; i < (int)par_.size(); ++i)
-			comp[i] = comp[root(i)];
-
-		return comp;
-	}
-
-	std::vector<std::vector<int>> compList(int minSize = 1) const
-	{
-		std::vector<std::vector<int>> r;
-		r.reserve(nComp_);
-		auto c = components(minSize);
-		for (int i = 0; i < (int)c.size(); ++i)
-			if (c[i] >= 0)
-			{
-				if (c[i] >= (int)r.size())
-					r.resize(c[i] + 1);
-				r[c[i]].push_back(i);
-			}
-		for (auto &v : r)
-			assert(v.size() >= (size_t)minSize);
-		return r;
-	}
-
-	std::vector<int> compSizes(int minSize = 1) const
-	{
-		std::vector<int> r;
-		r.reserve(nComp_);
-		for (int i = 0; i < (int)par_.size(); ++i)
-			if (par_[i] == i && size_[i] >= minSize)
-				r.push_back(size_[i]);
-		std::sort(r.begin(), r.end(), std::greater<>());
-		return r;
+		return std::span<const int>(nodes_.data() + offsets_[large_count()],
+		                            singleton_count_);
 	}
 };
 
 } // namespace util
-#endif

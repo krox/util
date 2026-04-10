@@ -143,7 +143,7 @@ endif()
 set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
 
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp ${linenoise_SOURCE_DIR}/linenoise.c)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp ${linenoise_SOURCE_DIR}/linenoise.c)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util PUBLIC include)
@@ -217,17 +217,21 @@ install(FILES ${files_h} DESTINATION include)
 
 # unittests
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+	include(CTest)
+
 	CPMAddPackage(
 		NAME Catch2
 		GITHUB_REPOSITORY catchorg/Catch2
 		GIT_TAG fa43b77429ba76c462b1898d6cd2f2d7a9416b14 # v3.7.1
 	)
+	include(${Catch2_SOURCE_DIR}/extras/Catch.cmake)
 
 	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address)
 
-	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/io.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/vector.cpp)
+	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/io.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/unionfind.cpp tests/vector.cpp)
 	target_compile_features(tests PRIVATE cxx_std_20)
 	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
 	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g)
+	catch_discover_tests(tests)
 endif()

@@ -74,7 +74,7 @@ class Json
 
 	struct direct
 	{};
-	Json(direct, variant_type &&val) : value_(std::move(val)) {}
+	template <class T> Json(direct, T &&val) : value_(std::forward<T>(val)) {}
 
 	// throws JsonTypeError if *this is neither Nulll nor T
 	template <class T> T &as()

@@ -1,23 +1,19 @@
-cmake_minimum_required(VERSION 3.16.0)
+cmake_minimum_required(VERSION 3.21)
 project(util LANGUAGES C CXX)
 
 include(CheckCXXSourceCompiles)
 
+option(UTIL_BUILD_APPS "build util command-line tools" ${PROJECT_IS_TOP_LEVEL})
+option(UTIL_BUILD_TESTS "build util unit tests" ${PROJECT_IS_TOP_LEVEL})
+# Semicolon-separated CMake list of extra flags for util-owned targets only.
+set(UTIL_COMPILE_OPTIONS "" CACHE STRING "extra compiler flags applied only to util-owned targets")
+
+# Keep system dependencies opt-in so util remains easy to build on minimal systems.
 option(UTIL_FFTW "link to FFTW3 for Fourier transforms" OFF)
 option(UTIL_HDF5 "link to HDF5 for I/O" OFF)
 option(UTIL_LUA "link to Lua for scripting" OFF)
-option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" OFF)
-option(UTIL_ZSTD "build with vendored zstd compression support" OFF)
-
-set(UTIL_SQLITE3_ENABLED ${UTIL_SQLITE3})
-set(UTIL_LUA_ENABLED ${UTIL_LUA})
-set(UTIL_ZSTD_ENABLED ${UTIL_ZSTD})
-
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-	set(UTIL_SQLITE3_ENABLED ON)
-	set(UTIL_LUA_ENABLED ON)
-	set(UTIL_ZSTD_ENABLED ON)
-endif()
+option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" ${PROJECT_IS_TOP_LEVEL})
+option(UTIL_ZSTD "build with vendored zstd compression support" ${PROJECT_IS_TOP_LEVEL})
 
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
@@ -66,18 +62,51 @@ include(FetchContent)
 
 # dependencies
 if(UTIL_HDF5)
-	find_package(HDF5 REQUIRED)
+	find_package(HDF5 REQUIRED COMPONENTS C)
 endif()
 
-if(UTIL_LUA_ENABLED)
+if(UTIL_LUA)
 	find_package(Lua REQUIRED)
-	set(UTIL_LUA_INCLUDE_DIRS ${LUA_INCLUDE_DIR})
-	set(UTIL_LUA_LIBRARIES ${LUA_LIBRARIES})
+endif()
+
+if(UTIL_FFTW)
+	set(UTIL_FFTW_TARGET "")
+
+	find_package(FFTW3 CONFIG QUIET)
+	if(TARGET FFTW3::fftw3)
+		set(UTIL_FFTW_TARGET FFTW3::fftw3)
+	endif()
+
+	if(NOT UTIL_FFTW_TARGET)
+		find_package(PkgConfig QUIET)
+		if(PkgConfig_FOUND)
+			pkg_check_modules(FFTW3 QUIET IMPORTED_TARGET fftw3)
+			if(TARGET PkgConfig::FFTW3)
+				set(UTIL_FFTW_TARGET PkgConfig::FFTW3)
+			endif()
+		endif()
+	endif()
+
+	if(NOT UTIL_FFTW_TARGET)
+		find_path(UTIL_FFTW_INCLUDE_DIR NAMES fftw3.h)
+		find_library(UTIL_FFTW_LIBRARY NAMES fftw3)
+
+		if(UTIL_FFTW_INCLUDE_DIR AND UTIL_FFTW_LIBRARY)
+			add_library(util_fftw3 INTERFACE)
+			target_include_directories(util_fftw3 SYSTEM INTERFACE ${UTIL_FFTW_INCLUDE_DIR})
+			target_link_libraries(util_fftw3 INTERFACE ${UTIL_FFTW_LIBRARY})
+			set(UTIL_FFTW_TARGET util_fftw3)
+		endif()
+	endif()
+
+	if(NOT UTIL_FFTW_TARGET)
+		message(FATAL_ERROR "UTIL_FFTW is ON, but FFTW3 could not be found. Install FFTW3 or configure with -DUTIL_FFTW=OFF.")
+	endif()
 endif()
 
 include(cmake/CPM.cmake)
 
-if(UTIL_SQLITE3_ENABLED)
+if(UTIL_SQLITE3)
 	set(UTIL_SQLITE3_AMALGAMATION_VERSION "3500400" CACHE STRING "SQLite amalgamation version number from sqlite.org")
 	set(UTIL_SQLITE3_AMALGAMATION_YEAR "2025" CACHE STRING "sqlite.org release year directory for the selected amalgamation")
 
@@ -113,11 +142,13 @@ CPMAddPackage(
 )
 add_subdirectory(${blake3_SOURCE_DIR}/c ${blake3_BINARY_DIR})
 
-CPMAddPackage(
-	NAME cli11
-	GITHUB_REPOSITORY CLIUtils/CLI11
-	GIT_TAG 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9 # v2.4.2
-)
+if(UTIL_BUILD_APPS)
+	CPMAddPackage(
+		NAME cli11
+		GITHUB_REPOSITORY CLIUtils/CLI11
+		GIT_TAG 6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9 # v2.4.2
+	)
+endif()
 
 CPMAddPackage(
 	NAME linenoise
@@ -126,112 +157,144 @@ CPMAddPackage(
 	DOWNLOAD_ONLY True
 )
 
-if(UTIL_ZSTD_ENABLED)
+# Vendored C sources are kept out of the util target so dev-only compiler
+# options do not spill into third-party code.
+add_library(util_linenoise_vendor STATIC ${linenoise_SOURCE_DIR}/linenoise.c)
+target_include_directories(util_linenoise_vendor PRIVATE ${linenoise_SOURCE_DIR})
+
+if(UTIL_ZSTD)
 	CPMAddPackage(
 		NAME zstd
 		GITHUB_REPOSITORY facebook/zstd
 		GIT_TAG 794ea1b0afca0f020f4e57b6732332231fb23c70 # v1.5.6
 		SOURCE_SUBDIR build/cmake
 		OPTIONS
+		"ZSTD_BUILD_SHARED OFF"
+		"ZSTD_BUILD_STATIC ON"
 		"ZSTD_BUILD_PROGRAMS OFF"
 		"ZSTD_BUILD_TESTS OFF"
 		"ZSTD_BUILD_CONTRIB OFF"
 	)
 endif()
 
-# warning options
-set(UTIL_WARNING_OPTIONS -Wall -Wextra -Werror)
-
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp ${linenoise_SOURCE_DIR}/linenoise.c)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
-target_include_directories(util PUBLIC include)
-target_include_directories(util PUBLIC ${blake3_SOURCE_DIR}/c)
-target_include_directories(util PRIVATE ${linenoise_SOURCE_DIR})
+target_include_directories(util
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${blake3_SOURCE_DIR}/c>
+	PRIVATE
+		${linenoise_SOURCE_DIR}
+)
 target_link_libraries(util PUBLIC fmt::fmt BLAKE3::blake3)
-target_compile_options(util PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
+target_link_libraries(util PRIVATE util_linenoise_vendor)
 target_compile_options(util PUBLIC ${UTIL_SIMD_COMPILE_OPTIONS})
+target_compile_options(util PRIVATE ${UTIL_COMPILE_OPTIONS})
 target_compile_definitions(util PUBLIC ${UTIL_SIMD_COMPILE_DEFINITIONS})
 
 if(UTIL_FFTW)
-	target_link_libraries(util PUBLIC fftw3)
+	target_link_libraries(util PUBLIC ${UTIL_FFTW_TARGET})
 	target_compile_definitions(util PUBLIC UTIL_FFTW)
 endif()
 
 if(UTIL_HDF5)
-	target_include_directories(util PRIVATE ${HDF5_INCLUDE_DIRS})
-	target_link_libraries(util PUBLIC ${HDF5_LIBRARIES})
+	target_link_libraries(util PUBLIC HDF5::HDF5)
 	target_compile_definitions(util PUBLIC UTIL_HDF5)
 endif()
 
-if(UTIL_LUA_ENABLED)
+if(UTIL_LUA)
 	target_sources(util PRIVATE src/util/lua.cpp)
-	target_include_directories(util PUBLIC ${UTIL_LUA_INCLUDE_DIRS})
-	target_link_libraries(util PUBLIC ${UTIL_LUA_LIBRARIES})
+	target_link_libraries(util PUBLIC Lua::Lua)
 	target_compile_definitions(util PUBLIC UTIL_LUA)
 endif()
 
-if(UTIL_SQLITE3_ENABLED)
-	target_sources(util PRIVATE ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c)
+if(UTIL_SQLITE3)
+	add_library(util_sqlite3_vendor STATIC ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c)
 	target_include_directories(util PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
+	target_link_libraries(util PRIVATE util_sqlite3_vendor)
 	target_compile_definitions(util PUBLIC UTIL_SQLITE3)
 endif()
 
-if(UTIL_ZSTD_ENABLED)
-	if(TARGET libzstd_static)
-		set(UTIL_ZSTD_TARGET libzstd_static)
-	elseif(TARGET zstd::libzstd_static)
-		set(UTIL_ZSTD_TARGET zstd::libzstd_static)
-	elseif(TARGET libzstd_shared)
-		set(UTIL_ZSTD_TARGET libzstd_shared)
-	elseif(TARGET zstd::libzstd_shared)
-		set(UTIL_ZSTD_TARGET zstd::libzstd_shared)
-	else()
-		message(FATAL_ERROR "Could not find a zstd library target from vendored dependency")
-	endif()
-
-	target_link_libraries(util PUBLIC ${UTIL_ZSTD_TARGET})
+if(UTIL_ZSTD)
+	target_link_libraries(util PUBLIC libzstd_static)
 	target_compile_definitions(util PUBLIC UTIL_ZSTD)
 endif()
 
 # executables
-foreach(bin "json-format" "sha256sum" "random")
-	add_executable(${bin} src/apps/${bin}.cpp)
-	target_compile_features(${bin} PUBLIC cxx_std_20)
-	target_compile_options(${bin} PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
-	target_link_libraries(${bin} util CLI11::CLI11)
-endforeach(bin)
-
-if(UTIL_LUA_ENABLED)
-	add_executable(lua-repl src/apps/lua-repl.cpp)
-	target_compile_features(lua-repl PUBLIC cxx_std_20)
-	target_compile_options(lua-repl PRIVATE ${UTIL_WARNING_OPTIONS} -O2)
-	target_link_libraries(lua-repl util)
+if(UTIL_BUILD_APPS)
+	foreach(bin "json-format" "sha256sum" "random")
+		add_executable(${bin} src/apps/${bin}.cpp)
+		target_compile_features(${bin} PUBLIC cxx_std_20)
+		target_link_libraries(${bin} util CLI11::CLI11)
+		target_compile_options(${bin} PRIVATE ${UTIL_COMPILE_OPTIONS})
+	endforeach(bin)
 endif()
 
-# install
-file(GLOB files_h "src/include/*.h")
-install(TARGETS util DESTINATION lib)
-install(FILES ${files_h} DESTINATION include)
+if(UTIL_BUILD_APPS AND UTIL_LUA)
+	add_executable(lua-repl src/apps/lua-repl.cpp)
+	target_compile_features(lua-repl PUBLIC cxx_std_20)
+	target_link_libraries(lua-repl util)
+	target_compile_options(lua-repl PRIVATE ${UTIL_COMPILE_OPTIONS})
+endif()
 
 # unittests
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+
+if(UTIL_BUILD_TESTS)
 	include(CTest)
 
-	CPMAddPackage(
-		NAME Catch2
-		GITHUB_REPOSITORY catchorg/Catch2
-		GIT_TAG fa43b77429ba76c462b1898d6cd2f2d7a9416b14 # v3.7.1
-	)
-	include(${Catch2_SOURCE_DIR}/extras/Catch.cmake)
+	if(BUILD_TESTING)
+		set(UTIL_TEST_SOURCES
+			tests/bits.cpp
+			tests/complex.cpp
+			tests/ddouble.cpp
+			tests/error.cpp
+			tests/hash_map.cpp
+			tests/hash.cpp
+			tests/io.cpp
+			tests/iterator.cpp
+			tests/json.cpp
+			tests/linalg.cpp
+			tests/memory.cpp
+			tests/numerics.cpp
+			tests/random.cpp
+			tests/series.cpp
+			tests/simd.cpp
+			tests/string.cpp
+			tests/threadpool.cpp
+			tests/unionfind.cpp
+			tests/vector.cpp
+		)
 
-	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-	add_link_options(-fsanitize=address)
+		if(UTIL_LUA)
+			list(APPEND UTIL_TEST_SOURCES tests/lua.cpp)
+		endif()
 
-	add_executable(tests tests/bits.cpp tests/complex.cpp tests/ddouble.cpp tests/error.cpp tests/hash_map.cpp tests/hash.cpp tests/io.cpp tests/iterator.cpp tests/json.cpp tests/linalg.cpp tests/lua.cpp tests/memory.cpp tests/numerics.cpp tests/random.cpp tests/series.cpp tests/simd.cpp tests/sqlite.cpp tests/string.cpp tests/threadpool.cpp tests/unionfind.cpp tests/vector.cpp)
-	target_compile_features(tests PRIVATE cxx_std_20)
-	target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util)
-	target_compile_options(tests PUBLIC ${UTIL_WARNING_OPTIONS} -g)
-	catch_discover_tests(tests)
+		if(UTIL_SQLITE3)
+			list(APPEND UTIL_TEST_SOURCES tests/sqlite.cpp)
+		endif()
+
+		CPMAddPackage(
+			NAME Catch2
+			GITHUB_REPOSITORY catchorg/Catch2
+			GIT_TAG fa43b77429ba76c462b1898d6cd2f2d7a9416b14 # v3.7.1
+		)
+		include(${Catch2_SOURCE_DIR}/extras/Catch.cmake)
+
+		add_library(util_asan INTERFACE)
+		target_compile_options(util_asan INTERFACE -fsanitize=address -fno-omit-frame-pointer)
+		target_link_options(util_asan INTERFACE -fsanitize=address)
+		target_link_libraries(util PRIVATE util_asan)
+		target_link_libraries(util_linenoise_vendor PRIVATE util_asan)
+		if(UTIL_SQLITE3)
+			target_link_libraries(util_sqlite3_vendor PRIVATE util_asan)
+		endif()
+
+		add_executable(tests ${UTIL_TEST_SOURCES})
+		target_compile_features(tests PRIVATE cxx_std_20)
+		target_link_libraries(tests PRIVATE Catch2::Catch2WithMain util util_asan)
+		target_compile_options(tests PRIVATE ${UTIL_COMPILE_OPTIONS})
+		catch_discover_tests(tests)
+	endif()
 endif()

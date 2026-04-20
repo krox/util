@@ -17,13 +17,30 @@ CPMAddPackage(
 )
 ```
 
+## Dependencies
+
+| Dependency | Kind | Source | Control |
+| --- | --- | --- | --- |
+| fmt | required | vendored via CPM | always on |
+| blake3 | required | vendored via CPM | always on |
+| linenoise | required | vendored via CPM | always on |
+| cli11 | tools only | vendored via CPM | `UTIL_BUILD_APPS` |
+| Catch2 | tests only | vendored via CPM | `UTIL_BUILD_TESTS` and `BUILD_TESTING` |
+| zstd | optional | vendored via CPM | `UTIL_ZSTD` |
+| sqlite3 amalgamation | optional | fetched from sqlite.org | `UTIL_SQLITE3` |
+| FFTW3 | optional | system-installed | `UTIL_FFTW` |
+| HDF5 | optional | system-installed | `UTIL_HDF5` |
+| Lua | optional | system-installed | `UTIL_LUA` |
+
+Policy: System dependencies are always opt-in so the project remains easy to build on machines with minimal packages installed.
+
 ## Tests
 
 Using standard workflow
 ```sh
 mkdir build && cd build
 cmake ..
-make
+cmake --build .
 
 ./tests # run unittests
 ```
@@ -32,7 +49,7 @@ make
 
 All code in this repository is released to the public domain. Feel free to do whatever you want with it. Attribution is appreciated but not required. Enjoy.
 
-Of course, licenses for the upstream-libraries (FFTW, BLAKE3, libfmt, HDF5) still apply.
+Of course, licenses for the upstream-libraries (FFTW, BLAKE3, libfmt, HDF5, ...) still apply.
 
 ## Module index
 

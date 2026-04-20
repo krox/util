@@ -1,0 +1,81 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "dev",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_FLAGS_DEBUG": "-O2 -g",
+                "CMAKE_CXX_FLAGS_DEBUG": "-O2 -g",
+                "UTIL_BUILD_APPS": "ON",
+                "UTIL_BUILD_TESTS": "ON",
+                "UTIL_COMPILE_OPTIONS": "-Wall;-Wextra;-Werror",
+                "UTIL_FFTW": "OFF",
+                "UTIL_HDF5": "OFF",
+                "UTIL_LUA": "OFF",
+                "UTIL_SQLITE3": "ON",
+                "UTIL_ZSTD": "ON"
+            }
+        },
+        {
+            "name": "dev-gcc",
+            "inherits": "dev",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/lib/ccache/gcc",
+                "CMAKE_CXX_COMPILER": "/usr/lib/ccache/g++"
+            }
+        },
+        {
+            "name": "dev-clang",
+            "inherits": "dev",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/lib/ccache/clang",
+                "CMAKE_CXX_COMPILER": "/usr/lib/ccache/clang++"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "dev",
+            "configurePreset": "dev"
+        },
+        {
+            "name": "dev-gcc",
+            "configurePreset": "dev-gcc"
+        },
+        {
+            "name": "dev-clang",
+            "configurePreset": "dev-clang"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "dev",
+            "configurePreset": "dev",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "dev-gcc",
+            "configurePreset": "dev-gcc",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "dev-clang",
+            "configurePreset": "dev-clang",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

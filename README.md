@@ -30,7 +30,7 @@ CPMAddPackage(
 | sqlite3 amalgamation | optional | fetched from sqlite.org | `UTIL_SQLITE3` |
 | FFTW3 | optional | system-installed | `UTIL_FFTW` |
 | HDF5 | optional | system-installed | `UTIL_HDF5` |
-| Lua | optional | system-installed | `UTIL_LUA` |
+| Lua | optional | fetched from lua.org | `UTIL_LUA` |
 
 Policy: System dependencies are always opt-in so the project remains easy to build on machines with minimal packages installed.
 

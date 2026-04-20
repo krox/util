@@ -15,6 +15,18 @@ option(UTIL_LUA "link to Lua for scripting" OFF)
 option(UTIL_SQLITE3 "build with SQLite3 amalgamation from sqlite.org" ${PROJECT_IS_TOP_LEVEL})
 option(UTIL_ZSTD "build with vendored zstd compression support" ${PROJECT_IS_TOP_LEVEL})
 
+# Keep unit test coverage complete: tests always exercise Lua and SQLite paths.
+if(UTIL_BUILD_TESTS)
+	if(NOT UTIL_LUA)
+		message(STATUS "UTIL_BUILD_TESTS=ON requires Lua tests: forcing UTIL_LUA=ON")
+	endif()
+	if(NOT UTIL_SQLITE3)
+		message(STATUS "UTIL_BUILD_TESTS=ON requires SQLite tests: forcing UTIL_SQLITE3=ON")
+	endif()
+	set(UTIL_LUA ON CACHE BOOL "link to Lua for scripting" FORCE)
+	set(UTIL_SQLITE3 ON CACHE BOOL "build with SQLite3 amalgamation from sqlite.org" FORCE)
+endif()
+
 set(UTIL_SIMD_BACKEND "AUTO" CACHE STRING "SIMD backend: AUTO, AVX, or GENERIC")
 set_property(CACHE UTIL_SIMD_BACKEND PROPERTY STRINGS AUTO AVX GENERIC)
 set(UTIL_SIMD_BACKEND_ALLOWED AUTO AVX GENERIC)
@@ -65,10 +77,6 @@ if(UTIL_HDF5)
 	find_package(HDF5 REQUIRED COMPONENTS C)
 endif()
 
-if(UTIL_LUA)
-	find_package(Lua REQUIRED)
-endif()
-
 if(UTIL_FFTW)
 	set(UTIL_FFTW_TARGET "")
 
@@ -105,6 +113,55 @@ if(UTIL_FFTW)
 endif()
 
 include(cmake/CPM.cmake)
+
+if(UTIL_LUA)
+	CPMAddPackage(
+		NAME lua
+		URL https://www.lua.org/ftp/lua-5.4.6.tar.gz
+		URL_HASH SHA256=7d5ea1b9cb6aa0b59ca3dde1c6adcb57ef83a1ba8e5432c0ecd06bf439b3ad88
+		DOWNLOAD_ONLY True
+	)
+
+	# Build vendored Lua as a separate target so util-specific warning flags do
+	# not spill into third-party C code.
+	add_library(util_lua_vendor STATIC
+		${lua_SOURCE_DIR}/src/lapi.c
+		${lua_SOURCE_DIR}/src/lauxlib.c
+		${lua_SOURCE_DIR}/src/lbaselib.c
+		${lua_SOURCE_DIR}/src/lcode.c
+		${lua_SOURCE_DIR}/src/lcorolib.c
+		${lua_SOURCE_DIR}/src/lctype.c
+		${lua_SOURCE_DIR}/src/ldblib.c
+		${lua_SOURCE_DIR}/src/ldebug.c
+		${lua_SOURCE_DIR}/src/ldo.c
+		${lua_SOURCE_DIR}/src/ldump.c
+		${lua_SOURCE_DIR}/src/lfunc.c
+		${lua_SOURCE_DIR}/src/lgc.c
+		${lua_SOURCE_DIR}/src/linit.c
+		${lua_SOURCE_DIR}/src/liolib.c
+		${lua_SOURCE_DIR}/src/llex.c
+		${lua_SOURCE_DIR}/src/lmathlib.c
+		${lua_SOURCE_DIR}/src/lmem.c
+		${lua_SOURCE_DIR}/src/loadlib.c
+		${lua_SOURCE_DIR}/src/lobject.c
+		${lua_SOURCE_DIR}/src/lopcodes.c
+		${lua_SOURCE_DIR}/src/loslib.c
+		${lua_SOURCE_DIR}/src/lparser.c
+		${lua_SOURCE_DIR}/src/lstate.c
+		${lua_SOURCE_DIR}/src/lstring.c
+		${lua_SOURCE_DIR}/src/lstrlib.c
+		${lua_SOURCE_DIR}/src/ltable.c
+		${lua_SOURCE_DIR}/src/ltablib.c
+		${lua_SOURCE_DIR}/src/ltm.c
+		${lua_SOURCE_DIR}/src/lundump.c
+		${lua_SOURCE_DIR}/src/lutf8lib.c
+		${lua_SOURCE_DIR}/src/lvm.c
+		${lua_SOURCE_DIR}/src/lzio.c
+	)
+	target_include_directories(util_lua_vendor PUBLIC ${lua_SOURCE_DIR}/src)
+	target_compile_definitions(util_lua_vendor PRIVATE LUA_USE_LINUX)
+	target_link_libraries(util_lua_vendor PUBLIC m dl)
+endif()
 
 if(UTIL_SQLITE3)
 	set(UTIL_SQLITE3_AMALGAMATION_VERSION "3500400" CACHE STRING "SQLite amalgamation version number from sqlite.org")
@@ -206,7 +263,7 @@ endif()
 
 if(UTIL_LUA)
 	target_sources(util PRIVATE src/util/lua.cpp)
-	target_link_libraries(util PUBLIC Lua::Lua)
+	target_link_libraries(util PUBLIC util_lua_vendor)
 	target_compile_definitions(util PUBLIC UTIL_LUA)
 endif()
 
@@ -265,15 +322,9 @@ if(UTIL_BUILD_TESTS)
 			tests/threadpool.cpp
 			tests/unionfind.cpp
 			tests/vector.cpp
+			tests/lua.cpp
+			tests/sqlite.cpp
 		)
-
-		if(UTIL_LUA)
-			list(APPEND UTIL_TEST_SOURCES tests/lua.cpp)
-		endif()
-
-		if(UTIL_SQLITE3)
-			list(APPEND UTIL_TEST_SOURCES tests/sqlite.cpp)
-		endif()
 
 		CPMAddPackage(
 			NAME Catch2
@@ -287,9 +338,7 @@ if(UTIL_BUILD_TESTS)
 		target_link_options(util_asan INTERFACE -fsanitize=address)
 		target_link_libraries(util PRIVATE util_asan)
 		target_link_libraries(util_linenoise_vendor PRIVATE util_asan)
-		if(UTIL_SQLITE3)
-			target_link_libraries(util_sqlite3_vendor PRIVATE util_asan)
-		endif()
+		target_link_libraries(util_sqlite3_vendor PRIVATE util_asan)
 
 		add_executable(tests ${UTIL_TEST_SOURCES})
 		target_compile_features(tests PRIVATE cxx_std_20)

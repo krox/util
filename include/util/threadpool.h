@@ -3,11 +3,16 @@
 #include "util/synchronized.h"
 #include <atomic>
 #include <cassert>
+#include <exception>
 #include <functional>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <thread>
+#include <tuple>
+#include <type_traits>
+#include <vector>
 
 namespace util {
 
@@ -174,6 +179,45 @@ class ThreadPool
 		return future;
 	}
 
+	// call 'f' once from each thread, returning a vector of the results.
+	//   * implementation: this simply pushes 'num_threads()' jobs to the normal
+	//     queue. The expectation is that each one will be picked up by a
+	//     different worker thread. Though this is not guaranteed in case some
+	//     workers are busy with unrelated work or 'f' finishes very quickly. In
+	//     any case, 'worker_index' takes each value from 0 to num_threads()-1
+	//     across the calls to 'f'.
+	template <class F> auto for_each_thread(F f)
+	{
+		using result_type = std::invoke_result_t<F &, int>;
+		using fun_type = std::decay_t<F>;
+		static_assert(std::copy_constructible<fun_type>);
+
+		std::vector<std::future<result_type>> as;
+		as.reserve(num_threads());
+
+		for (int worker_index = 0; worker_index < num_threads(); ++worker_index)
+		{
+			auto job = [f, worker_index]() -> result_type {
+				return std::invoke(f, worker_index);
+			};
+			as.push_back(async(std::move(job)));
+		}
+
+		if constexpr (std::is_void_v<result_type>)
+		{
+			for (auto &a : as)
+				a.get();
+		}
+		else
+		{
+			std::vector<result_type> result;
+			result.reserve(as.size());
+			for (auto &a : as)
+				result.push_back(a.get());
+			return result;
+		}
+	}
+
 	// parallely call f on each element in [first, last)
 	//     * elements are captured by reference, thus allowing inplace
 	//       modifications. This is safe because for_each() waits for everything
@@ -207,6 +251,95 @@ class ThreadPool
 	template <std::ranges::forward_range R, class F> void for_each(R &&r, F f)
 	{
 		for_each(std::ranges::begin(r), std::ranges::end(r), std::move(f));
+	}
+
+	// parallel for_each with worker-local scratch state
+	//     * make_state() is called at most once per pool worker that actually
+	//       participates in the loop
+	//     * each worker reuses its private state across many elements
+	//     * chunk_size controls the minimum scheduling granularity for claiming
+	//       more work
+	//     * this variant uses a bounded number of long-lived jobs rather than
+	//       one job per element, so scratch creation stays bounded by the
+	//       worker count instead of the range size
+	template <std::random_access_iterator I, std::sized_sentinel_for<I> S,
+	          class MakeState, class F>
+	void for_each_with_state(I first, S last, MakeState make_state, F f,
+	                         size_t chunk_size = 1)
+	{
+		using State = std::remove_cvref_t<std::invoke_result_t<MakeState &>>;
+		assert(chunk_size >= 1);
+
+		size_t count = static_cast<size_t>(std::distance(first, last));
+		if (count == 0)
+			return;
+
+		if (num_threads() == 0)
+		{
+			auto state = make_state();
+			for (size_t index = 0; index < count; index += chunk_size)
+			{
+				size_t end = std::min(index + chunk_size, count);
+				for (size_t i = index; i < end; ++i)
+					std::invoke(f, state, *(first + i));
+			}
+			return;
+		}
+
+		std::atomic<size_t> next{0};
+		std::atomic<bool> stop{false};
+		std::exception_ptr exception;
+		std::mutex exception_mutex;
+		std::vector<std::future<void>> as;
+		as.reserve(num_threads());
+
+		auto worker = [&]() {
+			std::optional<State> state;
+
+			while (!stop.load(std::memory_order_relaxed))
+			{
+				size_t index =
+				    next.fetch_add(chunk_size, std::memory_order_relaxed);
+				if (index >= count)
+					break;
+				size_t end = std::min(index + chunk_size, count);
+
+				try
+				{
+					if (!state)
+						state.emplace(make_state());
+					for (size_t i = index; i < end; ++i)
+						std::invoke(f, *state, *(first + i));
+				}
+				catch (...)
+				{
+					stop.store(true, std::memory_order_relaxed);
+					std::lock_guard lock(exception_mutex);
+					if (!exception)
+						exception = std::current_exception();
+					break;
+				}
+			}
+		};
+
+		for (int i = 0; i < num_threads(); ++i)
+			as.push_back(async(worker));
+		for (auto &a : as)
+			a.wait();
+
+		for (auto &a : as)
+			a.get();
+
+		if (exception)
+			std::rethrow_exception(exception);
+	}
+
+	template <std::ranges::random_access_range R, class MakeState, class F>
+	void for_each_with_state(R &&r, MakeState make_state, F f,
+	                         size_t chunk_size = 1)
+	{
+		for_each_with_state(std::ranges::begin(r), std::ranges::end(r),
+		                    std::move(make_state), std::move(f), chunk_size);
 	}
 
 	// parallel filter with optional chunking

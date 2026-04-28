@@ -16,6 +16,39 @@
 
 namespace util {
 
+// little helper class to process a range of elements in parallel. Just a
+// non-owning std::span with an atomic index to distribute chunks.
+template <class T> class synchronized_iterator
+{
+	std::span<T> data_;
+	std::atomic<size_t> index_;
+
+  public:
+	synchronized_iterator(std::span<T> data) : data_(data), index_(0) {}
+
+	// returns the next chunk of data to process. May return smaller chunks at
+	// the end, empty span if all data has been processed.
+	std::span<T> next_chunk(size_t chunk_size)
+	{
+		size_t i = index_.fetch_add(chunk_size);
+		if (i >= data_.size())
+			return {};
+		else
+			return data_.subspan(i, std::min(chunk_size, data_.size() - i));
+	}
+
+	// call this from any number of threads to process the data in parallel
+	void for_each(std::invocable<T &> auto f, size_t chunk_size)
+	{
+		while (true)
+			if (auto chunk = next_chunk(chunk_size); !chunk.empty())
+				for (T &x : chunk)
+					f(x);
+			else
+				break;
+	}
+};
+
 // exception 'thrown' (stored in the std::future), if a job is cancelled before
 // it actually started running
 class job_cancelled : public std::runtime_error
@@ -35,6 +68,8 @@ class job_cancelled : public std::runtime_error
 //     * Nothing fancy inside (no look-free structures, no work stealing, etc)
 //     * Submitting jobs is thread-safe, including from within a running job.
 //     * TODO: some co-operative stoping, maybe using std::stop_token
+//     * TODO: proper separation of low-level job queue and high-level parallel
+//     algorithms.
 class ThreadPool
 {
 	class JobBase

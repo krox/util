@@ -6,6 +6,7 @@
 #include <exception>
 #include <functional>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -213,212 +214,222 @@ class ThreadPool
 		add_job(std::move(job));
 		return future;
 	}
+};
 
-	// call 'f' once from each thread, returning a vector of the results.
-	//   * implementation: this simply pushes 'num_threads()' jobs to the normal
-	//     queue. The expectation is that each one will be picked up by a
-	//     different worker thread. Though this is not guaranteed in case some
-	//     workers are busy with unrelated work or 'f' finishes very quickly. In
-	//     any case, 'worker_index' takes each value from 0 to num_threads()-1
-	//     across the calls to 'f'.
-	template <class F> auto for_each_thread(F f)
+struct bulk_options
+{
+	size_t chunk_size = 1;
+	size_t max_participants = std::numeric_limits<size_t>::max();
+};
+
+// flexible backend for parallel algorithms
+template <class MakeState, class RunChunk, class FinishState>
+auto bulk_execute(ThreadPool &pool, size_t count, MakeState make_state,
+                  RunChunk run_chunk, FinishState finish_state,
+                  bulk_options options = {})
+{
+	using State = std::remove_cvref_t<std::invoke_result_t<MakeState &>>;
+	using Result =
+	    std::remove_cvref_t<std::invoke_result_t<FinishState &, State>>;
+
+	assert(options.chunk_size >= 1);
+	assert(options.max_participants >= 1);
+
+	if (count == 0)
+		return std::vector<Result>{};
+
+	// empty pool -> run everything in the current thread
+	if (pool.num_threads() == 0)
 	{
-		using result_type = std::invoke_result_t<F &, int>;
-		using fun_type = std::decay_t<F>;
-		static_assert(std::copy_constructible<fun_type>);
-
-		std::vector<std::future<result_type>> as;
-		as.reserve(num_threads());
-
-		for (int worker_index = 0; worker_index < num_threads(); ++worker_index)
+		State state = std::invoke(make_state);
+		for (size_t begin = 0; begin < count; begin += options.chunk_size)
 		{
-			auto job = [f, worker_index]() -> result_type {
-				return std::invoke(f, worker_index);
-			};
-			as.push_back(async(std::move(job)));
+			size_t end = std::min(begin + options.chunk_size, count);
+			std::invoke(run_chunk, state, begin, end);
 		}
 
-		if constexpr (std::is_void_v<result_type>)
-		{
-			for (auto &a : as)
-				a.get();
-		}
-		else
-		{
-			std::vector<result_type> result;
-			result.reserve(as.size());
-			for (auto &a : as)
-				result.push_back(a.get());
-			return result;
-		}
+		std::vector<Result> results;
+		results.reserve(1);
+		results.push_back(std::invoke(finish_state, std::move(state)));
+		return results;
 	}
 
-	// parallely call f on each element in [first, last)
-	//     * elements are captured by reference, thus allowing inplace
-	//       modifications. This is safe because for_each() waits for everything
-	//       to finish
-	//     * If any invocation of f throws an exception, one of them is rethrown
-	//       and any additional ones are lost.
-	//     * TODO: if one invocation of f throws, it would be reasonable to
-	//             cancel all pending invocations to get out faster.
-	template <std::forward_iterator I, std::sentinel_for<I> S, class F>
-	void for_each(I first, S last, F f)
-	{
-		// NOTE: because we capture the elements by reference, we need to be
-		//       careful to .wait() on all futures before leaving this function
+	// number of participants is limited by (1) available threads,
+	// (2) available chunks, and (3) user-provided 'max_participants'
+	size_t chunk_count = (count + options.chunk_size - 1) / options.chunk_size;
+	size_t participants = std::min(chunk_count, options.max_participants);
+	participants = std::min(participants, (size_t)pool.num_threads());
 
-		std::vector<decltype(async(f, std::ref(*first)))> as;
-		as.reserve(std::distance(first, last));
+	// These atomics are used to distribute work between participants and signal
+	// early stopping in case of an exception.
+	std::atomic<size_t> next{0};
+	std::atomic<bool> stop{false};
 
-		// Exceptions in here would need careful cleanup to avoid escaping
-		// references. So we just std::terminate instead.
-		[&]() noexcept {
-			for (; first != last; ++first)
-				as.push_back(async(f, std::ref(*first)));
-			for (auto &a : as)
-				a.wait();
-		}();
+	auto worker = [&]() -> std::optional<Result> {
+		// check if any work is left before even starting. If there is nothing
+		// to do (e.g. if this worker started late), we skip the potentially
+		// expensive state creation. This is a best-effort optimization, no
+		// particular guaranee is made.
+		if (stop.load(std::memory_order_relaxed))
+			return std::nullopt;
+		if (next.load(std::memory_order_relaxed) >= count)
+			return std::nullopt;
 
-		for (auto &a : as)
-			a.get(); // rethrows any exception from the job
-	}
-
-	template <std::ranges::forward_range R, class F> void for_each(R &&r, F f)
-	{
-		for_each(std::ranges::begin(r), std::ranges::end(r), std::move(f));
-	}
-
-	// parallel for_each with worker-local scratch state
-	//     * make_state() is called at most once per pool worker that actually
-	//       participates in the loop
-	//     * each worker reuses its private state across many elements
-	//     * chunk_size controls the minimum scheduling granularity for claiming
-	//       more work
-	//     * this variant uses a bounded number of long-lived jobs rather than
-	//       one job per element, so scratch creation stays bounded by the
-	//       worker count instead of the range size
-	template <std::random_access_iterator I, std::sized_sentinel_for<I> S,
-	          class MakeState, class F>
-	void for_each_with_state(I first, S last, MakeState make_state, F f,
-	                         size_t chunk_size = 1)
-	{
-		using State = std::remove_cvref_t<std::invoke_result_t<MakeState &>>;
-		assert(chunk_size >= 1);
-
-		size_t count = static_cast<size_t>(std::distance(first, last));
-		if (count == 0)
-			return;
-
-		if (num_threads() == 0)
+		try
 		{
-			auto state = make_state();
-			for (size_t index = 0; index < count; index += chunk_size)
-			{
-				size_t end = std::min(index + chunk_size, count);
-				for (size_t i = index; i < end; ++i)
-					std::invoke(f, state, *(first + i));
-			}
-			return;
-		}
-
-		std::atomic<size_t> next{0};
-		std::atomic<bool> stop{false};
-		std::exception_ptr exception;
-		std::mutex exception_mutex;
-		std::vector<std::future<void>> as;
-		as.reserve(num_threads());
-
-		auto worker = [&]() {
-			std::optional<State> state;
-
+			State state = std::invoke(make_state);
 			while (!stop.load(std::memory_order_relaxed))
 			{
-				size_t index =
-				    next.fetch_add(chunk_size, std::memory_order_relaxed);
-				if (index >= count)
+				size_t begin = next.fetch_add(options.chunk_size,
+				                              std::memory_order_relaxed);
+				if (begin >= count)
 					break;
-				size_t end = std::min(index + chunk_size, count);
+				size_t end = std::min(begin + options.chunk_size, count);
 
-				try
-				{
-					if (!state)
-						state.emplace(make_state());
-					for (size_t i = index; i < end; ++i)
-						std::invoke(f, *state, *(first + i));
-				}
-				catch (...)
-				{
-					stop.store(true, std::memory_order_relaxed);
-					std::lock_guard lock(exception_mutex);
-					if (!exception)
-						exception = std::current_exception();
-					break;
-				}
+				std::invoke(run_chunk, state, begin, end);
 			}
-		};
 
-		for (int i = 0; i < num_threads(); ++i)
-			as.push_back(async(worker));
+			return std::optional<Result>(
+			    std::in_place, std::invoke(finish_state, std::move(state)));
+		}
+		catch (...)
+		{
+			stop.store(true, std::memory_order_relaxed);
+			throw;
+		}
+	};
+
+	// enqueue one job per participant. Ideally, each one would be picked up by
+	// a different worker thread, but this is not strictly guaranteed.
+	std::vector<std::future<std::optional<Result>>> as;
+	as.reserve(participants);
+
+	// note: the workers contain references local variables, so an exception in
+	// here would be bad. Dont think its actually possible, but just to be safe
+	// we wrap it in 'noexcept'.
+	[&]() noexcept {
+		for (size_t i = 0; i < participants; ++i)
+			as.push_back(pool.async(worker));
 		for (auto &a : as)
 			a.wait();
+	}();
 
-		for (auto &a : as)
-			a.get();
+	// collect results. (the '.get()' might rethrow an exception from the
+	// worker)
+	std::vector<Result> results;
+	results.reserve(participants);
+	for (auto &a : as)
+		if (auto result = a.get(); result)
+			results.push_back(std::move(*result));
+	return results;
+}
 
-		if (exception)
-			std::rethrow_exception(exception);
-	}
+// parallel loop: execute 'f(x)' for each element 'x' in the range 'r'
+void for_each(ThreadPool &pool, std::ranges::random_access_range auto &&r,
+              auto f, bulk_options options)
+{
+	using State = std::tuple<>;
+	auto make_state = []() { return State{}; };
+	auto finalize_state = [](State &&) { return State{}; };
 
-	template <std::ranges::random_access_range R, class MakeState, class F>
-	void for_each_with_state(R &&r, MakeState make_state, F f,
-	                         size_t chunk_size = 1)
+	auto first = std::ranges::begin(r);
+	size_t count = static_cast<size_t>(std::ranges::distance(r));
+
+	auto run_chunk = [&f, first](State &, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+			std::invoke(f, *(first + i));
+	};
+
+	bulk_execute(pool, count, make_state, run_chunk, finalize_state, options);
+}
+
+// parallel loop with worker-local scratch state: execute 'f(state, x)' for
+// each element 'x' in the range 'r'
+void for_each(ThreadPool &pool, std::ranges::random_access_range auto &&r,
+              auto make_state, auto f, bulk_options options)
+{
+	using State =
+	    std::remove_cvref_t<std::invoke_result_t<decltype(make_state) &>>;
+	auto finalize_state = [](State &&) { return std::tuple<>{}; };
+
+	auto first = std::ranges::begin(r);
+	size_t count = static_cast<size_t>(std::ranges::distance(r));
+
+	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+			std::invoke(f, state, *(first + i));
+	};
+
+	bulk_execute(pool, count, make_state, run_chunk, finalize_state, options);
+}
+
+// parallel filter: collect all elements 'x' for which 'f(x)' returns true.
+// Order of the returned elements is unspecified.
+auto filter_unordered(ThreadPool &pool,
+                      std::ranges::random_access_range auto &&r, auto f,
+                      bulk_options options)
+{
+	using T = std::ranges::range_value_t<decltype(r)>;
+	using State = std::vector<T>;
+	auto make_state = []() { return State{}; };
+	auto finalize_state = [](State &&state) { return std::move(state); };
+
+	auto first = std::ranges::begin(r);
+	size_t count = static_cast<size_t>(std::ranges::distance(r));
+
+	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+			if (std::invoke(f, *(first + i)))
+				state.push_back(*(first + i));
+	};
+
+	auto result = bulk_execute(pool, count, make_state, run_chunk,
+	                           finalize_state, options);
+
+	std::vector<T> merged;
+	for (auto &part : result)
+		merged.insert(merged.end(), std::make_move_iterator(part.begin()),
+		              std::make_move_iterator(part.end()));
+	return merged;
+}
+
+// parallel filter with worker-local scratch state: collect all elements 'x'
+// for which 'f(state, x)' returns true. Order of the returned elements is
+// unspecified.
+auto filter_unordered(ThreadPool &pool,
+                      std::ranges::random_access_range auto &&r,
+                      auto make_state, auto f, bulk_options options)
+{
+	using T = std::ranges::range_value_t<decltype(r)>;
+	using Scratch =
+	    std::remove_cvref_t<std::invoke_result_t<decltype(make_state) &>>;
+	struct State
 	{
-		for_each_with_state(std::ranges::begin(r), std::ranges::end(r),
-		                    std::move(make_state), std::move(f), chunk_size);
-	}
+		Scratch scratch;
+		std::vector<T> output;
+	};
 
-	// parallel filter with optional chunking
-	//     * order of elements is preserved
-	template <std ::ranges::random_access_range R, class F>
-	std::vector<std::ranges::range_value_t<R>> filter(R &&r, F f,
-	                                                  size_t chunk_size = 1)
-	{
-		assert(chunk_size >= 1);
-		using T = std::ranges::range_value_t<R>;
-		using It = std::ranges::iterator_t<R>;
+	auto finalize_state = [](State &&state) { return std::move(state.output); };
 
-		std::vector<std::future<std::vector<T>>> as;
-		std::vector<T> result;
-		size_t n = std::ranges::distance(r);
-		size_t chunk_count = (n + chunk_size - 1) / chunk_size;
-		as.reserve(chunk_count);
+	auto first = std::ranges::begin(r);
+	size_t count = static_cast<size_t>(std::ranges::distance(r));
 
-		auto fun = [&f](It first, size_t cnt) -> std::vector<T> {
-			std::vector<T> r;
-			while (cnt-- > 0)
-			{
-				if (f(*first))
-					r.push_back(*first);
-				++first;
-			}
-			return r;
-		};
+	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+			if (std::invoke(f, state.scratch, *(first + i)))
+				state.output.push_back(*(first + i));
+	};
 
-		// didnt implement proper exeption safety / cleanup yet, so just wrap it
-		// in noexcept to terminate on any error...
-		[&]() noexcept {
-			for (size_t i = 0; i < chunk_count; ++i)
-				as.push_back(async(fun, std::ranges::begin(r) + chunk_size * i,
-				                   std::min(chunk_size, n - chunk_size * i)));
-			for (auto &a : as)
-			{
-				std::vector<T> tmp = a.get();
-				result.insert(result.end(), tmp.begin(), tmp.end());
-			}
-		}();
+	auto result = bulk_execute(
+	    pool, count,
+	    [&make_state] { return State{std::invoke(make_state), {}}; }, run_chunk,
+	    finalize_state, options);
 
-		return result;
-	}
-};
+	std::vector<T> merged;
+	for (auto &part : result)
+		merged.insert(merged.end(), std::make_move_iterator(part.begin()),
+		              std::make_move_iterator(part.end()));
+	return merged;
+}
 
 } // namespace util

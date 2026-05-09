@@ -144,6 +144,14 @@ class Logger
 		}
 	}
 
+	static void reset_summary()
+	{
+		auto lock = std::unique_lock(g_mutex_);
+		g_total_ = Stopwatch().start();
+		for (auto &comp : g_components_)
+			comp.total_secs = 0;
+	}
+
 	template <class... Args>
 	void trace(std::string_view str, Args &&...args) const noexcept
 	{

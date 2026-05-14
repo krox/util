@@ -307,6 +307,7 @@ if(UTIL_BUILD_TESTS)
 			tests/complex.cpp
 			tests/ddouble.cpp
 			tests/error.cpp
+			tests/functional.cpp
 			tests/hash_map.cpp
 			tests/hash.cpp
 			tests/io.cpp

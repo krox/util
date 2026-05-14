@@ -23,11 +23,19 @@ template <class R, class... Args> class function_view<R(Args...)>
 	void *obj_ = nullptr;
 
   public:
+	// explicitly defaulted copy constructor/assignments in order to not
+	// accidentally call the templated constructor (which creates dangling views
+	// in some cases when passing function_views by value).
 	constexpr function_view() noexcept = default;
+	constexpr function_view(function_view const &) noexcept = default;
+	constexpr function_view &
+	operator=(function_view const &) noexcept = default;
 
-	constexpr function_view(auto &&f) noexcept
+	template <class F>
+	    requires(!std::is_same_v<std::remove_cvref_t<F>, function_view>)
+	constexpr function_view(F &&f) noexcept
 	    : fun_([](void *obj, Args... args) -> R {
-		      return (*static_cast<std::decay_t<decltype(f)> *>(obj))(
+		      return (*static_cast<std::remove_cvref_t<F> *>(obj))(
 		          std::forward<Args>(args)...);
 	      }),
 	      obj_(std::addressof(f))

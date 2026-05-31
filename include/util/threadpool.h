@@ -13,49 +13,340 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 namespace util {
 
-// little helper class to process a range of elements in parallel. Just a
-// non-owning std::span with an atomic index to distribute chunks.
-template <class T> class synchronized_iterator
-{
-	std::span<T> data_;
-	std::atomic<size_t> index_;
-
-  public:
-	synchronized_iterator(std::span<T> data) : data_(data), index_(0) {}
-
-	// returns the next chunk of data to process. May return smaller chunks at
-	// the end, empty span if all data has been processed.
-	std::span<T> next_chunk(size_t chunk_size)
-	{
-		size_t i = index_.fetch_add(chunk_size);
-		if (i >= data_.size())
-			return {};
-		else
-			return data_.subspan(i, std::min(chunk_size, data_.size() - i));
-	}
-
-	// call this from any number of threads to process the data in parallel
-	void for_each(std::invocable<T &> auto f, size_t chunk_size)
-	{
-		while (true)
-			if (auto chunk = next_chunk(chunk_size); !chunk.empty())
-				for (T &x : chunk)
-					f(x);
-			else
-				break;
-	}
-};
-
-// exception 'thrown' (stored in the std::future), if a job is cancelled before
-// it actually started running
+// exception 'thrown' (stored in the SharedResult/Task), if a job is cancelled
+// before it actually started running
 class job_cancelled : public std::runtime_error
 {
   public:
 	job_cancelled() : std::runtime_error("job cancelled") {}
+};
+
+// Can hold either a value of type T or an exception.
+//   * single-producer: calling 'set_*' multiple times is UB
+//   * multi-consumer: any number of threads can call 'ready()', 'wait()', and
+//     'get()' concurrently. Though no further synchronization on the contained
+//     'T' is provided.
+//   * typical use: a shared_ptr<SharedResult<T>> can be used as a single-slot
+//     channel, similar to a promise/future pair.
+template <class T> class SharedResult;
+
+template <class T>
+    requires std::movable<T> && std::is_nothrow_move_constructible_v<T>
+class SharedResult<T>
+{
+	std::atomic<bool> ready_{false};
+
+	// note: 'exception_ptr' has a natural null state, T might not even have a
+	// default constructor. So this is the right order of members.
+	std::variant<std::exception_ptr, T> value_;
+
+  public:
+	SharedResult() = default;
+
+	// Not movable. Doing so would mess with the synchronization.
+	SharedResult(SharedResult const &) = delete;
+	SharedResult &operator=(SharedResult const &) = delete;
+	SharedResult(SharedResult &&) = delete;
+	SharedResult &operator=(SharedResult &&) = delete;
+
+	// check if a value/exception is ready without blocking.
+	bool ready() const noexcept
+	{
+		return ready_.load(std::memory_order_acquire);
+	}
+
+	// blocks until value/exception is set
+	void wait() const noexcept
+	{
+		// note: 'atomic::wait' guarantees to only return when the value
+		// actually changed away from the expected. No spurious wakeups.
+		ready_.wait(false, std::memory_order_acquire);
+	}
+
+	// blocks till ready. Returns value or rethrows exception.
+	T &get()
+	{
+		wait();
+
+		if (std::holds_alternative<std::exception_ptr>(value_))
+			std::rethrow_exception(std::get<std::exception_ptr>(value_));
+		assert(std::holds_alternative<T>(value_));
+		return std::get<T>(value_);
+	}
+
+	T const &get() const
+	{
+		wait();
+
+		if (std::holds_alternative<std::exception_ptr>(value_))
+			std::rethrow_exception(std::get<std::exception_ptr>(value_));
+		assert(std::holds_alternative<T>(value_));
+		return std::get<T>(value_);
+	}
+
+	T *try_get()
+	{
+		if (!ready())
+			return nullptr;
+
+		if (std::holds_alternative<std::exception_ptr>(value_))
+			std::rethrow_exception(std::get<std::exception_ptr>(value_));
+		assert(std::holds_alternative<T>(value_));
+		return &std::get<T>(value_);
+	}
+
+	T const *try_get() const
+	{
+		if (!ready())
+			return nullptr;
+
+		if (std::holds_alternative<std::exception_ptr>(value_))
+			std::rethrow_exception(std::get<std::exception_ptr>(value_));
+		assert(std::holds_alternative<T>(value_));
+		return &std::get<T>(value_);
+	}
+
+	// set a value
+	template <class U = T>
+	    requires std::constructible_from<T, U>
+	void set_value(U &&value)
+	{
+		value_.template emplace<T>(std::forward<U>(value));
+#ifdef NDEBUG
+		ready_.store(true, std::memory_order_release);
+#else
+		bool old = ready_.exchange(true, std::memory_order_release);
+		assert(old == false);
+#endif
+		ready_.notify_all();
+	}
+
+	// set an exception
+	void set_exception(std::exception_ptr exception)
+	{
+		value_.template emplace<std::exception_ptr>(std::move(exception));
+#ifdef NDEBUG
+		ready_.store(true, std::memory_order_release);
+#else
+		bool old = ready_.exchange(true, std::memory_order_release);
+		assert(old == false);
+#endif
+		ready_.notify_all();
+	}
+};
+
+// void specialization of SharedResult.
+template <> class SharedResult<void>
+{
+	std::atomic<bool> ready_{false};
+
+	std::exception_ptr exception_ = nullptr;
+
+  public:
+	SharedResult() = default;
+
+	// Not movable. Doing so would mess with the synchronization.
+	SharedResult(SharedResult const &) = delete;
+	SharedResult &operator=(SharedResult const &) = delete;
+	SharedResult(SharedResult &&) = delete;
+	SharedResult &operator=(SharedResult &&) = delete;
+
+	// check if a value/exception is ready without blocking.
+	bool ready() const noexcept
+	{
+		return ready_.load(std::memory_order_acquire);
+	}
+
+	// blocks until value/exception is set
+	void wait() const noexcept
+	{
+		// note: 'atomic::wait' guarantees to only return when the value
+		// actually changed away from the expected. No spurious wakeups.
+		ready_.wait(false, std::memory_order_acquire);
+	}
+
+	// blocks till ready. rethrows any exception.
+	void get() const
+	{
+		wait();
+		if (exception_)
+			std::rethrow_exception(exception_);
+	}
+
+	// set a value
+	void set_value()
+	{
+#ifdef NDEBUG
+		ready_.store(true, std::memory_order_release);
+#else
+		bool old = ready_.exchange(true, std::memory_order_release);
+		assert(old == false);
+#endif
+		ready_.notify_all();
+	}
+
+	// set an exception
+	void set_exception(std::exception_ptr exception)
+	{
+		exception_ = exception;
+#ifdef NDEBUG
+		ready_.store(true, std::memory_order_release);
+#else
+		bool old = ready_.exchange(true, std::memory_order_release);
+		assert(old == false);
+#endif
+		ready_.notify_all();
+	}
+};
+
+template <class T> class Task
+{
+	std::shared_ptr<SharedResult<T>> state_;
+
+  public:
+	Task() = default;
+
+	explicit Task(std::shared_ptr<SharedResult<T>> state)
+	    : state_(std::move(state))
+	{}
+
+	Task(const Task &) = delete;
+	Task &operator=(const Task &) = delete;
+
+	Task(Task &&) noexcept = default;
+	Task &operator=(Task &&) noexcept = default;
+
+	bool valid() const noexcept { return static_cast<bool>(state_); }
+
+	bool ready() const noexcept
+	{
+		assert(state_);
+		return state_->ready();
+	}
+
+	void wait() const noexcept
+	{
+		assert(state_);
+		state_->wait();
+	}
+
+	T get()
+	{
+		assert(state_);
+		T result = std::move(state_->get());
+		state_.reset(); // single-consumption semantics
+		return result;
+	}
+};
+
+template <> class Task<void>
+{
+	std::shared_ptr<SharedResult<void>> state_;
+
+  public:
+	Task() = default;
+
+	explicit Task(std::shared_ptr<SharedResult<void>> state)
+	    : state_(std::move(state))
+	{}
+
+	Task(const Task &) = delete;
+	Task &operator=(const Task &) = delete;
+
+	Task(Task &&) noexcept = default;
+	Task &operator=(Task &&) noexcept = default;
+
+	bool valid() const noexcept { return static_cast<bool>(state_); }
+
+	bool ready() const noexcept
+	{
+		assert(state_);
+		return state_->ready();
+	}
+
+	void wait() const noexcept
+	{
+		assert(state_);
+		state_->wait();
+	}
+
+	void get()
+	{
+		assert(state_);
+		state_->get();
+		state_.reset(); // single-consumption semantics
+	}
+};
+
+// base class to put into the job queue
+class JobBase
+{
+  public:
+	// exactly one of run() or cancel() should be called exactly once
+	virtual void run() noexcept = 0;
+	virtual void cancel() noexcept = 0;
+	virtual ~JobBase(){};
+};
+
+template <class F, class... Args> class Job final : public JobBase
+{
+	using result_type = std::invoke_result_t<F, Args...>;
+
+	std::shared_ptr<SharedResult<result_type>> promise_ =
+	    std::make_shared<SharedResult<result_type>>();
+	F f_;
+	std::tuple<Args...> args_;
+
+  public:
+	Job(Job const &) = delete;
+	Job &operator=(Job const &) = delete;
+
+	Job(F f, Args... args) noexcept
+	    : f_(std::move(f)), args_(std::move(args)...)
+	{}
+
+	~Job()
+	{
+		// At this point, we assume promise_ to be fulfilled (either by a
+		// value or by an exception). Otherwise, anyone waiting on its
+		// future will be stuck indefinitely.
+
+		assert(promise_->ready());
+	}
+
+	void run() noexcept
+	{
+		try
+		{
+			if constexpr (std::is_same_v<result_type, void>)
+			{
+				std::apply(std::move(f_), std::move(args_));
+				promise_->set_value();
+			}
+			else
+				promise_->set_value(
+				    std::apply(std::move(f_), std::move(args_)));
+		}
+		catch (...)
+		{
+			// NOTE: 'promise_.set_value()' cannot throw in our usecase,
+			//       so we know any exception came from invoking f_ itself
+			promise_->set_exception(std::current_exception());
+		}
+	}
+
+	void cancel() noexcept
+	{
+		promise_->set_exception(std::make_exception_ptr(job_cancelled{}));
+	}
+
+	// call at most once
+	auto get_future() noexcept { return Task<result_type>{promise_}; }
 };
 
 // simple thread pool with central queue of tasks
@@ -69,73 +360,8 @@ class job_cancelled : public std::runtime_error
 //     * Nothing fancy inside (no look-free structures, no work stealing, etc)
 //     * Submitting jobs is thread-safe, including from within a running job.
 //     * TODO: some co-operative stoping, maybe using std::stop_token
-//     * TODO: proper separation of low-level job queue and high-level parallel
-//     algorithms.
 class ThreadPool
 {
-	class JobBase
-	{
-	  public:
-		// exactly one of run() or cancel() should be called exactly once
-		virtual void run() noexcept = 0;
-		virtual void cancel() noexcept = 0;
-		virtual ~JobBase(){};
-	};
-
-	template <class F, class... Args> class Job final : public JobBase
-	{
-		using result_type = std::invoke_result_t<F, Args...>;
-
-		std::promise<result_type> promise_;
-		F f_;
-		std::tuple<Args...> args_;
-
-	  public:
-		Job(Job const &) = delete;
-		Job &operator=(Job const &) = delete;
-
-		Job(F f, Args... args) noexcept
-		    : f_(std::move(f)), args_(std::move(args)...)
-		{}
-
-		~Job()
-		{
-			// At this point, we assume promise_ to be fulfilled (either by a
-			// value or by an exception). Otherwise, anyone waiting on its
-			// future will be stuck indefinitely.
-
-			// assert(promise_.has_value()); // this method doesnt exist :(
-		}
-
-		void run() noexcept
-		{
-			try
-			{
-				if constexpr (std::is_same_v<result_type, void>)
-				{
-					std::apply(std::move(f_), std::move(args_));
-					promise_.set_value();
-				}
-				else
-					promise_.set_value(
-					    std::apply(std::move(f_), std::move(args_)));
-			}
-			catch (...)
-			{
-				// NOTE: 'promise_.set_value()' cannot throw in our usecase,
-				//       so we know any exception came from invoking f_ itself
-				promise_.set_exception(std::current_exception());
-			}
-		}
-
-		void cancel() noexcept
-		{
-			promise_.set_exception(std::make_exception_ptr(job_cancelled{}));
-		}
-
-		// call at most once
-		auto get_future() noexcept { return promise_.get_future(); }
-	};
 
 	// worker threads
 	std::vector<std::jthread> threads_;
@@ -206,7 +432,9 @@ class ThreadPool
 	//       of which cancels or waits for all all pending jobs.
 	//     * If f throws, the exception is captured and can be retrieved
 	//       from the returned future.
-	template <class F, class... Args> auto async(F f, Args... args) noexcept
+	template <class F, class... Args>
+	auto async(F f,
+	           Args... args) noexcept -> Task<std::invoke_result_t<F, Args...>>
 	{
 		auto job =
 		    std::make_unique<Job<F, Args...>>(std::move(f), std::move(args)...);
@@ -301,7 +529,7 @@ auto bulk_execute(ThreadPool &pool, size_t count, MakeState make_state,
 
 	// enqueue one job per participant. Ideally, each one would be picked up by
 	// a different worker thread, but this is not strictly guaranteed.
-	std::vector<std::future<std::optional<Result>>> as;
+	std::vector<Task<std::optional<Result>>> as;
 	as.reserve(participants);
 
 	// note: the workers contain references local variables, so an exception in

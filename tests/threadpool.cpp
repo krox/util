@@ -25,7 +25,7 @@ TEST_CASE("threadpool")
 		auto a = pool.async(f, 1);
 		auto b = pool.async(f, 2);
 		auto c = pool.async(f, 3);
-		static_assert(std::is_same_v<decltype(a), std::future<int>>);
+		static_assert(std::is_same_v<decltype(a), util::Task<int>>);
 		CHECK(a.get() == 2);
 		CHECK(b.get() == 4);
 		CHECK(c.get() == 6);

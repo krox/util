@@ -26,33 +26,19 @@ class job_cancelled : public std::runtime_error
 	job_cancelled() : std::runtime_error("job cancelled") {}
 };
 
-// Can hold either a value of type T or an exception.
-//   * single-producer: calling 'set_*' multiple times is UB
-//   * multi-consumer: any number of threads can call 'ready()', 'wait()', and
-//     'get()' concurrently. Though no further synchronization on the contained
-//     'T' is provided.
-//   * typical use: a shared_ptr<SharedResult<T>> can be used as a single-slot
-//     channel, similar to a promise/future pair.
-template <class T> class SharedResult;
-
-template <class T>
-    requires std::movable<T> && std::is_nothrow_move_constructible_v<T>
-class SharedResult<T>
+// type-erased base class for SharedResult
+class SharedResultBase
 {
 	std::atomic<bool> ready_{false};
 
-	// note: 'exception_ptr' has a natural null state, T might not even have a
-	// default constructor. So this is the right order of members.
-	std::variant<std::exception_ptr, T> value_;
-
   public:
-	SharedResult() = default;
+	SharedResultBase() = default;
 
-	// Not movable. Doing so would mess with the synchronization.
-	SharedResult(SharedResult const &) = delete;
-	SharedResult &operator=(SharedResult const &) = delete;
-	SharedResult(SharedResult &&) = delete;
-	SharedResult &operator=(SharedResult &&) = delete;
+	// not movable. Doing so would mess with the synchronization.
+	SharedResultBase(SharedResultBase const &) = delete;
+	SharedResultBase &operator=(SharedResultBase const &) = delete;
+	SharedResultBase(SharedResultBase &&) = delete;
+	SharedResultBase &operator=(SharedResultBase &&) = delete;
 
 	// check if a value/exception is ready without blocking.
 	bool ready() const noexcept
@@ -68,6 +54,41 @@ class SharedResult<T>
 		ready_.wait(false, std::memory_order_acquire);
 	}
 
+  protected:
+	void set_ready() noexcept
+	{
+#ifdef NDEBUG
+		ready_.store(true, std::memory_order_release);
+#else
+		bool old = ready_.exchange(true, std::memory_order_release);
+
+		// note: this check does catch race conditions, but this is too late.
+		// Competing calls to 'set_value(...)' or the like can already have
+		// corrupted memory.
+		assert(old == false);
+#endif
+		ready_.notify_all();
+	}
+};
+
+// Can hold either a value of type T or an exception.
+//   * single-producer: calling 'set_*' multiple times is UB
+//   * multi-consumer: any number of threads can call 'ready()', 'wait()', and
+//     'get()' concurrently. Though no further synchronization on the contained
+//     'T' is provided.
+//   * typical use: a shared_ptr<SharedResult<T>> can be used as a single-slot
+//     channel, similar to a promise/future pair.
+template <class T> class SharedResult;
+
+template <class T>
+    requires std::movable<T> && std::is_nothrow_move_constructible_v<T>
+class SharedResult<T> : public SharedResultBase
+{
+	// note: 'exception_ptr' has a natural null state, T might not even have a
+	// default constructor. So this is the right order of members.
+	std::variant<std::exception_ptr, T> value_;
+
+  public:
 	// blocks till ready. Returns value or rethrows exception.
 	T &get()
 	{
@@ -89,87 +110,29 @@ class SharedResult<T>
 		return std::get<T>(value_);
 	}
 
-	T *try_get()
-	{
-		if (!ready())
-			return nullptr;
-
-		if (std::holds_alternative<std::exception_ptr>(value_))
-			std::rethrow_exception(std::get<std::exception_ptr>(value_));
-		assert(std::holds_alternative<T>(value_));
-		return &std::get<T>(value_);
-	}
-
-	T const *try_get() const
-	{
-		if (!ready())
-			return nullptr;
-
-		if (std::holds_alternative<std::exception_ptr>(value_))
-			std::rethrow_exception(std::get<std::exception_ptr>(value_));
-		assert(std::holds_alternative<T>(value_));
-		return &std::get<T>(value_);
-	}
-
 	// set a value
 	template <class U = T>
 	    requires std::constructible_from<T, U>
 	void set_value(U &&value)
 	{
 		value_.template emplace<T>(std::forward<U>(value));
-#ifdef NDEBUG
-		ready_.store(true, std::memory_order_release);
-#else
-		bool old = ready_.exchange(true, std::memory_order_release);
-		assert(old == false);
-#endif
-		ready_.notify_all();
+		set_ready();
 	}
 
 	// set an exception
 	void set_exception(std::exception_ptr exception)
 	{
 		value_.template emplace<std::exception_ptr>(std::move(exception));
-#ifdef NDEBUG
-		ready_.store(true, std::memory_order_release);
-#else
-		bool old = ready_.exchange(true, std::memory_order_release);
-		assert(old == false);
-#endif
-		ready_.notify_all();
+		set_ready();
 	}
 };
 
 // void specialization of SharedResult.
-template <> class SharedResult<void>
+template <> class SharedResult<void> : public SharedResultBase
 {
-	std::atomic<bool> ready_{false};
-
 	std::exception_ptr exception_ = nullptr;
 
   public:
-	SharedResult() = default;
-
-	// Not movable. Doing so would mess with the synchronization.
-	SharedResult(SharedResult const &) = delete;
-	SharedResult &operator=(SharedResult const &) = delete;
-	SharedResult(SharedResult &&) = delete;
-	SharedResult &operator=(SharedResult &&) = delete;
-
-	// check if a value/exception is ready without blocking.
-	bool ready() const noexcept
-	{
-		return ready_.load(std::memory_order_acquire);
-	}
-
-	// blocks until value/exception is set
-	void wait() const noexcept
-	{
-		// note: 'atomic::wait' guarantees to only return when the value
-		// actually changed away from the expected. No spurious wakeups.
-		ready_.wait(false, std::memory_order_acquire);
-	}
-
 	// blocks till ready. rethrows any exception.
 	void get() const
 	{
@@ -179,28 +142,13 @@ template <> class SharedResult<void>
 	}
 
 	// set a value
-	void set_value()
-	{
-#ifdef NDEBUG
-		ready_.store(true, std::memory_order_release);
-#else
-		bool old = ready_.exchange(true, std::memory_order_release);
-		assert(old == false);
-#endif
-		ready_.notify_all();
-	}
+	void set_value() { set_ready(); }
 
 	// set an exception
 	void set_exception(std::exception_ptr exception)
 	{
 		exception_ = exception;
-#ifdef NDEBUG
-		ready_.store(true, std::memory_order_release);
-#else
-		bool old = ready_.exchange(true, std::memory_order_release);
-		assert(old == false);
-#endif
-		ready_.notify_all();
+		set_ready();
 	}
 };
 
@@ -238,48 +186,18 @@ template <class T> class Task
 	T get()
 	{
 		assert(state_);
-		T result = std::move(state_->get());
-		state_.reset(); // single-consumption semantics
-		return result;
-	}
-};
-
-template <> class Task<void>
-{
-	std::shared_ptr<SharedResult<void>> state_;
-
-  public:
-	Task() = default;
-
-	explicit Task(std::shared_ptr<SharedResult<void>> state)
-	    : state_(std::move(state))
-	{}
-
-	Task(const Task &) = delete;
-	Task &operator=(const Task &) = delete;
-
-	Task(Task &&) noexcept = default;
-	Task &operator=(Task &&) noexcept = default;
-
-	bool valid() const noexcept { return static_cast<bool>(state_); }
-
-	bool ready() const noexcept
-	{
-		assert(state_);
-		return state_->ready();
-	}
-
-	void wait() const noexcept
-	{
-		assert(state_);
-		state_->wait();
-	}
-
-	void get()
-	{
-		assert(state_);
-		state_->get();
-		state_.reset(); // single-consumption semantics
+		if constexpr (std::is_same_v<T, void>)
+		{
+			state_->get();
+			state_.reset();
+			return;
+		}
+		else
+		{
+			T result = std::move(state_->get());
+			state_.reset();
+			return result;
+		}
 	}
 };
 

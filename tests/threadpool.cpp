@@ -35,6 +35,40 @@ TEST_CASE("threadpool")
 		CHECK(g.get() == 42);
 	}
 
+	SECTION("async passes stop handle when supported")
+	{
+		util::ThreadPool pool{1};
+		std::promise<void> blocker_started;
+		std::promise<void> blocker_release;
+		auto blocker_release_future = blocker_release.get_future();
+
+		auto blocker = pool.async([&] {
+			blocker_started.set_value();
+			blocker_release_future.wait();
+		});
+
+		blocker_started.get_future().wait();
+
+		struct overloaded_job
+		{
+			int operator()(util::stop_handle stop, int value) const
+			{
+				while (!stop)
+					std::this_thread::yield();
+				return value * 10;
+			}
+
+			int operator()(int value) const { return value * -1; }
+		};
+
+		auto task = pool.async(overloaded_job{}, 7);
+		task.request_stop();
+		blocker_release.set_value();
+
+		blocker.get();
+		CHECK(task.get() == 70);
+	}
+
 	SECTION("parallel for_each free function")
 	{
 		std::vector<int> v = {1, 2, 3, 4, 5};

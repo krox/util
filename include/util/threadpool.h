@@ -26,10 +26,46 @@ class job_cancelled : public std::runtime_error
 	job_cancelled() : std::runtime_error("job cancelled") {}
 };
 
+// simpler alternative to std::stop_token that just refers to an atomic<bool>.
+class stop_handle
+{
+	std::atomic<bool> const *stop_ = nullptr;
+
+  public:
+	stop_handle() = default;
+	stop_handle(std::atomic<bool> const *stop) : stop_(stop) {}
+
+	operator bool() const noexcept
+	{
+		return stop_ && stop_->load(std::memory_order_relaxed);
+	}
+};
+
+template <class F, class... Args>
+inline constexpr bool use_stop_handle_v =
+    std::is_invocable_v<F, stop_handle, Args...>;
+
+template <bool UseStopHandle, class F, class... Args> struct async_result_impl;
+
+template <class F, class... Args> struct async_result_impl<true, F, Args...>
+{
+	using type = std::invoke_result_t<F, stop_handle, Args...>;
+};
+
+template <class F, class... Args> struct async_result_impl<false, F, Args...>
+{
+	using type = std::invoke_result_t<F, Args...>;
+};
+
+template <class F, class... Args>
+using async_result_t =
+    typename async_result_impl<use_stop_handle_v<F, Args...>, F, Args...>::type;
+
 // type-erased base class for SharedResult
 class SharedResultBase
 {
 	std::atomic<bool> ready_{false};
+	std::atomic<bool> stop_{false};
 
   public:
 	SharedResultBase() = default;
@@ -53,6 +89,20 @@ class SharedResultBase
 		// actually changed away from the expected. No spurious wakeups.
 		ready_.wait(false, std::memory_order_acquire);
 	}
+
+	// request co-operative stopping. This is just a hint that the producer can
+	// check to stop early, but it is not guaranteed to be respected.
+	void request_stop() noexcept
+	{
+		stop_.store(true, std::memory_order_relaxed);
+	}
+
+	bool stop_requested() const noexcept
+	{
+		return stop_.load(std::memory_order_relaxed);
+	}
+
+	stop_handle get_stop_handle() const noexcept { return &stop_; }
 
   protected:
 	void set_ready() noexcept
@@ -78,11 +128,7 @@ class SharedResultBase
 //     'T' is provided.
 //   * typical use: a shared_ptr<SharedResult<T>> can be used as a single-slot
 //     channel, similar to a promise/future pair.
-template <class T> class SharedResult;
-
-template <class T>
-    requires std::movable<T> && std::is_nothrow_move_constructible_v<T>
-class SharedResult<T> : public SharedResultBase
+template <class T> class SharedResult : public SharedResultBase
 {
 	// note: 'exception_ptr' has a natural null state, T might not even have a
 	// default constructor. So this is the right order of members.
@@ -199,6 +245,12 @@ template <class T> class Task
 			return result;
 		}
 	}
+
+	void request_stop() noexcept
+	{
+		assert(state_);
+		state_->request_stop();
+	}
 };
 
 // base class to put into the job queue
@@ -213,7 +265,7 @@ class JobBase
 
 template <class F, class... Args> class Job final : public JobBase
 {
-	using result_type = std::invoke_result_t<F, Args...>;
+	using result_type = async_result_t<F, Args...>;
 
 	std::shared_ptr<SharedResult<result_type>> promise_ =
 	    std::make_shared<SharedResult<result_type>>();
@@ -243,12 +295,32 @@ template <class F, class... Args> class Job final : public JobBase
 		{
 			if constexpr (std::is_same_v<result_type, void>)
 			{
-				std::apply(std::move(f_), std::move(args_));
+				if constexpr (use_stop_handle_v<F, Args...>)
+					std::apply(
+					    [this](auto &&...args) {
+						    std::invoke(std::move(f_),
+						                promise_->get_stop_handle(),
+						                std::forward<decltype(args)>(args)...);
+					    },
+					    std::move(args_));
+				else
+					std::apply(std::move(f_), std::move(args_));
 				promise_->set_value();
 			}
 			else
-				promise_->set_value(
-				    std::apply(std::move(f_), std::move(args_)));
+			{
+				if constexpr (use_stop_handle_v<F, Args...>)
+					promise_->set_value(std::apply(
+					    [this](auto &&...args) {
+						    return std::invoke(
+						        std::move(f_), promise_->get_stop_handle(),
+						        std::forward<decltype(args)>(args)...);
+					    },
+					    std::move(args_)));
+				else
+					promise_->set_value(
+					    std::apply(std::move(f_), std::move(args_)));
+			}
 		}
 		catch (...)
 		{
@@ -351,8 +423,7 @@ class ThreadPool
 	//     * If f throws, the exception is captured and can be retrieved
 	//       from the returned future.
 	template <class F, class... Args>
-	auto async(F f,
-	           Args... args) noexcept -> Task<std::invoke_result_t<F, Args...>>
+	auto async(F f, Args... args) noexcept -> Task<async_result_t<F, Args...>>
 	{
 		auto job =
 		    std::make_unique<Job<F, Args...>>(std::move(f), std::move(args)...);

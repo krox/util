@@ -18,7 +18,7 @@
 
 namespace util {
 
-// exception 'thrown' (stored in the SharedResult/Task), if a job is cancelled
+// exception 'thrown' (stored in the TaskState/Task), if a job is cancelled
 // before it actually started running
 class job_cancelled : public std::runtime_error
 {
@@ -61,20 +61,28 @@ template <class F, class... Args>
 using async_result_t =
     typename async_result_impl<use_stop_handle_v<F, Args...>, F, Args...>::type;
 
-// type-erased base class for SharedResult
-class SharedResultBase
+// type-erased base class for TaskState
+class TaskStateBase
 {
+	// this is the only synchronization point. Readers wait on 'ready_' to
+	// become true before reading the result value or exception.
 	std::atomic<bool> ready_{false};
+
+	// cooperative stopping (just a hint, no guaranteed semantics)
 	std::atomic<bool> stop_{false};
 
+	// progress reporting (just a hint, no guaranteed semantics)
+	std::atomic<int64_t> total_{0};
+	std::atomic<int64_t> progress_{0};
+
   public:
-	SharedResultBase() = default;
+	TaskStateBase() = default;
 
 	// not movable. Doing so would mess with the synchronization.
-	SharedResultBase(SharedResultBase const &) = delete;
-	SharedResultBase &operator=(SharedResultBase const &) = delete;
-	SharedResultBase(SharedResultBase &&) = delete;
-	SharedResultBase &operator=(SharedResultBase &&) = delete;
+	TaskStateBase(TaskStateBase const &) = delete;
+	TaskStateBase &operator=(TaskStateBase const &) = delete;
+	TaskStateBase(TaskStateBase &&) = delete;
+	TaskStateBase &operator=(TaskStateBase &&) = delete;
 
 	// check if a value/exception is ready without blocking.
 	bool ready() const noexcept
@@ -96,13 +104,30 @@ class SharedResultBase
 	{
 		stop_.store(true, std::memory_order_relaxed);
 	}
-
 	bool stop_requested() const noexcept
 	{
 		return stop_.load(std::memory_order_relaxed);
 	}
-
 	stop_handle get_stop_handle() const noexcept { return &stop_; }
+
+	// progress reporting.
+	// This is just reporting, not an enforced synchronization mechanism
+	void set_total(int64_t total) noexcept
+	{
+		total_.store(total, std::memory_order_relaxed);
+	}
+	void increment_progress(int64_t delta) noexcept
+	{
+		progress_.fetch_add(delta, std::memory_order_relaxed);
+	}
+	int64_t total() const noexcept
+	{
+		return total_.load(std::memory_order_relaxed);
+	}
+	int64_t progress() const noexcept
+	{
+		return progress_.load(std::memory_order_relaxed);
+	}
 
   protected:
 	void set_ready() noexcept
@@ -126,9 +151,9 @@ class SharedResultBase
 //   * multi-consumer: any number of threads can call 'ready()', 'wait()', and
 //     'get()' concurrently. Though no further synchronization on the contained
 //     'T' is provided.
-//   * typical use: a shared_ptr<SharedResult<T>> can be used as a single-slot
+//   * typical use: a shared_ptr<TaskState<T>> can be used as a single-slot
 //     channel, similar to a promise/future pair.
-template <class T> class SharedResult : public SharedResultBase
+template <class T> class TaskState : public TaskStateBase
 {
 	// note: 'exception_ptr' has a natural null state, T might not even have a
 	// default constructor. So this is the right order of members.
@@ -173,8 +198,8 @@ template <class T> class SharedResult : public SharedResultBase
 	}
 };
 
-// void specialization of SharedResult.
-template <> class SharedResult<void> : public SharedResultBase
+// void specialization of TaskState.
+template <> class TaskState<void> : public TaskStateBase
 {
 	std::exception_ptr exception_ = nullptr;
 
@@ -200,12 +225,12 @@ template <> class SharedResult<void> : public SharedResultBase
 
 template <class T> class Task
 {
-	std::shared_ptr<SharedResult<T>> state_;
+	std::shared_ptr<TaskState<T>> state_;
 
   public:
 	Task() = default;
 
-	explicit Task(std::shared_ptr<SharedResult<T>> state)
+	explicit Task(std::shared_ptr<TaskState<T>> state)
 	    : state_(std::move(state))
 	{}
 
@@ -267,8 +292,8 @@ template <class F, class... Args> class Job final : public JobBase
 {
 	using result_type = async_result_t<F, Args...>;
 
-	std::shared_ptr<SharedResult<result_type>> promise_ =
-	    std::make_shared<SharedResult<result_type>>();
+	std::shared_ptr<TaskState<result_type>> promise_ =
+	    std::make_shared<TaskState<result_type>>();
 	F f_;
 	std::tuple<Args...> args_;
 

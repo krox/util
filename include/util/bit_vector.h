@@ -589,6 +589,50 @@ template <int features = 0> class bit_vector_impl
 using bit_vector = bit_vector_impl<>;
 using bit_map = bit_vector_impl<bit_vector_impl<>::auto_resize>;
 
+// boolean matrix. One bit per element with some padding to make row-wise
+// bitwise operations efficient.
+class bit_matrix
+{
+  public:
+	using limb_t = bit_vector::limb_t;
+	static constexpr size_t limb_bits = bit_vector::limb_bits;
+
+  private:
+	size_t height_ = 0, width_ = 0;
+	size_t row_limbs_ = 0;
+	unique_memory<limb_t> data_ = {};
+
+  public:
+	bit_matrix() = default;
+	explicit bit_matrix(size_t height, size_t width)
+	    : height_(height), width_(width),
+	      row_limbs_((width + limb_bits - 1) / limb_bits),
+	      data_(allocate<limb_t>(height * row_limbs_))
+	{}
+
+	// access row i as a bit_span
+	bit_span operator[](size_t i) noexcept
+	{
+		assert(i < height_);
+		return bit_span(data_.data() + i * row_limbs_, width_);
+	}
+	const_bit_span operator[](size_t i) const noexcept
+	{
+		assert(i < height_);
+		return const_bit_span(data_.data() + i * row_limbs_, width_);
+	}
+
+	size_t height() const noexcept { return height_; }
+	size_t width() const noexcept { return width_; }
+	size_t count() const noexcept
+	{
+		size_t c = 0;
+		for (size_t i = 0; i < height_; ++i)
+			c += (*this)[i].count();
+		return c;
+	}
+};
+
 // alternative to 'std::set<uint32_t>' that uses a bit per (potential) element
 //   * internally its a bit_vector + explicit list of dirty limbs. Externally,
 //     the interface is kinda minimal.

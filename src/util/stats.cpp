@@ -196,6 +196,56 @@ int IntHistogram::find_nth(int64_t n) const
 	unreachable();
 }
 
+void IntHistogram2D::add(int x, int y, int64_t weight)
+{
+	assert(x >= 0 && y >= 0);
+	assert(x < (1 << 20) && y < (1 << 20)); // arbitrary limit
+
+	if (x >= size_x_ || y >= size_y_)
+	{
+		int new_size_x = std::max(x + 1, size_x_ * 2);
+		int new_size_y = std::max(y + 1, size_y_ * 2);
+		std::vector<int64_t> new_bins(new_size_x * new_size_y, 0);
+		for (int j = 0; j < size_y_; ++j)
+			for (int i = 0; i < size_x_; ++i)
+				new_bins[j * new_size_x + i] = bins_[j * size_x_ + i];
+		bins_ = std::move(new_bins);
+		size_x_ = new_size_x;
+		size_y_ = new_size_y;
+	}
+
+	max_x_ = std::max(max_x_, x);
+	max_y_ = std::max(max_y_, y);
+	count_ += weight;
+	bins_[y * size_x_ + x] += weight;
+}
+
+void IntHistogram2D::add(std::span<const std::pair<int, int>> xs)
+{
+	for (auto [x, y] : xs)
+		add(x, y);
+}
+
+int64_t IntHistogram2D::operator()(int x, int y) const
+{
+	if (x < 0 || x > max_x_ || y < 0 || y > max_y_)
+		return 0;
+	return bins_[y * size_x_ + x];
+}
+
+std::string IntHistogram2D::to_string() const
+{
+	std::string s;
+	for (int y = 0; y <= max_y_; ++y)
+	{
+		s += fmt::format("{:4} :", y);
+		for (int x = 0; x <= max_x_; ++x)
+			s += fmt::format(" {:4}", (*this)(x, y));
+		s += "\n";
+	}
+	return s;
+}
+
 template <size_t dim> Estimator<dim>::Estimator() { clear(); }
 
 template <size_t dim> void Estimator<dim>::add(std::array<double, dim> x)

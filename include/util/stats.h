@@ -257,6 +257,31 @@ class IntHistogram
 	int find_nth(int64_t n) const;
 };
 
+// histogram of pairs of non-negative integers
+class IntHistogram2D
+{
+	std::vector<int64_t> bins_;
+	int size_x_ = 0;
+	int size_y_ = 0;
+	int max_x_ = INT_MIN;
+	int max_y_ = INT_MIN;
+	int64_t count_ = 0;
+
+  public:
+	IntHistogram2D() = default;
+	IntHistogram2D(std::span<const std::pair<int, int>> xs) { add(xs); }
+
+	void add(int x, int y, int64_t weight = 1);
+	void add(std::span<const std::pair<int, int>> xs);
+
+	int max_x() const { return max_x_; }
+	int max_y() const { return max_y_; }
+
+	int64_t operator()(int x, int y) const;
+
+	std::string to_string() const;
+};
+
 /**
  * Estimate mean/variance/covariance of a population as samples are coming in.
  * This is the same as the standard formula "Var(x) = n/(n-1) (E(x^2) - E(x)^2)"

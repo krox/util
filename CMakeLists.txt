@@ -320,6 +320,7 @@ if(UTIL_BUILD_TESTS)
 			tests/series.cpp
 			tests/simd.cpp
 			tests/sorted_vector.cpp
+			tests/stats.cpp
 			tests/string.cpp
 			tests/threadpool.cpp
 			tests/unionfind.cpp

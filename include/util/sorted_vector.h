@@ -190,9 +190,9 @@ bool is_sorted(std::ranges::forward_range auto &&xs)
 void set_intersection(std::ranges::input_range auto &&a,
                       std::ranges::input_range auto &&b, auto &&callback)
 {
-	set_intersection(std::ranges::begin(a), std::ranges::end(a),
-	                 std::ranges::begin(b), std::ranges::end(b),
-	                 std::forward<decltype(callback)>(callback));
+	util::set_intersection(std::ranges::begin(a), std::ranges::end(a),
+	                       std::ranges::begin(b), std::ranges::end(b),
+	                       std::forward<decltype(callback)>(callback));
 }
 
 // Emits elements present in all three sorted input ranges.
@@ -200,10 +200,10 @@ void set_intersection3(std::ranges::input_range auto &&a,
                        std::ranges::input_range auto &&b,
                        std::ranges::input_range auto &&c, auto &&callback)
 {
-	set_intersection3(std::ranges::begin(a), std::ranges::end(a),
-	                  std::ranges::begin(b), std::ranges::end(b),
-	                  std::ranges::begin(c), std::ranges::end(c),
-	                  std::forward<decltype(callback)>(callback));
+	util::set_intersection3(std::ranges::begin(a), std::ranges::end(a),
+	                        std::ranges::begin(b), std::ranges::end(b),
+	                        std::ranges::begin(c), std::ranges::end(c),
+	                        std::forward<decltype(callback)>(callback));
 }
 
 // Splits three-way matches from exactly-two-way matches across sorted ranges.
@@ -212,19 +212,20 @@ void set_intersection3(std::ranges::input_range auto &&a,
                        std::ranges::input_range auto &&c, auto &&callback3,
                        auto &&callback2)
 {
-	set_intersection3(std::ranges::begin(a), std::ranges::end(a),
-	                  std::ranges::begin(b), std::ranges::end(b),
-	                  std::ranges::begin(c), std::ranges::end(c),
-	                  std::forward<decltype(callback3)>(callback3),
-	                  std::forward<decltype(callback2)>(callback2));
+	util::set_intersection3(std::ranges::begin(a), std::ranges::end(a),
+	                        std::ranges::begin(b), std::ranges::end(b),
+	                        std::ranges::begin(c), std::ranges::end(c),
+	                        std::forward<decltype(callback3)>(callback3),
+	                        std::forward<decltype(callback2)>(callback2));
 }
 
 // Emits the sorted union of both input ranges.
 void set_union(std::ranges::input_range auto &&a,
                std::ranges::input_range auto &&b, auto &&callback)
 {
-	set_union(std::ranges::begin(a), std::ranges::end(a), std::ranges::begin(b),
-	          std::ranges::end(b), std::forward<decltype(callback)>(callback));
+	util::set_union(std::ranges::begin(a), std::ranges::end(a),
+	                std::ranges::begin(b), std::ranges::end(b),
+	                std::forward<decltype(callback)>(callback));
 }
 
 } // namespace util

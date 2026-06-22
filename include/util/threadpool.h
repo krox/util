@@ -456,6 +456,42 @@ class ThreadPool
 		add_job(std::move(job));
 		return future;
 	}
+
+	// run a function in parallel on each worker thread. The function object
+	// itself is copied and gets passed the thread ID
+	//   * If 'f' returns non-void, the results are collected and returned as a
+	//     vector. Ordered by participant-ID
+	//   * If any instance of 'f' throws, the exception is propagated. If
+	//     multiple instances throw, all but one exception are discarded.
+	//   * no guarantee on actual number of participating workers, but it will
+	//     be at most 'num_threads()'.
+	auto parallel(std::invocable<int> auto f)
+	{
+		using Result = std::invoke_result_t<decltype(f), int>;
+		std::vector<Task<Result>> tasks;
+		tasks.reserve(num_threads());
+		for (int i = 0; i < num_threads(); ++i)
+			tasks.push_back(async(f, i));
+
+		// wait for all work to finish before collecting results. This ensures
+		// no references escape in case of an exception.
+		for (auto &t : tasks)
+			t.wait();
+
+		if constexpr (std::is_same_v<Result, void>)
+		{
+			for (auto &t : tasks)
+				t.get();
+		}
+		else
+		{
+			std::vector<Result> results;
+			results.reserve(tasks.size());
+			for (auto &t : tasks)
+				results.push_back(t.get());
+			return results;
+		}
+	}
 };
 
 struct bulk_options

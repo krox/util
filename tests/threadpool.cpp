@@ -69,6 +69,55 @@ TEST_CASE("threadpool")
 		CHECK(task.get() == 70);
 	}
 
+	SECTION("parallel member function collects ordered results")
+	{
+		util::ThreadPool pool{4};
+
+		auto results =
+		    pool.parallel([](int worker_id) { return worker_id * worker_id; });
+
+		CHECK(results == std::vector<int>{0, 1, 4, 9});
+	}
+
+	SECTION("parallel member function waits for all workers before rethrowing")
+	{
+		util::ThreadPool pool{2};
+		std::promise<void> thrower_started;
+		std::promise<void> blocker_started;
+		std::promise<void> release_thrower;
+		std::promise<void> release_blocker;
+		auto release_thrower_future = release_thrower.get_future().share();
+		auto release_blocker_future = release_blocker.get_future().share();
+		std::atomic<bool> blocker_finished = false;
+
+		auto call = std::async(std::launch::async, [&] {
+			REQUIRE_THROWS_AS(pool.parallel([&](int worker_id) {
+				if (worker_id == 0)
+				{
+					thrower_started.set_value();
+					release_thrower_future.wait();
+					throw std::runtime_error("foo");
+				}
+
+				blocker_started.set_value();
+				release_blocker_future.wait();
+				blocker_finished.store(true);
+			}),
+			                  std::runtime_error);
+		});
+
+		thrower_started.get_future().wait();
+		blocker_started.get_future().wait();
+		release_thrower.set_value();
+
+		CHECK(call.wait_for(20ms) == std::future_status::timeout);
+		CHECK_FALSE(blocker_finished.load());
+
+		release_blocker.set_value();
+		call.get();
+		CHECK(blocker_finished.load());
+	}
+
 	SECTION("parallel for_each free function")
 	{
 		std::vector<int> v = {1, 2, 3, 4, 5};

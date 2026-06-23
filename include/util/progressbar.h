@@ -6,6 +6,23 @@
 
 namespace util {
 
+// Progress bar utilities.
+//
+// Usage example:
+//
+//   // Manual control
+//   util::ProgressBar pb(100);
+//   for (size_t i = 0; i < 100; ++i) {
+//       doWork(i);
+//       ++pb;
+//       pb.show();
+//   }
+//   pb.finish();
+//
+//   // Range-based for (automatically shows and finishes)
+//   for (size_t i : util::ProgressRange(100))
+//       doWork(i);
+
 class ProgressBar
 {
 	using clock = std::chrono::steady_clock;
@@ -21,12 +38,11 @@ class ProgressBar
 	{
 		using namespace std::chrono;
 
-		auto p = (double)ticks_ / total_;
+		auto p = (total_ > 0) ? (double)ticks_ / total_ : 0.0;
 		p = std::max(std::min(p, 1.0), 0.0);
 
 		clock::time_point now = clock::now();
 		auto elapsed = now - startTime_;
-		auto eta = (1.0 - p) / p * elapsed;
 
 		std::string head =
 		    fmt::format("{:3}% ({} of {}) |", int(p * 100), ticks_, total_);
@@ -35,29 +51,31 @@ class ProgressBar
 		        ? fmt::format("| elapsed: {:%T}               \r",
 		                      floor<seconds>(elapsed))
 		        : fmt::format("| elapsed: {:%T}, ETA: {:%T}\r",
-		                      floor<seconds>(elapsed), floor<seconds>(eta));
-		fmt::print("{}", head);
-		int width = std::max(10, int(80 - head.size() - tail.size()));
+		                      floor<seconds>(elapsed),
+		                      floor<seconds>((1.0 - p) / p * elapsed));
+		fmt::print(stderr, "{}", head);
+		int barSpace = 80 - (int)head.size() - (int)tail.size();
+		int width = std::max(10, barSpace);
 		int pos = int(width * p);
 		for (int i = 0; i < pos; ++i)
-			fmt::print("#");
+			fmt::print(stderr, "#");
 		for (int i = pos; i < width; ++i)
-			fmt::print(" ");
-		fmt::print("{}", tail);
-		fflush(stdout);
+			fmt::print(stderr, " ");
+		fmt::print(stderr, "{}", tail);
+		fflush(stderr);
 	}
 	void finish()
 	{
 		finished_ = true;
 		show();
-		fmt::print("\n");
+		fmt::print(stderr, "\n");
 	}
 	void update(size_t ticks) { ticks_ = ticks; }
 	void operator++() { ++ticks_; }
 	size_t total() const { return total_; }
 };
 
-/** allows iteration as `for(size_t i : ProgressRange(100))` */
+// allows iteration as `for(size_t i : ProgressRange(100))`
 class ProgressRange
 {
 	struct iterator
@@ -65,7 +83,7 @@ class ProgressRange
 		ProgressRange &pr;
 		size_t current;
 
-		iterator(ProgressRange &p, int c) : pr(p), current(c){};
+		iterator(ProgressRange &p, size_t c) : pr(p), current(c){};
 		size_t operator*() const { return current; }
 		void operator++()
 		{
@@ -84,7 +102,7 @@ class ProgressRange
   public:
 	ProgressRange(size_t total) : pb(total) { pb.show(); }
 	~ProgressRange() { pb.finish(); }
-	iterator begin() { return iterator(*this, 0); }
+	iterator begin() { return iterator(*this, size_t(0)); }
 	iterator end() { return iterator(*this, pb.total()); }
 };
 

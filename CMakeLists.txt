@@ -186,7 +186,7 @@ endif()
 CPMAddPackage(
 	NAME fmt
 	GITHUB_REPOSITORY fmtlib/fmt
-	GIT_TAG 0c9fce2ffefecfdce794e1859584e25877b7b592 # 11.0.2
+	GIT_TAG 1be298e1bd68957e4cd352e1f676f00e07dcfb57 # 12.2.0
 	OPTIONS
 	"FMT_SYSTEM_HEADERS ON" # mark fmt headers as "system", which silences warnings
 )

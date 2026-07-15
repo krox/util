@@ -1,9 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <optional>
+#include <type_traits>
+#include <utility>
 
 namespace util {
 
@@ -106,6 +111,98 @@ template <class T> class synchronized_queue
 	// notify all threads waiting in .pop(...), so that their 'stop_waiting'
 	// condition will be checked (again)
 	void notify() noexcept { condition_.notify_all(); }
+};
+
+// thread-safe multi-producer single-consumer queue.
+// * Classical algorithm by Vyukov which is lock-free (no mutexes) and wait-free
+//  (no CAS loops) for both producers and consumer
+// * Subtle caveat: 'push' is still not exactly atomic: It can happen that a
+//   pushed element only becomes visible to the consumer after some other push
+//   concludes. In practice this usually does not matter because:
+//     1. for each producer, relative order of pushes is still preserved
+//     2. A typical usecase will do "push(..); notify_consumer();". It is
+//       possible that consumer wakes up and does not yet see the pushed
+//       element. But in that case, another push is in flight, and the consumer
+//       will see both elements after that one notifies. Thus as long as the
+//       consumer proecsses all elements on each wakeup, it will eventually see
+//       everything.
+// * TODO: tighter memory ordering. Currently all atomic operations are
+//         sequentially consistent, which is overly conservative.
+template <class T>
+    requires(std::is_nothrow_move_constructible_v<T> &&
+             std::is_nothrow_move_assignable_v<T> &&
+             std::is_nothrow_destructible_v<T>)
+class MpscQueue
+{
+	struct Node
+	{
+		union Storage
+		{
+			char dummy;
+			T value;
+
+			Storage() noexcept : dummy() {}
+			~Storage() noexcept {}
+		};
+
+		std::atomic<Node *> next{nullptr};
+		Storage storage;
+	};
+
+	std::atomic<Node *> head_{nullptr}; // consumer pops here
+	std::atomic<Node *> tail_{nullptr}; // producers push here
+
+  public:
+	MpscQueue(const MpscQueue &) = delete;
+	MpscQueue &operator=(const MpscQueue &) = delete;
+	MpscQueue(MpscQueue &&) = delete;
+	MpscQueue &operator=(MpscQueue &&) = delete;
+
+	MpscQueue() noexcept
+	{
+		Node *dummy = new Node;
+		head_ = dummy;
+		tail_ = dummy;
+	}
+
+	~MpscQueue() noexcept
+	{
+		while (pop())
+			;
+		delete tail_;
+	}
+
+	// push an element to the queue
+	//   - never blocks. New element might not be visible immediately if other
+	//     producers are racing. But once all producers are finished, everything
+	//     will be visible.
+	void push(const T &value) { emplace(value); }
+	void push(T &&value) { emplace(std::move(value)); }
+
+	// same as push, but constructs the element in-place from the given
+	// arguments
+	template <class... Args> void emplace(Args &&...args)
+	{
+		Node *node = new Node;
+		std::construct_at(&node->storage.value, std::forward<Args>(args)...);
+		Node *old_tail = tail_.exchange(node);
+		old_tail->next.store(node);
+	}
+
+	// pop an element from the queue
+	//   - returns std::nullopt if nothing is available
+	std::optional<T> pop() noexcept
+	{
+		Node *old_head = head_.load();
+		Node *next = old_head->next.load();
+		if (!next)
+			return std::nullopt;
+		std::optional<T> r = std::move(next->storage.value);
+		std::destroy_at(&next->storage.value);
+		head_.store(next);
+		delete old_head;
+		return r;
+	}
 };
 
 } // namespace util

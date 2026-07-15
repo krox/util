@@ -322,6 +322,7 @@ if(UTIL_BUILD_TESTS)
 			tests/sorted_vector.cpp
 			tests/stats.cpp
 			tests/string.cpp
+			tests/synchronized.cpp
 			tests/threadpool.cpp
 			tests/unionfind.cpp
 			tests/vector.cpp

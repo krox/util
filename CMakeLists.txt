@@ -312,6 +312,7 @@ if(UTIL_BUILD_TESTS)
 			tests/complex.cpp
 			tests/ddouble.cpp
 			tests/error.cpp
+			tests/fixed_map.cpp
 			tests/functional.cpp
 			tests/hash_map.cpp
 			tests/hash.cpp

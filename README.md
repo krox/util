@@ -53,7 +53,7 @@ Of course, licenses for the upstream-libraries (FFTW, BLAKE3, libfmt, HDF5, ...)
 
 ## Module index
 
-- Containers and such: [vector](#vector), [hash_map](#hash_map), [bit_vector](#bit_vector-utilbit_vectorh), [span](#span-utilspanh), [ndarray](#ndarray), [ring_buffer](#ring_buffer), [memory](#memory-utilmemoryh)
+- Containers and such: [vector](#vector), [hash_map](#hash_map), [fixed_map](#fixed_map), [bit_vector](#bit_vector-utilbit_vectorh), [span](#span-utilspanh), [ndarray](#ndarray), [ring_buffer](#ring_buffer), [memory](#memory-utilmemoryh)
 - Numerical algorithms, data handling and visualization: [stats](#utilstatsh), [numerics](#utilnumericsh), [complex](#utilcomplexh), [ddouble](#utilddoubleh), [fft](#utilffth), [linalg](#linalg-utilinalgh), [random](#utilrandomh), [sampler](#utilsamplerh), [gnuplot](#utilgnuploth)
 - File I/O: [json](#utiljsonh), [numpy](#utilnumpyh), [hdf5](#hdf5), [io](#utilioh)
 - Multithreading support: [synchronized](#utilsynchronizedh), [threadpool](#utilthreadpoolh)
@@ -91,6 +91,20 @@ void example() {
   m["a"] = 1;
   if (auto it = m.find("a"); it != m.end())
     it->second += 1;
+}
+```
+
+## fixed_map
+
+Tiny append-only map with fixed capacity and lock-free insert/lookup. Internally just a lazily allocated array of pointers with linear scan, so it is meant for moderately sized maps.
+
+```cpp
+#include "util/fixed_map.h"
+
+void example() {
+  util::fixed_map<int, int> m;
+  m[7] = 3;
+  auto items = m.items();
 }
 ```
 

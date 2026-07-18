@@ -235,7 +235,7 @@ if(UTIL_ZSTD)
 endif()
 
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/progressbar.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util
@@ -287,6 +287,11 @@ if(UTIL_BUILD_APPS)
 		target_link_libraries(${bin} util CLI11::CLI11)
 		target_compile_options(${bin} PRIVATE ${UTIL_COMPILE_OPTIONS})
 	endforeach(bin)
+
+	add_executable(pbar_demo src/apps/pbar_demo.cpp)
+	target_compile_features(pbar_demo PUBLIC cxx_std_20)
+	target_link_libraries(pbar_demo util)
+	target_compile_options(pbar_demo PRIVATE ${UTIL_COMPILE_OPTIONS})
 endif()
 
 if(UTIL_BUILD_APPS AND UTIL_LUA)

@@ -499,16 +499,24 @@ void example()
 
 ## `util/progressbar.h`
 
-Simple terminal progress bar + RAII range wrapper.
+Asynchronous terminal progress bars with thread-safe log output.
 
 ```cpp
 #include "util/progressbar.h"
 
 void example()
 {
-  for (size_t i : util::ProgressRange(100)) {
-    (void)i;
+  util::AsyncOutput output;
+  auto bar = output.add_bar(100, "download");
+
+  for (size_t i = 0; i < 100; ++i)
+  {
+    bar->increment();
+    if ((i + 1) % 25 == 0)
+      output("checkpoint {}/{}", i + 1, bar->total());
   }
+
+  output("done");
 }
 ```
 

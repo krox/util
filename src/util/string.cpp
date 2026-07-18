@@ -281,3 +281,103 @@ void util::Parser::expect_end()
 	    fmt::format("input:{}:{}: error: {}\n{:>5} | {}\n{:>5} | {:>{}}^\n",
 	                line, col, msg, line, source_line, "", "", col - 1));
 }
+
+char32_t util::parse_utf8(std::string_view &s)
+{
+	// classify bytes in utf8 sequence
+	auto is_1byte = [](unsigned char c) { return (c & 0x80) == 0; };
+	auto is_2byte = [](unsigned char c) { return (c & 0xE0) == 0xC0; };
+	auto is_3byte = [](unsigned char c) { return (c & 0xF0) == 0xE0; };
+	auto is_4byte = [](unsigned char c) { return (c & 0xF8) == 0xF0; };
+	auto is_cont = [](unsigned char c) { return (c & 0xC0) == 0x80; };
+
+	if (s.empty())
+		throw ParseError("unexpected end of input while parsing utf8");
+
+	if (is_1byte(s[0]))
+	{
+		char32_t cp = s[0];
+		s.remove_prefix(1);
+		return cp;
+	}
+	else if (is_2byte(s[0]))
+	{
+		if (s.size() < 2 || !is_cont(s[1]))
+			throw ParseError("invalid utf8 (incomplete 2-byte sequence)");
+		char32_t cp = ((s[0] & 0x1F) << 6) | (s[1] & 0x3F);
+		if (cp < 0x80)
+			throw ParseError("invalid utf8 (overlong encoding)");
+		s.remove_prefix(2);
+		return cp;
+	}
+	else if (is_3byte(s[0]))
+	{
+		if (s.size() < 3 || !is_cont(s[1]) || !is_cont(s[2]))
+			throw ParseError("invalid utf8 (incomplete 3-byte sequence)");
+		char32_t cp =
+		    ((s[0] & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+		if (cp < 0x800)
+			throw ParseError("invalid utf8 (overlong encoding)");
+		if (cp >= 0xD800 && cp <= 0xDFFF)
+			throw ParseError("invalid utf8 (surrogate half)");
+		s.remove_prefix(3);
+		return cp;
+	}
+	else if (is_4byte(s[0]))
+	{
+		if (s.size() < 4 || !is_cont(s[1]) || !is_cont(s[2]) || !is_cont(s[3]))
+			throw ParseError("invalid utf8 (incomplete 4-byte sequence)");
+		char32_t cp = ((s[0] & 0x07) << 18) | ((s[1] & 0x3F) << 12) |
+		              ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+		if (cp < 0x10000)
+			throw ParseError("invalid utf8 (overlong encoding)");
+		if (cp > 0x10FFFF)
+			throw ParseError("invalid utf8 (codepoint out of range)");
+		s.remove_prefix(4);
+		return cp;
+	}
+	else
+		throw ParseError("invalid utf8 sequence");
+}
+
+int util::display_width(char32_t ucs)
+{
+	if (ucs < 32) // control characters
+		return -1;
+	if (ucs < 0x7f) // printable ASCII
+		return 1;
+	if (ucs < 0xa0) // more control characters
+		return -1;
+
+	// combining characters
+	if ((ucs >= 0x300 && ucs <= 0x36F) || (ucs >= 0x1AB0 && ucs <= 0x1AFF) ||
+	    (ucs >= 0x1DC0 && ucs <= 0x1DFF) || (ucs >= 0x20D0 && ucs <= 0x20FF) ||
+	    (ucs >= 0xFE20 && ucs <= 0xFE2F))
+		return 0;
+
+	// wide characters (East Asian, emojis, "full width ascii", ...)
+	if ((ucs >= 0x1100 && ucs <= 0x115f) || (ucs >= 0x2329 && ucs <= 0x232a) ||
+	    (ucs >= 0x2e80 && ucs <= 0xa4cf) || (ucs >= 0xac00 && ucs <= 0xd7a3) ||
+	    (ucs >= 0xf900 && ucs <= 0xfaff) || (ucs >= 0xfe10 && ucs <= 0xfe19) ||
+	    (ucs >= 0xfe30 && ucs <= 0xfe6f) || (ucs >= 0xff00 && ucs <= 0xff60) ||
+	    (ucs >= 0xffe0 && ucs <= 0xffe6) ||
+	    (ucs >= 0x20000 && ucs <= 0x2fffd) ||
+	    (ucs >= 0x30000 && ucs <= 0x3fffd))
+		return 2;
+
+	return 1;
+}
+
+int util::display_width(std::string_view s)
+{
+	int width = 0;
+	while (!s.empty())
+	{
+		char32_t cp = parse_utf8(s);
+		int w = display_width(cp);
+		if (w < 0)
+			return -1;
+		width += w;
+	}
+	return width;
+}

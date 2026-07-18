@@ -126,4 +126,25 @@ class Parser
 	}
 };
 
+// parse and return a single unicode codepoint from a utf8 string.
+//   - Advances the string_view to the next codepoint.
+//   - Throws ParseError on encoding errors. This only checks for correct
+//     encoding of individual codepoints. It does not consider any normalization
+//     of multi-codepoint sequences (e.g. combining characters).
+char32_t parse_utf8(std::string_view &s);
+
+// Returns the number of terminal columns a single unicode codepoint occupies.
+//   1 for most normal western characters (including ascii)
+//   2 for wide characters (some east asian scripts, emojis, ...)
+//   0 for combining characters (accents, diacritics, ...)
+//  -1 for control characters
+// Note: This is a strippped-down version of a full "wcwidth" implementation. It
+// will (sometimes errounously) default to '1' for rare characters.
+int display_width(char32_t ucs);
+
+// Returns the number of columns a utf8 string will likely occupy in a terminal
+//   * Returns -1 if the string contains control characters
+//   * Throws ParseError if the utf8 encoding is invalid
+int display_width(std::string_view s);
+
 } // namespace util

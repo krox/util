@@ -2,6 +2,7 @@
 
 #include "util/atomic.h"
 #include "util/fixed_map.h"
+#include "util/io.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -36,8 +37,10 @@ class AsyncOutput
 	class Scope;
 	class Bar;
 
-	// constructor creates the background thread, does not print anything yet
-	AsyncOutput();
+	// constructor creates the background thread, does not print anything yet.
+	//   * if 'log_file' is non-empty, all log messages (but not progress bars)
+	//     are additionally written there as plain text.
+	explicit AsyncOutput(std::string_view log_file = {});
 
 	// destructor processes any remaining messages, then joins background thread
 	~AsyncOutput();
@@ -78,12 +81,21 @@ class AsyncOutput
 	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
 	std::vector<std::unique_ptr<Component>> components_;
 	std::vector<std::unique_ptr<BarState>> bars_;
-	std::jthread thread_;
+	File log_file_; // optional, only opened if a filename was given
 	size_t rendered_lines_ = 0;
 
+	// NOTE: must be the last member. Its constructor starts the background
+	// thread immediately, which may access any of the members above, so all
+	// of them need to be fully constructed first.
+	std::jthread thread_;
+
 	void thread_main(std::stop_token stop);
-	void redraw(std::deque<Message> messages,
-	            std::vector<BarState const *> const &bars) noexcept;
+	// formats+writes to stdout (with ANSI cursor control, redrawing bars in
+	// place); tracks rendered_lines_.
+	void write_terminal(std::deque<Message> const &messages,
+	                    std::vector<BarState const *> const &bars) noexcept;
+	// formats+writes plain text to log_file_ (no bars, no ANSI codes)
+	void write_file(std::deque<Message> const &messages) noexcept;
 };
 
 struct AsyncOutput::Message

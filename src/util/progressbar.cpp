@@ -194,7 +194,15 @@ std::string AsyncOutput::BarState::format(int line_width) const
 	                   line2);
 }
 
-AsyncOutput::AsyncOutput() : thread_(&AsyncOutput::thread_main, this) {}
+AsyncOutput::AsyncOutput(std::string_view log_file)
+    : log_file_(log_file.empty()
+                    ? File{}
+                    : File::create(log_file, /* overwrite = */ true)),
+      thread_(&AsyncOutput::thread_main, this)
+{
+	// note: 'thread_' is already running at this point. So be wary of races
+	// when putting code here.
+}
 
 AsyncOutput::~AsyncOutput()
 {
@@ -263,15 +271,18 @@ void AsyncOutput::thread_main(std::stop_token stop)
 		}
 
 		if (!messages.empty() || !bars.empty() || rendered_lines_ != 0)
-			redraw(std::move(messages), bars);
+			write_terminal(messages, bars);
+		if (log_file_ && !messages.empty())
+			write_file(messages);
 
 		if (stop.stop_requested())
 			break;
 	}
 }
 
-void AsyncOutput::redraw(std::deque<Message> messages,
-                         std::vector<BarState const *> const &bars) noexcept
+void AsyncOutput::write_terminal(
+    std::deque<Message> const &messages,
+    std::vector<BarState const *> const &bars) noexcept
 {
 	fmt::memory_buffer frame;
 	fmt::format_to(std::back_inserter(frame), "\x1b[?25l");
@@ -302,6 +313,32 @@ void AsyncOutput::redraw(std::deque<Message> messages,
 		std::fwrite(frame.data(), 1, frame.size(), stdout);
 	std::fflush(stdout);
 	rendered_lines_ = lines;
+}
+
+void AsyncOutput::write_file(std::deque<Message> const &messages) noexcept
+{
+	fmt::memory_buffer log;
+
+	for (auto const &message : messages)
+	{
+		if (message.component == nullptr)
+			fmt::format_to(std::back_inserter(log), "{}\n", message.message);
+		else
+			fmt::format_to(std::back_inserter(log), "[{}] {}\n",
+			               message.component->name(), message.message);
+	}
+
+	try
+	{
+		log_file_.write_raw(log.data(), log.size());
+		log_file_.flush();
+	}
+	catch (...)
+	{
+		// swallow errors writing to the log file: this runs on the
+		// background thread and there is nothing meaningful we could do with
+		// an exception here anyway.
+	}
 }
 
 } // namespace util

@@ -2,6 +2,7 @@
 
 #include "util/atomic.h"
 #include "util/fixed_map.h"
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -74,7 +75,7 @@ class AsyncOutput
 
 	std::mutex mutex_;
 	std::condition_variable cv_;
-	std::deque<Message> msg_queue_;
+	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
 	std::vector<std::unique_ptr<Component>> components_;
 	std::vector<std::unique_ptr<BarState>> bars_;
 	std::jthread thread_;

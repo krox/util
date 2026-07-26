@@ -219,15 +219,17 @@ AsyncOutput::Bar AsyncOutput::bar(uint64_t total, std::string label)
 	return result;
 }
 
-void AsyncOutput::do_log(Component const *component, Level level,
+void AsyncOutput::do_log(Component const *component, Level,
                          std::string_view msg)
 {
-	static_cast<void>(level);
+	// note: construct the message outside the lock, keeping the critical
+	// section minimal
+	Message message{component, std::string(msg)};
 	{
 		auto lock = std::unique_lock(mutex_);
-		msg_queue_.push_back(
-		    {.component = component, .message = std::string(msg)});
+		msg_queue_.push_back(std::move(message));
 	}
+
 	cv_.notify_one();
 }
 
@@ -235,23 +237,25 @@ void AsyncOutput::thread_main(std::stop_token stop)
 {
 	auto callback = std::stop_callback(stop, [this] { cv_.notify_all(); });
 
+	std::deque<Message> messages;
+	std::vector<BarState const *> bars;
 	while (true)
 	{
-		std::deque<Message> messages;
-		std::vector<BarState const *> bars;
+		messages.clear();
+		bars.clear();
+
+		// note: critical section only drains the messages and observe the bars.
+		// Printing is done outside the lock
 		{
 			auto lock = std::unique_lock(mutex_);
 			cv_.wait_for(lock, interval_, [&] {
-				return stop.stop_requested() || !msg_queue_.empty() ||
-				       !bars_.empty();
+				return stop.stop_requested() || !msg_queue_.empty();
 			});
 
-			messages.swap(msg_queue_);
-			bars_.erase(std::remove_if(bars_.begin(), bars_.end(),
-			                           [](auto const &bar) {
-				                           return bar->finished.load();
-			                           }),
-			            bars_.end());
+			std::swap(messages, msg_queue_);
+
+			std::erase_if(bars_,
+			              [](auto const &bar) { return bar->finished.load(); });
 
 			bars.reserve(bars_.size());
 			for (auto const &bar : bars_)

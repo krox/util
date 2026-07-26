@@ -308,6 +308,7 @@ if(UTIL_BUILD_TESTS)
 
 	if(BUILD_TESTING)
 		set(UTIL_TEST_SOURCES
+			tests/atomic.cpp
 			tests/bits.cpp
 			tests/complex.cpp
 			tests/ddouble.cpp

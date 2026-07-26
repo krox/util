@@ -38,16 +38,144 @@ std::string progress_bar(double progress, int width)
 }
 } // namespace
 
-AsyncOutput::Bar::Bar(uint64_t total, std::string label)
-    : label_(std::move(label)), total_(total)
+AsyncOutput::Component::Component(AsyncOutput &output, std::string name)
+    : output_(output), name_(std::move(name))
 {}
 
-std::string AsyncOutput::Bar::format(int line_width) const
+std::string_view AsyncOutput::Component::name() const noexcept { return name_; }
+
+AsyncOutput::Level AsyncOutput::Component::level() const noexcept
 {
-	auto tcks = ticks();
-	auto ttl = total();
+	return level_.load();
+}
+
+AsyncOutput::Clock::duration AsyncOutput::Component::elapsed() const noexcept
+{
+	return total_time_.load();
+}
+
+void AsyncOutput::Component::do_log(Level l, std::string_view msg)
+{
+	if (l <= level())
+		output_.do_log(this, l, msg);
+}
+
+AsyncOutput::Component &AsyncOutput::operator[](std::string_view component_name)
+{
+	auto lock = std::unique_lock(mutex_);
+	for (auto &c : components_)
+		if (c->name() == component_name)
+			return *c;
+
+	auto component = std::unique_ptr<Component>(
+	    new Component(*this, std::string(component_name)));
+	auto &ref = *component;
+	components_.push_back(std::move(component));
+	return ref;
+}
+
+AsyncOutput::Scope AsyncOutput::scope(std::string_view name)
+{
+	return Scope(&(*this)[name]);
+}
+
+AsyncOutput::Scope::Scope() = default;
+
+AsyncOutput::Scope::Scope(Component *component) noexcept : component_(component)
+{}
+
+AsyncOutput::Scope::~Scope() noexcept { finish(); }
+
+AsyncOutput::Component *AsyncOutput::Scope::component() const noexcept
+{
+	return component_.load();
+}
+
+void AsyncOutput::Scope::finish() noexcept
+{
+	auto *comp = component_.exchange(nullptr);
+	if (comp)
+		comp->total_time_ += Clock::now() - start_time_;
+}
+
+std::chrono::steady_clock::duration AsyncOutput::Scope::elapsed() const noexcept
+{
+	return Clock::now() - start_time_;
+}
+
+double AsyncOutput::Scope::secs() const noexcept
+{
+	return std::chrono::duration<double>(elapsed()).count();
+}
+
+AsyncOutput::Bar::Bar() noexcept = default;
+
+AsyncOutput::Bar::Bar(BarState *state) noexcept : state_(state) {}
+
+void AsyncOutput::Bar::finish() noexcept
+{
+	auto *state = state_.exchange(nullptr);
+	if (state)
+		state->finished.store(true);
+}
+
+AsyncOutput::Bar::~Bar() noexcept { finish(); }
+
+AsyncOutput::Bar::Bar(Bar &&other) noexcept
+    : state_(other.state_.exchange(nullptr))
+{}
+
+AsyncOutput::Bar &AsyncOutput::Bar::operator=(Bar &&other) noexcept
+{
+	if (this == &other)
+		return *this;
+	finish();
+	state_.store(other.state_.exchange(nullptr));
+	return *this;
+}
+
+void AsyncOutput::Bar::set_total(uint64_t total) noexcept
+{
+	if (auto *state = state_.load())
+		state->total.store(total);
+}
+
+void AsyncOutput::Bar::set_ticks(uint64_t ticks) noexcept
+{
+	if (auto *state = state_.load())
+		state->ticks.store(ticks);
+}
+
+void AsyncOutput::Bar::increment(uint64_t ticks) noexcept
+{
+	if (auto *state = state_.load())
+		state->ticks += ticks;
+}
+
+uint64_t AsyncOutput::Bar::ticks() const noexcept
+{
+	if (auto *state = state_.load())
+		return state->ticks.load();
+	return 0;
+}
+
+uint64_t AsyncOutput::Bar::total() const noexcept
+{
+	if (auto *state = state_.load())
+		return state->total.load();
+	return 0;
+}
+
+AsyncOutput::BarState::BarState(uint64_t total_, std::string label_)
+    : label(std::move(label_)), total(total_)
+{}
+
+std::string AsyncOutput::BarState::format(int line_width) const
+{
+	auto tcks = ticks.load();
+	auto ttl = total.load();
 	double progress = (ttl > 0) ? static_cast<double>(tcks) / ttl : 0.0;
-	auto elapsed = Clock::now() - start_time_;
+	auto elapsed = Clock::now() - start_time;
 	auto elapsed_secs = std::chrono::duration<double>(elapsed).count();
 	auto eta = (progress > 0.0)
 	               ? std::chrono::duration<double>(elapsed_secs *
@@ -55,7 +183,7 @@ std::string AsyncOutput::Bar::format(int line_width) const
 	               : std::chrono::duration<double>(0.0);
 
 	auto line1 =
-	    pad_string(label_, fmt::format("{} of {}", tcks, ttl), line_width);
+	    pad_string(label, fmt::format("{} of {}", tcks, ttl), line_width);
 	auto line2 =
 	    fmt::format("] {:6.2f}% elapsed: {:%T} ETA: {:%T}", progress * 100.0,
 	                std::chrono::duration_cast<std::chrono::seconds>(elapsed),
@@ -77,23 +205,28 @@ AsyncOutput::~AsyncOutput()
 		fmt::print(stdout, "\n");
 }
 
-std::shared_ptr<AsyncOutput::Bar> AsyncOutput::add_bar(uint64_t total,
-                                                       std::string label)
+AsyncOutput::Bar AsyncOutput::bar(uint64_t total, std::string label)
 {
-	auto bar = std::make_shared<Bar>(total, std::move(label));
+	auto state = std::make_unique<BarState>(total, std::move(label));
+	auto result = Bar(state.get());
+
 	{
 		auto lock = std::unique_lock(mutex_);
-		bars_.push_back(bar);
+		bars_.push_back(std::move(state));
 	}
+
 	cv_.notify_one();
-	return bar;
+	return result;
 }
 
-void AsyncOutput::log(std::string msg)
+void AsyncOutput::do_log(Component const *component, Level level,
+                         std::string_view msg)
 {
+	static_cast<void>(level);
 	{
 		auto lock = std::unique_lock(mutex_);
-		msg_queue_.push_back(std::move(msg));
+		msg_queue_.push_back(
+		    {.component = component, .message = std::string(msg)});
 	}
 	cv_.notify_one();
 }
@@ -104,15 +237,25 @@ void AsyncOutput::thread_main(std::stop_token stop)
 
 	while (true)
 	{
-		std::deque<std::string> messages;
-		std::vector<std::shared_ptr<Bar>> bars;
+		std::deque<Message> messages;
+		std::vector<BarState const *> bars;
 		{
 			auto lock = std::unique_lock(mutex_);
 			cv_.wait_for(lock, interval_, [&] {
-				return stop.stop_requested() || !msg_queue_.empty();
+				return stop.stop_requested() || !msg_queue_.empty() ||
+				       !bars_.empty();
 			});
+
 			messages.swap(msg_queue_);
-			bars = snapshot_bars();
+			bars_.erase(std::remove_if(bars_.begin(), bars_.end(),
+			                           [](auto const &bar) {
+				                           return bar->finished.load();
+			                           }),
+			            bars_.end());
+
+			bars.reserve(bars_.size());
+			for (auto const &bar : bars_)
+				bars.push_back(bar.get());
 		}
 
 		if (!messages.empty() || !bars.empty() || rendered_lines_ != 0)
@@ -123,41 +266,36 @@ void AsyncOutput::thread_main(std::stop_token stop)
 	}
 }
 
-std::vector<std::shared_ptr<AsyncOutput::Bar>> AsyncOutput::snapshot_bars()
+void AsyncOutput::redraw(std::deque<Message> messages,
+                         std::vector<BarState const *> const &bars) noexcept
 {
-	std::vector<std::shared_ptr<Bar>> live_bars;
-	live_bars.reserve(bars_.size());
+	fmt::memory_buffer frame;
+	fmt::format_to(std::back_inserter(frame), "\x1b[?25l");
 
-	auto out = bars_.begin();
-	for (auto it = bars_.begin(); it != bars_.end(); ++it)
-	{
-		if (auto bar = it->lock())
-		{
-			live_bars.push_back(std::move(bar));
-			*out++ = *it;
-		}
-	}
-	bars_.erase(out, bars_.end());
-	return live_bars;
-}
-
-void AsyncOutput::redraw(std::deque<std::string> messages,
-                         std::vector<std::shared_ptr<Bar>> const &bars)
-{
 	if (rendered_lines_ > 0)
-		fmt::print(stdout, "\x1b[{}F", rendered_lines_);
-	fmt::print(stdout, "\x1b[J");
+		fmt::format_to(std::back_inserter(frame), "\x1b[{}F", rendered_lines_);
+	fmt::format_to(std::back_inserter(frame), "\x1b[J");
 
 	for (auto const &message : messages)
-		fmt::print(stdout, "{}\n", message);
-
-	size_t lines = 0;
-	for (auto const &bar : bars)
 	{
-		fmt::print(stdout, "{}\n", bar->format(line_width_));
-		lines += 2;
+		if (message.component == nullptr)
+			fmt::format_to(std::back_inserter(frame), "{}\n", message.message);
+		else
+			fmt::format_to(std::back_inserter(frame), "[{}] {}\n",
+			               message.component->name(), message.message);
 	}
 
+	size_t lines = 0;
+	for (auto const *bar : bars)
+	{
+		fmt::format_to(std::back_inserter(frame), "{}\n",
+		               bar->format(line_width_));
+		lines += 2;
+	}
+	fmt::format_to(std::back_inserter(frame), "\x1b[?25h");
+
+	if (frame.size() != 0)
+		std::fwrite(frame.data(), 1, frame.size(), stdout);
 	std::fflush(stdout);
 	rendered_lines_ = lines;
 }

@@ -74,6 +74,7 @@ int main()
 	demo.debug("removed completed verify bar");
 
 	demo.info("all tasks finished after {:.2f}s", demo.secs());
+	output.print_summary();
 	std::this_thread::sleep_for(750ms);
 	return 0;
 }

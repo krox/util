@@ -227,6 +227,41 @@ AsyncOutput::Bar AsyncOutput::bar(uint64_t total, std::string label)
 	return result;
 }
 
+void AsyncOutput::print_summary()
+{
+	std::vector<Component const *> components;
+	{
+		auto lock = std::unique_lock(mutex_);
+		components.reserve(components_.size());
+		for (auto const &component : components_)
+			components.push_back(component.get());
+	}
+
+	double total_secs =
+	    std::chrono::duration<double>(Clock::now() - summary_start_).count();
+
+	do_log(nullptr, Level::info,
+	       "============================ time stats "
+	       "=============================");
+	for (auto const *component : components)
+	{
+		auto secs = std::chrono::duration<double>(component->elapsed()).count();
+		do_log(nullptr, Level::info,
+		       fmt::format("{:12}: {:#6.2f} s ({:5.1f} %)", component->name(),
+		                   secs, (secs / total_secs) * 100.0));
+	}
+	do_log(nullptr, Level::info,
+	       fmt::format("{:12}: {:#6.2f} s (100.0 %)", "total", total_secs));
+}
+
+void AsyncOutput::reset_summary()
+{
+	auto lock = std::unique_lock(mutex_);
+	for (auto &component : components_)
+		component->total_time_.store(Clock::duration::zero());
+	summary_start_ = Clock::now();
+}
+
 void AsyncOutput::do_log(Component const *component, Level,
                          std::string_view msg)
 {

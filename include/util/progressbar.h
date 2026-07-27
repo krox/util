@@ -61,6 +61,12 @@ class AsyncOutput
 	// add a progress bar (label is optional, no uniqueness requirement)
 	Bar bar(uint64_t total, std::string label);
 
+	// print timing summary for all components via normal top-level info logs
+	void print_summary();
+
+	// reset accumulated component timings and summary baseline timer
+	void reset_summary();
+
 	// non-template backend for logging.
 	//   * level is not checked at this point anymore
 	//   * msg is already formatted
@@ -81,6 +87,7 @@ class AsyncOutput
 	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
 	std::vector<std::unique_ptr<Component>> components_;
 	std::vector<std::unique_ptr<BarState>> bars_;
+	Clock::time_point summary_start_ = Clock::now();
 	File log_file_; // optional, only opened if a filename was given
 	size_t rendered_lines_ = 0;
 

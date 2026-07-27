@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <deque>
 #include <fmt/format.h>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <stop_token>
@@ -77,6 +78,9 @@ class Logger
 	//   * comonent can be empty/null for top-level messages
 	void do_log(Component const *component, Level level, std::string_view msg);
 
+	// block until all pending messages have been processed and written
+	void flush() noexcept;
+
   private:
 	// configuration
 	static constexpr auto interval_ = std::chrono::milliseconds(50);
@@ -114,6 +118,10 @@ struct Logger::Message
 {
 	Component const *component = nullptr;
 	std::string message;
+
+	// Only set if the producer requested notification when the
+	// message has been processed.
+	std::optional<std::promise<void>> completion;
 };
 
 enum class Logger::Level

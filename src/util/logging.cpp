@@ -285,6 +285,19 @@ void Logger::do_log(Component const *component, Level, std::string_view msg)
 	cv_.notify_one();
 }
 
+void Logger::flush() noexcept
+{
+	auto msg = Message{};
+	msg.completion = std::promise<void>{};
+	auto future = msg.completion->get_future();
+	{
+		auto lock = std::unique_lock(mutex_);
+		msg_queue_.push_back(std::move(msg));
+	}
+	cv_.notify_one();
+	future.wait();
+}
+
 void Logger::thread_main(std::stop_token stop)
 {
 	auto callback = std::stop_callback(stop, [this] { cv_.notify_all(); });
@@ -319,6 +332,10 @@ void Logger::thread_main(std::stop_token stop)
 		if (log_file_ && !messages.empty())
 			write_file(messages);
 
+		for (auto &msg : messages)
+			if (msg.completion)
+				msg.completion->set_value();
+
 		if (stop.stop_requested())
 			break;
 	}
@@ -336,6 +353,8 @@ void Logger::write_terminal(std::deque<Message> const &messages,
 
 	for (auto const &message : messages)
 	{
+		if (message.message.empty())
+			continue;
 		if (message.component == nullptr)
 			fmt::format_to(std::back_inserter(frame), "{}\n", message.message);
 		else
@@ -364,6 +383,8 @@ void Logger::write_file(std::deque<Message> const &messages) noexcept
 
 	for (auto const &message : messages)
 	{
+		if (message.message.empty())
+			continue;
 		if (message.component == nullptr)
 			fmt::format_to(std::back_inserter(log), "{}\n", message.message);
 		else

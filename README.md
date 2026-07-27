@@ -57,7 +57,7 @@ Of course, licenses for the upstream-libraries (FFTW, BLAKE3, libfmt, HDF5, ...)
 - Numerical algorithms, data handling and visualization: [stats](#utilstatsh), [numerics](#utilnumericsh), [complex](#utilcomplexh), [ddouble](#utilddoubleh), [fft](#utilffth), [linalg](#linalg-utilinalgh), [random](#utilrandomh), [sampler](#utilsamplerh), [gnuplot](#utilgnuploth)
 - File I/O: [json](#utiljsonh), [numpy](#utilnumpyh), [hdf5](#hdf5), [io](#utilioh)
 - Multithreading support: [synchronized](#utilsynchronizedh), [threadpool](#utilthreadpoolh)
-- Misc utilities: [hash](#utilhashh), [functional](#utilfunctionalh), [lazy](#utillazyh), [logging](#utilloggingh), [progressbar](#utilprogressbarh), [series](#utilseriesh), [simd](#utilsimdh)
+- Misc utilities: [hash](#utilhashh), [functional](#utilfunctionalh), [lazy](#utillazyh), [logging](#utilloggingh), [series](#utilseriesh), [simd](#utilsimdh)
 
 # Containers and such
 
@@ -498,39 +498,28 @@ void example() {
 
 ## `util/logging.h`
 
-fmt-based logger with simple per-component levels and a timing summary.
+Asynchronous, thread-safe logger with named components, per-component log
+levels, a timing summary, and terminal progress bars.
 
 ```cpp
-#include "util/logging.h"
+#include "util/logger.h"
 
 void example()
 {
-  util::Logger::set_level(util::Logger::Level::info);
-  util::Logger log("main");
+  util::Logger logger;
+  logger.set_level(util::Logger::Level::info);
+  auto log = logger.scope("main");
   log.info("hello {}", 42);
-}
-```
 
-## `util/progressbar.h`
-
-Asynchronous terminal progress bars with thread-safe log output.
-
-```cpp
-#include "util/progressbar.h"
-
-void example()
-{
-  util::AsyncOutput output;
-  auto bar = output.add_bar(100, "download");
-
+  auto bar = logger.bar(100, "download");
   for (size_t i = 0; i < 100; ++i)
   {
-    bar->increment();
+    bar.increment();
     if ((i + 1) % 25 == 0)
-      output("checkpoint {}/{}", i + 1, bar->total());
+      log.info("checkpoint {}/{}", i + 1, bar.total());
   }
 
-  output("done");
+  logger.print_summary();
 }
 ```
 

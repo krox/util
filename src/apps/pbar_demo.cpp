@@ -1,4 +1,4 @@
-#include "util/progressbar.h"
+#include "util/logging.h"
 
 #include <chrono>
 #include <string>
@@ -8,9 +8,8 @@ using namespace std::chrono_literals;
 
 namespace {
 
-void run_worker(util::AsyncOutput &output, util::AsyncOutput::Bar &bar,
-                std::string name, std::chrono::milliseconds delay,
-                uint64_t log_every)
+void run_worker(util::Logger &output, util::Logger::Bar &bar, std::string name,
+                std::chrono::milliseconds delay, uint64_t log_every)
 {
 	auto scope = output.scope(name);
 	while (bar.ticks() < bar.total())
@@ -29,14 +28,14 @@ void run_worker(util::AsyncOutput &output, util::AsyncOutput::Bar &bar,
 
 int main()
 {
-	util::AsyncOutput output;
+	util::Logger output;
 	auto demo = output.scope("demo");
 	auto ingest = output.bar(90, "ingest assets");
 	auto preprocess = output.bar(120, "preprocess frames");
 	auto upload = output.bar(75, "upload snapshots");
-	util::AsyncOutput::Bar verify;
+	util::Logger::Bar verify;
 
-	demo.info("starting AsyncOutput demo");
+	demo.info("starting Logger demo");
 
 	std::jthread ingest_thread(run_worker, std::ref(output), std::ref(ingest),
 	                           std::string("ingest"), 35ms, 30);

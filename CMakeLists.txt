@@ -235,7 +235,7 @@ if(UTIL_ZSTD)
 endif()
 
 # library
-add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/progressbar.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp)
+add_library(util src/util/fft.cpp src/util/gnuplot.cpp src/util/hash.cpp src/util/hdf5.cpp src/util/io.cpp src/util/json.cpp src/util/linenoise.cpp src/util/logging.cpp src/util/memory.cpp src/util/numerics.cpp src/util/numpy.cpp src/util/sampler.cpp src/util/sqlite.cpp src/util/stats.cpp src/util/string.cpp src/util/unionfind.cpp)
 target_compile_features(util PUBLIC cxx_std_20)
 set_target_properties(util PROPERTIES CXX_EXTENSIONS ON)
 target_include_directories(util

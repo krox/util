@@ -1,200 +1,279 @@
 #pragma once
 
-#include "fmt/format.h"
-#include "util/stopwatch.h"
-#include <functional>
+#include "util/atomic.h"
+#include "util/fixed_map.h"
+#include "util/io.h"
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <fmt/format.h>
+#include <memory>
 #include <mutex>
+#include <stop_token>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace util {
 
-// simple logging facitily built upon fmtlib and some performance monitoring
-//     * log level can be set globally or per component, both are stored in
-//       global variables
-//     * logger construction is (slightly) slow due to memory allocation and
-//       mutexes, so reusing is good for performance
-//     * logging itself should never throw (so it can be used in destructors and
-//       any other precarious situation), so it is marked 'noexcept'.
-//       TODO: actually handle any errors (from formatting or filesystem or
-//       such) more gracefully than calling std::terminate
-//     * TODO: obviously too many globals. hierarchically structured loggers
-//       might be great. Any application would be free to declare a global one
-//       if it so chooses.
-//
-// Intended usage:
-//    // at the beginning of main()
-//    Logger::set_level(Logger::Level::info);
-//    Logger::set_level("my class", Logger::Level::debug);
-//
-//    // in a class constructor or similar
-//    log = Logger("my class");
-//
-//    // during actual work
-//    log.info("some message {}", 42);
-//    log.debug("some more verbose message {}", 21+21);
-//
-//    // at the end of the program (optional)
-//    Logger::print_summary();
-
+// Handles output to stdout
+//   * Thread-safe: Any thread can use operator() to print a log message
+//   * Asynchronous: Actual printing is done in a dedicated thread
+//   * Keeps progress bars on the bottom of the terminal, log messages above
 class Logger
 {
   public:
-	enum class Level
-	{
-		// same levels as the 'spdlog' library (and probably many others)
-		off,
-		critical,
-		error,
-		warning,
-		info,
-		debug,
-		trace
-	};
+	using Clock = std::chrono::steady_clock;
+
+	// user-facing types
+	enum class Level;
+	class Component;
+	class Scope;
+	class Bar;
+
+	// constructor creates the background thread, does not print anything yet.
+	//   * if 'log_file' is non-empty, all log messages (but not progress bars)
+	//     are additionally written there as plain text.
+	explicit Logger(std::string_view log_file = {});
+
+	// destructor processes any remaining messages, then joins background thread
+	~Logger();
+
+	// not copyable or movable. Typicallly there should only be a single
+	// instance for the entire program anyway.
+	Logger(Logger const &) = delete;
+	Logger &operator=(Logger const &) = delete;
+	Logger(Logger &&) = delete;
+	Logger &operator=(Logger &&) = delete;
+
+	// look up a component by name, creating it if it does not exist yet.
+	Component &operator[](std::string_view component_name);
+
+	// open a scope for logging
+	Scope scope(std::string_view name);
+
+	// add a progress bar (label is optional, no uniqueness requirement)
+	Bar bar(uint64_t total, std::string label);
+
+	// set the default log level for this instance. Affects all components
+	// created afterwards, and updates the level of all existing components.
+	void set_level(Level level);
+
+	// print timing summary for all components via normal top-level info logs
+	void print_summary();
+
+	// reset accumulated component timings and summary baseline timer
+	void reset_summary();
+
+	// non-template backend for logging.
+	//   * level is not checked at this point anymore
+	//   * msg is already formatted
+	//   * comonent can be empty/null for top-level messages
+	void do_log(Component const *component, Level level, std::string_view msg);
 
   private:
-	static void default_sink(std::string_view msg) { fmt::print("{}\n", msg); }
-	inline static std::function<void(std::string_view)> g_sink_ = default_sink;
+	// configuration
+	static constexpr auto interval_ = std::chrono::milliseconds(50);
+	static constexpr int line_width_ = 80;
 
-	inline static std::mutex g_mutex_;
-	inline static Level g_default_level_ = Level::info;
+	// internal types
+	struct Message;
+	struct BarState;
 
-	inline static Stopwatch g_total_ = Stopwatch().start();
-	struct Component
-	{
-		std::string name;
-		Level level = Level::info;
-		double total_secs = 0;
-	};
-	inline static std::vector<Component> g_components_;
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
+	std::vector<std::unique_ptr<Component>> components_;
+	std::vector<std::unique_ptr<BarState>> bars_;
+	Level default_level_;
+	Clock::time_point summary_start_ = Clock::now();
+	File log_file_; // optional, only opened if a filename was given
+	size_t rendered_lines_ = 0;
 
-	// only call with lock held
-	static Component &lookup(std::string_view name)
-	{
-		for (auto &comp : g_components_)
-			if (comp.name == name)
-				return comp;
-		g_components_.push_back({std::string(name), g_default_level_, 0});
-		return g_components_.back();
-	}
+	// NOTE: must be the last member. Its constructor starts the background
+	// thread immediately, which may access any of the members above, so all
+	// of them need to be fully constructed first.
+	std::jthread thread_;
 
-  public:
-	// set level for all components
-	static void set_level(Level level)
-	{
-		auto lock = std::unique_lock(g_mutex_);
-		g_default_level_ = level;
-		for (auto &comp : g_components_)
-			comp.level = level;
-	}
+	void thread_main(std::stop_token stop);
+	// formats+writes to stdout (with ANSI cursor control, redrawing bars in
+	// place); tracks rendered_lines_.
+	void write_terminal(std::deque<Message> const &messages,
+	                    std::vector<BarState const *> const &bars) noexcept;
+	// formats+writes plain text to log_file_ (no bars, no ANSI codes)
+	void write_file(std::deque<Message> const &messages) noexcept;
+};
 
-	// set level for a specific component
-	static void set_level(std::string_view name, Level level)
-	{
-		auto lock = std::unique_lock(g_mutex_);
-		lookup(name).level = level;
-	}
+struct Logger::Message
+{
+	Component const *component = nullptr;
+	std::string message;
+};
 
-	// set global sink for log messages
-	// IMPORTANT: not thread-safe. Call only once at the start of the program.
-	static void set_sink(std::function<void(std::string_view)> sink)
-	{
-		g_sink_ = sink;
-	}
+enum class Logger::Level
+{
+	off,
+	critical,
+	error,
+	warning,
+	info,
+	debug,
+	trace
+};
 
-  private:
+class Logger::Component
+{
+	// NOTE: 'Component' does not have a null-state. It is only created by
+	// Logger and lives as long as that parent object.
+
+	Logger &output_;
 	std::string name_;
-	Level level_;
-	util::Stopwatch sw;
+	relaxed_atomic<Level> level_{Level::info};
+	relaxed_atomic<Clock::duration> total_time_;
 
-	void do_log(std::string_view str, fmt::format_args &&args) const noexcept
-	{
-		std::string msg = fmt::vformat(str, std::move(args));
-		msg = fmt::format("[{:12} {:#6.2f}] {}", name_, sw.secs(), msg);
-		g_sink_(msg);
-	}
+	explicit Component(Logger &output, std::string name);
+	friend class Logger;
 
   public:
-	explicit Logger(std::string name) : name_(std::move(name))
+	std::string_view name() const noexcept;
+	Level level() const noexcept;
+	void set_level(Level l) noexcept;
+	Clock::duration elapsed() const noexcept;
+
+	// log a message prefixed by this components name. No-op if level is below
+	// configured.
+	void do_log(Level l, std::string_view msg);
+};
+
+class Logger::Scope
+{
+	// NOTE: 'Scope' does have a null-state, indicated by 'component_' being
+	// nullptr. Thats useful as:
+	//   * Time-accounting is otherwise tied to Scope's lifetime, setting a
+	//     scope to null-state will stop timing explicitly.
+	//   * In the null-state, all logging is a silent no-op.
+
+	relaxed_atomic<Component *> component_ = nullptr;
+	Clock::time_point const start_time_ = Clock::now();
+
+	explicit Scope(Component *component) noexcept;
+
+	friend class Logger;
+
+  public:
+	Scope();
+	~Scope() noexcept;
+
+	// Returns the component associated with this scope, or nullptr if the scope
+	// is in the null-state.
+	// note: component lifetime is tied to Logger, so this pointer remains
+	// valid independent of the scope.
+	Component *component() const noexcept;
+
+	void finish() noexcept;
+
+	// dont copy (would mess with time accounting). No need for move.
+	Scope(Scope const &) = delete;
+	Scope &operator=(Scope const &) = delete;
+	Scope(Scope &&other) = delete;
+	Scope &operator=(Scope &&other) = delete;
+
+	// Returns the elapsed time since the scope was created.
+	std::chrono::steady_clock::duration elapsed() const noexcept;
+
+	// same as 'elapsed()' but in seconds.
+	double secs() const noexcept;
+
+	// log a message at specified level. This is a no-op if the configured log
+	// level is lower than the specified level.
+	template <typename... Args>
+	void log(Level level, fmt::format_string<Args...> format,
+	         Args &&...args) const
 	{
-		sw.start();
-		auto lock = std::unique_lock(g_mutex_);
-		level_ = lookup(name_).level;
+		auto comp = component();
+		if (!comp || level > comp->level())
+			return;
+		comp->do_log(level, fmt::format(format, std::forward<Args>(args)...));
 	}
 
-	~Logger() noexcept
+	template <typename... Args>
+	void trace(fmt::format_string<Args...> format, Args &&...args) const
 	{
-		sw.stop();
-		auto lock = std::unique_lock(g_mutex_);
-		lookup(name_).total_secs += sw.secs();
+		log(Level::trace, format, std::forward<Args>(args)...);
+	}
+	template <typename... Args>
+	void debug(fmt::format_string<Args...> format, Args &&...args) const
+	{
+		log(Level::debug, format, std::forward<Args>(args)...);
 	}
 
-	static void print_summary()
+	template <typename... Args>
+	void info(fmt::format_string<Args...> format, Args &&...args) const
 	{
-		auto lock = std::unique_lock(g_mutex_);
-		g_sink_("============================ time stats "
-		        "=============================");
-		double tot = g_total_.secs();
-
-		for (auto &comp : g_components_)
-		{
-			auto msg =
-			    fmt::format("{:12}: {:#6.2f} s ({:#4.1f} %)", comp.name,
-			                comp.total_secs, 100. * comp.total_secs / tot);
-			g_sink_(msg);
-		}
+		log(Level::info, format, std::forward<Args>(args)...);
 	}
 
-	static void reset_summary()
+	template <typename... Args>
+	void warning(fmt::format_string<Args...> format, Args &&...args) const
 	{
-		auto lock = std::unique_lock(g_mutex_);
-		g_total_ = Stopwatch().start();
-		for (auto &comp : g_components_)
-			comp.total_secs = 0;
+		log(Level::warning, format, std::forward<Args>(args)...);
 	}
 
-	template <class... Args>
-	void trace(std::string_view str, Args &&...args) const noexcept
+	template <typename... Args>
+	void error(fmt::format_string<Args...> format, Args &&...args) const
 	{
-		if (level_ >= Level::trace)
-			do_log(str, fmt::make_format_args(args...));
+		log(Level::error, format, std::forward<Args>(args)...);
 	}
 
-	template <class... Args>
-	void debug(std::string_view str, Args &&...args) const noexcept
+	template <typename... Args>
+	void critical(fmt::format_string<Args...> format, Args &&...args) const
 	{
-		if (level_ >= Level::debug)
-			do_log(str, fmt::make_format_args(args...));
+		log(Level::critical, format, std::forward<Args>(args)...);
 	}
+};
 
-	template <class... Args>
-	void info(std::string_view str, Args &&...args) const noexcept
-	{
-		if (level_ >= Level::info)
-			do_log(str, fmt::make_format_args(args...));
-	}
+class Logger::Bar
+{
+	relaxed_atomic<BarState *> state_ = nullptr;
 
-	template <class... Args>
-	void warning(std::string_view str, Args &&...args) const noexcept
-	{
-		if (level_ >= Level::warning)
-			do_log(str, fmt::make_format_args(args...));
-	}
+	explicit Bar(BarState *state) noexcept;
 
-	template <class... Args>
-	void error(std::string_view str, Args &&...args) const noexcept
-	{
-		if (level_ >= Level::error)
-			do_log(str, fmt::make_format_args(args...));
-	}
+	friend class Logger;
 
-	template <class... Args>
-	void critical(std::string_view str, Args &&...args) const noexcept
-	{
-		if (level_ >= Level::critical)
-			do_log(str, fmt::make_format_args(args...));
-	}
+  public:
+	Bar() noexcept;
+	~Bar() noexcept;
+	void finish() noexcept;
 
-	double secs() const { return sw.secs(); }
+	Bar(Bar const &) = delete;
+	Bar &operator=(Bar const &) = delete;
+	Bar(Bar &&other) noexcept;
+	Bar &operator=(Bar &&other) noexcept;
+
+	void set_total(uint64_t total) noexcept;
+	void set_ticks(uint64_t ticks) noexcept;
+	void increment(uint64_t ticks = 1) noexcept;
+	uint64_t ticks() const noexcept;
+	uint64_t total() const noexcept;
+};
+
+struct Logger::BarState
+{
+	std::string label;
+	relaxed_atomic<uint64_t> ticks{0};
+	relaxed_atomic<uint64_t> total{0};
+	relaxed_atomic<bool> finished{false};
+	Clock::time_point start_time = Clock::now();
+
+	BarState(uint64_t total_, std::string label_);
+
+	std::string format(int line_width) const;
 };
 
 } // namespace util

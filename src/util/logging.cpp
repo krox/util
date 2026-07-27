@@ -1,4 +1,4 @@
-#include "util/progressbar.h"
+#include "util/logging.h"
 
 #include "util/string.h"
 #include <algorithm>
@@ -38,29 +38,31 @@ std::string progress_bar(double progress, int width)
 }
 } // namespace
 
-AsyncOutput::Component::Component(AsyncOutput &output, std::string name)
+Logger::Component::Component(Logger &output, std::string name)
     : output_(output), name_(std::move(name))
 {}
 
-std::string_view AsyncOutput::Component::name() const noexcept { return name_; }
+std::string_view Logger::Component::name() const noexcept { return name_; }
 
-AsyncOutput::Level AsyncOutput::Component::level() const noexcept
+Logger::Level Logger::Component::level() const noexcept
 {
 	return level_.load();
 }
 
-AsyncOutput::Clock::duration AsyncOutput::Component::elapsed() const noexcept
+void Logger::Component::set_level(Level l) noexcept { level_.store(l); }
+
+Logger::Clock::duration Logger::Component::elapsed() const noexcept
 {
 	return total_time_.load();
 }
 
-void AsyncOutput::Component::do_log(Level l, std::string_view msg)
+void Logger::Component::do_log(Level l, std::string_view msg)
 {
 	if (l <= level())
 		output_.do_log(this, l, msg);
 }
 
-AsyncOutput::Component &AsyncOutput::operator[](std::string_view component_name)
+Logger::Component &Logger::operator[](std::string_view component_name)
 {
 	auto lock = std::unique_lock(mutex_);
 	for (auto &c : components_)
@@ -69,63 +71,70 @@ AsyncOutput::Component &AsyncOutput::operator[](std::string_view component_name)
 
 	auto component = std::unique_ptr<Component>(
 	    new Component(*this, std::string(component_name)));
+	component->set_level(default_level_);
 	auto &ref = *component;
 	components_.push_back(std::move(component));
 	return ref;
 }
 
-AsyncOutput::Scope AsyncOutput::scope(std::string_view name)
+void Logger::set_level(Level level)
+{
+	auto lock = std::unique_lock(mutex_);
+	default_level_ = level;
+	for (auto &component : components_)
+		component->set_level(level);
+}
+
+Logger::Scope Logger::scope(std::string_view name)
 {
 	return Scope(&(*this)[name]);
 }
 
-AsyncOutput::Scope::Scope() = default;
+Logger::Scope::Scope() = default;
 
-AsyncOutput::Scope::Scope(Component *component) noexcept : component_(component)
-{}
+Logger::Scope::Scope(Component *component) noexcept : component_(component) {}
 
-AsyncOutput::Scope::~Scope() noexcept { finish(); }
+Logger::Scope::~Scope() noexcept { finish(); }
 
-AsyncOutput::Component *AsyncOutput::Scope::component() const noexcept
+Logger::Component *Logger::Scope::component() const noexcept
 {
 	return component_.load();
 }
 
-void AsyncOutput::Scope::finish() noexcept
+void Logger::Scope::finish() noexcept
 {
 	auto *comp = component_.exchange(nullptr);
 	if (comp)
 		comp->total_time_ += Clock::now() - start_time_;
 }
 
-std::chrono::steady_clock::duration AsyncOutput::Scope::elapsed() const noexcept
+std::chrono::steady_clock::duration Logger::Scope::elapsed() const noexcept
 {
 	return Clock::now() - start_time_;
 }
 
-double AsyncOutput::Scope::secs() const noexcept
+double Logger::Scope::secs() const noexcept
 {
 	return std::chrono::duration<double>(elapsed()).count();
 }
 
-AsyncOutput::Bar::Bar() noexcept = default;
+Logger::Bar::Bar() noexcept = default;
 
-AsyncOutput::Bar::Bar(BarState *state) noexcept : state_(state) {}
+Logger::Bar::Bar(BarState *state) noexcept : state_(state) {}
 
-void AsyncOutput::Bar::finish() noexcept
+void Logger::Bar::finish() noexcept
 {
 	auto *state = state_.exchange(nullptr);
 	if (state)
 		state->finished.store(true);
 }
 
-AsyncOutput::Bar::~Bar() noexcept { finish(); }
+Logger::Bar::~Bar() noexcept { finish(); }
 
-AsyncOutput::Bar::Bar(Bar &&other) noexcept
-    : state_(other.state_.exchange(nullptr))
+Logger::Bar::Bar(Bar &&other) noexcept : state_(other.state_.exchange(nullptr))
 {}
 
-AsyncOutput::Bar &AsyncOutput::Bar::operator=(Bar &&other) noexcept
+Logger::Bar &Logger::Bar::operator=(Bar &&other) noexcept
 {
 	if (this == &other)
 		return *this;
@@ -134,43 +143,43 @@ AsyncOutput::Bar &AsyncOutput::Bar::operator=(Bar &&other) noexcept
 	return *this;
 }
 
-void AsyncOutput::Bar::set_total(uint64_t total) noexcept
+void Logger::Bar::set_total(uint64_t total) noexcept
 {
 	if (auto *state = state_.load())
 		state->total.store(total);
 }
 
-void AsyncOutput::Bar::set_ticks(uint64_t ticks) noexcept
+void Logger::Bar::set_ticks(uint64_t ticks) noexcept
 {
 	if (auto *state = state_.load())
 		state->ticks.store(ticks);
 }
 
-void AsyncOutput::Bar::increment(uint64_t ticks) noexcept
+void Logger::Bar::increment(uint64_t ticks) noexcept
 {
 	if (auto *state = state_.load())
 		state->ticks += ticks;
 }
 
-uint64_t AsyncOutput::Bar::ticks() const noexcept
+uint64_t Logger::Bar::ticks() const noexcept
 {
 	if (auto *state = state_.load())
 		return state->ticks.load();
 	return 0;
 }
 
-uint64_t AsyncOutput::Bar::total() const noexcept
+uint64_t Logger::Bar::total() const noexcept
 {
 	if (auto *state = state_.load())
 		return state->total.load();
 	return 0;
 }
 
-AsyncOutput::BarState::BarState(uint64_t total_, std::string label_)
+Logger::BarState::BarState(uint64_t total_, std::string label_)
     : label(std::move(label_)), total(total_)
 {}
 
-std::string AsyncOutput::BarState::format(int line_width) const
+std::string Logger::BarState::format(int line_width) const
 {
 	auto tcks = ticks.load();
 	auto ttl = total.load();
@@ -194,17 +203,18 @@ std::string AsyncOutput::BarState::format(int line_width) const
 	                   line2);
 }
 
-AsyncOutput::AsyncOutput(std::string_view log_file)
-    : log_file_(log_file.empty()
+Logger::Logger(std::string_view log_file)
+    : default_level_(Level::info),
+      log_file_(log_file.empty()
                     ? File{}
                     : File::create(log_file, /* overwrite = */ true)),
-      thread_(&AsyncOutput::thread_main, this)
+      thread_(&Logger::thread_main, this)
 {
 	// note: 'thread_' is already running at this point. So be wary of races
 	// when putting code here.
 }
 
-AsyncOutput::~AsyncOutput()
+Logger::~Logger()
 {
 	thread_.request_stop();
 	cv_.notify_all();
@@ -213,7 +223,7 @@ AsyncOutput::~AsyncOutput()
 		fmt::print(stdout, "\n");
 }
 
-AsyncOutput::Bar AsyncOutput::bar(uint64_t total, std::string label)
+Logger::Bar Logger::bar(uint64_t total, std::string label)
 {
 	auto state = std::make_unique<BarState>(total, std::move(label));
 	auto result = Bar(state.get());
@@ -227,7 +237,7 @@ AsyncOutput::Bar AsyncOutput::bar(uint64_t total, std::string label)
 	return result;
 }
 
-void AsyncOutput::print_summary()
+void Logger::print_summary()
 {
 	std::vector<Component const *> components;
 	{
@@ -254,7 +264,7 @@ void AsyncOutput::print_summary()
 	       fmt::format("{:12}: {:#6.2f} s (100.0 %)", "total", total_secs));
 }
 
-void AsyncOutput::reset_summary()
+void Logger::reset_summary()
 {
 	auto lock = std::unique_lock(mutex_);
 	for (auto &component : components_)
@@ -262,8 +272,7 @@ void AsyncOutput::reset_summary()
 	summary_start_ = Clock::now();
 }
 
-void AsyncOutput::do_log(Component const *component, Level,
-                         std::string_view msg)
+void Logger::do_log(Component const *component, Level, std::string_view msg)
 {
 	// note: construct the message outside the lock, keeping the critical
 	// section minimal
@@ -276,7 +285,7 @@ void AsyncOutput::do_log(Component const *component, Level,
 	cv_.notify_one();
 }
 
-void AsyncOutput::thread_main(std::stop_token stop)
+void Logger::thread_main(std::stop_token stop)
 {
 	auto callback = std::stop_callback(stop, [this] { cv_.notify_all(); });
 
@@ -315,9 +324,8 @@ void AsyncOutput::thread_main(std::stop_token stop)
 	}
 }
 
-void AsyncOutput::write_terminal(
-    std::deque<Message> const &messages,
-    std::vector<BarState const *> const &bars) noexcept
+void Logger::write_terminal(std::deque<Message> const &messages,
+                            std::vector<BarState const *> const &bars) noexcept
 {
 	fmt::memory_buffer frame;
 	fmt::format_to(std::back_inserter(frame), "\x1b[?25l");
@@ -350,7 +358,7 @@ void AsyncOutput::write_terminal(
 	rendered_lines_ = lines;
 }
 
-void AsyncOutput::write_file(std::deque<Message> const &messages) noexcept
+void Logger::write_file(std::deque<Message> const &messages) noexcept
 {
 	fmt::memory_buffer log;
 

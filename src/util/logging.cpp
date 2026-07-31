@@ -276,7 +276,7 @@ void Logger::do_log(Component const *component, Level, std::string_view msg)
 {
 	// note: construct the message outside the lock, keeping the critical
 	// section minimal
-	Message message{component, std::string(msg)};
+	Message message{component, std::string(msg), {}};
 	{
 		auto lock = std::unique_lock(mutex_);
 		msg_queue_.push_back(std::move(message));

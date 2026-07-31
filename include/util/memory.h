@@ -16,23 +16,11 @@ namespace util {
 
 template <class T> struct default_delete;
 
-// Smart pointer that stores an owning span instead of an owning pointer. The
-// deleter gets passed (pointer, size) and '.get()' returns a std::span.
-//   * compared to std::unique_ptr<T[]>:
-//     - offers a '.size()' member
-//     - can use any allocator, not just 'new[]' / 'delete[]'
-//       (defaults to std::allocator<T> via the default deleter)
-//   * compared to std::vector<T>:
-//     - no excess capacity, thus slightly smaller overhead
-//     - can be neither resized nor copied
-//     - semantic of 'const' follows std::unique_ptr, not std::vector. So
-//       elements of a 'const unique_span' can be modified.
-//   * This class could (and previously was) implemented as a specialization of
-//     std::unique_ptr, storing the size in a custom deleter. But that makes the
-//     interface somewhat awkward. Hopefully this is now clean.
-template <class T, class Deleter = default_delete<T>> class unique_span
+// Owns a contiguous block of memory suitable for storing an array of T.
+//   * Does not construct/destruct individual elements
+template <class T, class Deleter = default_delete<T>> class array_storage
 {
-	T *ptr_ = nullptr;
+	T *data_ = nullptr;
 	size_t size_ = 0;
 	[[no_unique_address]] Deleter deleter_ = {};
 
@@ -53,124 +41,95 @@ template <class T, class Deleter = default_delete<T>> class unique_span
 
 	// constructors
 
-	unique_span() = default;
-	constexpr unique_span(std::nullptr_t) noexcept {}
-	explicit constexpr unique_span(T *p, size_t n,
-	                               Deleter const &d = {}) noexcept
-	    : ptr_(p), size_(n), deleter_(d)
+	array_storage() = default;
+
+	explicit constexpr array_storage(T *p, size_t n,
+	                                 Deleter const &d = {}) noexcept
+	    : data_(p), size_(n), deleter_(d)
 	{}
 	template <size_t Extent>
-	explicit constexpr unique_span(std::span<T, Extent> s,
-	                               Deleter const &d = {}) noexcept
-	    : ptr_(s.data()), size_(s.size()), deleter_(d)
+	explicit constexpr array_storage(std::span<T, Extent> s,
+	                                 Deleter const &d = {}) noexcept
+	    : data_(s.data()), size_(s.size()), deleter_(d)
 	{}
 
 	// special members (move only)
 
-	unique_span(unique_span &&other) noexcept
-	    : ptr_(std::exchange(other.ptr_, nullptr)),
+	array_storage(array_storage &&other) noexcept
+	    : data_(std::exchange(other.data_, nullptr)),
 	      size_(std::exchange(other.size_, 0)), deleter_(other.deleter_)
 	{}
 
-	unique_span &operator=(unique_span &&other) noexcept
+	array_storage &operator=(array_storage &&other) noexcept
 	{
 		reset();
-		ptr_ = std::exchange(other.ptr_, nullptr);
+		data_ = std::exchange(other.data_, nullptr);
 		size_ = std::exchange(other.size_, 0);
 		deleter_ = other.deleter_;
 		return *this;
 	}
 
-	unique_span &operator=(std::nullptr_t) noexcept { reset(); }
-
-	friend void swap(unique_span &a, unique_span &b) noexcept
+	friend void swap(array_storage &a, array_storage &b) noexcept
 	{
 		using std::swap;
-		swap(a.ptr_, b.ptr_);
+		swap(a.data_, b.data_);
 		swap(a.size_, b.size_);
 		swap(a.deleter_, b.deleter_);
 	}
 
 	constexpr std::span<T> release() noexcept
 	{
-		auto r = get();
-		ptr_ = nullptr;
+		T *r = data();
+		data_ = nullptr;
 		size_ = 0;
 		return r;
 	}
 
 	void reset() noexcept
 	{
-		if (ptr_)
-			deleter_(ptr_, size_);
-		ptr_ = nullptr;
+		if (data())
+			deleter_(data(), size());
+		data_ = nullptr;
 		size_ = 0;
 	}
 
-	~unique_span()
-	{
-		if (ptr_)
-			deleter_(ptr_, size_);
-	}
+	~array_storage() { reset(); }
 
 	// size metrics
-
-	constexpr explicit operator bool() const noexcept { return ptr_; }
 	constexpr size_t size() const noexcept { return size_; }
-	constexpr size_t size_bytes() const noexcept { return size_ * sizeof(T); }
-	constexpr bool empty() const noexcept { return size_; }
+	constexpr size_t size_bytes() const noexcept { return size() * sizeof(T); }
+	constexpr bool empty() const noexcept { return size() == 0; }
 
-	// data access (like std::span)
+	// data access (no guarantee which elements have been constructed)
+	constexpr T *data() noexcept { return data_; }
+	constexpr T const *data() const noexcept { return data_; }
+	constexpr T &operator[](size_t i) noexcept { return data()[i]; }
+	constexpr T const &operator[](size_t i) const noexcept { return data()[i]; }
 
-	constexpr std::span<T> get() const noexcept
+	// convenience wrappers for std::construct_at/std::destroy_at. It is the
+	// users responsibility to know which elements have been constructed and
+	// destroying them before destroying the array_storage.
+	template <class... Args> T *construct_at(size_t i, Args &&...args)
 	{
-		return std::span(ptr_, size_);
+		assert(i < size());
+		return std::construct_at(data() + i, std::forward<Args>(args)...);
 	}
-
-	T &operator[](size_t i) const { return ptr_[i]; }
-
-	T &at(size_t i) const
+	void destroy_at(size_t i) noexcept
 	{
-		if (i >= size_)
-			throw std::out_of_range("unique_span out of range");
-		return ptr_[i];
-	}
-
-	constexpr T *data() const noexcept { return ptr_; }
-
-	constexpr iterator begin() const noexcept { return ptr_; }
-	constexpr iterator end() const noexcept { return ptr_ + size_; }
-	constexpr reverse_iterator rbegin() const noexcept
-	{
-		return reverse_iterator(end());
-	}
-	constexpr reverse_iterator rend() const noexcept
-	{
-		return reverse_iterator(begin());
+		assert(i < size());
+		std::destroy_at(data() + i);
 	}
 
 	// misc
-
 	Deleter &get_deleter() noexcept { return deleter_; }
 	Deleter const &get_deleter() const noexcept { return deleter_; }
 };
 
-// default deleter for unique_span
+// default deleter for array_storage
 template <class T> struct default_delete
 {
-	void operator()(T *p, size_t n) noexcept
-	{
-		std::destroy(p, p + n);
-		std::free(p);
-	}
+	void operator()(T *p, size_t) noexcept { std::free(p); }
 };
-
-// only deallocates, does not destruct any elements
-template <class T> struct free_delete
-{
-	void operator()(T *p, size_t) { std::free(p); }
-};
-template <typename T> using unique_memory = unique_span<T, free_delete<T>>;
 
 namespace detail {
 void *util_mmap(size_t);
@@ -180,16 +139,16 @@ template <class T> struct mmap_delete
 {
 	void operator()(T *p, size_t n) { detail::util_munmap(p, n * sizeof(T)); }
 };
-template <typename T> using lazy_memory = unique_span<T, mmap_delete<T>>;
+template <typename T>
+using lazy_array_storage = array_storage<T, mmap_delete<T>>;
 
 // make sure the default deleter does not take any space
-static_assert(sizeof(unique_span<int>) == sizeof(std::span<int>));
-static_assert(sizeof(unique_memory<int>) == sizeof(std::span<int>));
-static_assert(sizeof(lazy_memory<int>) == sizeof(std::span<int>));
+static_assert(sizeof(array_storage<int>) == sizeof(std::span<int>));
+static_assert(sizeof(lazy_array_storage<int>) == sizeof(std::span<int>));
 
 // allocate memory sized and aligned for T[n], but does not
 // initilize the individual objects
-template <class T> unique_memory<T> allocate(size_t n)
+template <class T> array_storage<T> allocate(size_t n)
 {
 	if (n == 0)
 		return {};
@@ -198,11 +157,11 @@ template <class T> unique_memory<T> allocate(size_t n)
 	              : std::malloc(n * sizeof(T));
 	if (!p)
 		throw std::bad_alloc();
-	return unique_memory<T>(static_cast<T *>(p), n);
+	return array_storage<T>(static_cast<T *>(p), n);
 }
 
 // same as alloate(), but highly aligned (for cache and/or SIMD)
-template <class T> unique_memory<T> aligned_allocate(size_t n)
+template <class T> array_storage<T> aligned_allocate(size_t n)
 {
 	// alignment requirement of AVX512 = 64 bytes
 	// cache line size on x86 CPUs = 64 bytes
@@ -224,33 +183,16 @@ template <class T> unique_memory<T> aligned_allocate(size_t n)
 	void *p = std::aligned_alloc(align, size);
 	if (!p)
 		throw std::bad_alloc();
-	return unique_memory<T>(static_cast<T *>(p), n);
+	return array_storage<T>(static_cast<T *>(p), n);
 }
 
-template <class T> lazy_memory<T> lazy_allocate(size_t n)
+template <class T> lazy_array_storage<T> lazy_allocate(size_t n)
 {
 	// NOTE: due to page size, alignment will never be an issue here
 	if (n == 0)
 		return {};
 	auto p = detail::util_mmap(n * sizeof(T));
-	return lazy_memory<T>(static_cast<T *>(p), n);
-}
-
-// allocate and initilize memory, returning a unique_span<...>
-template <class T>
-unique_span<T> make_unique_span(size_t n, T const &value = T{})
-{
-	auto mem = allocate<T>(n);
-	std::uninitialized_fill(mem.begin(), mem.end(), value);
-	return unique_span<T>(mem.release().data(), n);
-}
-
-template <class T>
-unique_span<T> make_aligned_unique_span(size_t n, T const &value = T{})
-{
-	auto mem = aligned_allocate<T>(n);
-	std::uninitialized_fill(mem.begin(), mem.end(), value);
-	return unique_span<T>(mem.release().data(), n);
+	return lazy_array_storage<T>(static_cast<T *>(p), n);
 }
 
 // overload this as

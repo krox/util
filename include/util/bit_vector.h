@@ -317,7 +317,7 @@ template <int features = 0> class bit_vector_impl
 
   private:
 	size_t size_ = 0;                 // number of used bits
-	unique_memory<limb_t> data_ = {}; // all unused bits are kept at zero
+	array_storage<limb_t> data_ = {}; // all unused bits are kept at zero
 
   public:
 	class reference
@@ -600,7 +600,7 @@ class bit_matrix
   private:
 	size_t height_ = 0, width_ = 0;
 	size_t row_limbs_ = 0;
-	unique_memory<limb_t> data_ = {};
+	array_storage<limb_t> data_ = {};
 
   public:
 	bit_matrix() = default;
@@ -644,7 +644,7 @@ class bit_set
 	static constexpr size_t limb_bits = sizeof(limb_t) * 8;
 
   private:
-	unique_memory<limb_t> data_ = {}; // all unused bits are kept at zero
+	array_storage<limb_t> data_ = {}; // all unused bits are kept at zero
 	std::vector<uint32_t> dirty_;     // list of non-zero limb indices
 
   public:

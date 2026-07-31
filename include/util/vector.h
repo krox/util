@@ -49,7 +49,7 @@ namespace detail {
 
 template <typename T> class MallocStorage
 {
-	unique_memory<T> data_ = {};
+	array_storage<T> data_ = {};
 	size_t size_ = 0;
 
   public:
@@ -167,7 +167,7 @@ template <typename T, size_t N> class alignas(T) alignas(T *) SboStorage
 
 template <typename T, size_t N> class MmapStorage
 {
-	lazy_memory<T> data_ = {};
+	lazy_array_storage<T> data_ = {};
 	size_t size_ = 0;
 
   public:
@@ -190,7 +190,10 @@ template <typename T, size_t N> class MmapStorage
 
 	size_t size() const noexcept { return size_; }
 	void set_size(size_t s) noexcept { size_ = s; }
-	size_t capacity() const noexcept { return data_ ? max_capacity() : 0; }
+	size_t capacity() const noexcept
+	{
+		return data_.data() ? max_capacity() : 0;
+	}
 	static constexpr size_t max_capacity() { return N; }
 	T *data() noexcept { return data_.data(); }
 	T const *data() const noexcept { return data_.data(); }

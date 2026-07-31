@@ -476,8 +476,8 @@ template <class Key, class T, class Hash = util::hash<Key>> class hash_map
 	size_t size_ = 0;
 	size_t mask_ = 0;
 	// TODO: merging control_ and values_ into a single allocation
-	unique_memory<uint8_t> control_ = {};
-	unique_memory<value_type> values_ = {};
+	array_storage<uint8_t> control_ = {};
+	array_storage<value_type> values_ = {};
 	[[no_unique_address]] hasher hasher_ = {}; // usually a stateless functor
 };
 

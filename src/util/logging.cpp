@@ -58,8 +58,7 @@ Logger::Clock::duration Logger::Component::elapsed() const noexcept
 
 void Logger::Component::do_log(Level l, std::string_view msg)
 {
-	if (l <= level())
-		output_.do_log(this, l, msg);
+	output_.do_log(this, l, msg);
 }
 
 Logger::Component &Logger::operator[](std::string_view component_name)
@@ -92,7 +91,9 @@ Logger::Scope Logger::scope(std::string_view name)
 
 Logger::Scope::Scope() = default;
 
-Logger::Scope::Scope(Component *component) noexcept : component_(component) {}
+Logger::Scope::Scope(Component *component) noexcept
+    : component_(component), level_(component_.load()->level())
+{}
 
 Logger::Scope::~Scope() noexcept { finish(); }
 
@@ -100,6 +101,9 @@ Logger::Component *Logger::Scope::component() const noexcept
 {
 	return component_.load();
 }
+
+Logger::Level Logger::Scope::level() const noexcept { return level_.load(); }
+void Logger::Scope::set_level(Level l) noexcept { level_.store(l); }
 
 void Logger::Scope::finish() noexcept
 {

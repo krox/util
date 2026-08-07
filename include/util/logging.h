@@ -154,8 +154,8 @@ class Logger::Component
 	void set_level(Level l) noexcept;
 	Clock::duration elapsed() const noexcept;
 
-	// log a message prefixed by this components name. No-op if level is below
-	// configured.
+	// log a message prefixed by this components name.
+	//   * does not check level, that is done by the caller (Logger::Scope)
 	void do_log(Level l, std::string_view msg);
 };
 
@@ -168,6 +168,7 @@ class Logger::Scope
 	//   * In the null-state, all logging is a silent no-op.
 
 	relaxed_atomic<Component *> component_ = nullptr;
+	relaxed_atomic<Level> level_ = Level::info;
 	Clock::time_point const start_time_ = Clock::now();
 
 	explicit Scope(Component *component) noexcept;
@@ -183,6 +184,9 @@ class Logger::Scope
 	// note: component lifetime is tied to Logger, so this pointer remains
 	// valid independent of the scope.
 	Component *component() const noexcept;
+
+	Level level() const noexcept;
+	void set_level(Level l) noexcept;
 
 	void finish() noexcept;
 
@@ -205,7 +209,7 @@ class Logger::Scope
 	         Args &&...args) const
 	{
 		auto comp = component();
-		if (!comp || level > comp->level())
+		if (!comp || level > level_)
 			return;
 		comp->do_log(level, fmt::format(format, std::forward<Args>(args)...));
 	}

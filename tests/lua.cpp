@@ -12,6 +12,12 @@ using namespace util;
 
 namespace {
 
+enum class SolverMode : std::int8_t
+{
+	Fast = 1,
+	Safe = 2,
+};
+
 struct SolverOptions
 {
 	double tol = 1.0e-10;
@@ -177,4 +183,25 @@ TEST_CASE("lua registered structs return to Lua as named tables", "[lua]")
 	CHECK(echoed.steps == 77);
 	CHECK(echoed.verbose == true);
 	CHECK(echoed.label == "from-cpp");
+}
+
+TEST_CASE("lua supports enums in direct and container conversions", "[lua]")
+{
+	Lua lua;
+
+	lua.set("mode", SolverMode::Safe);
+	lua.run("mode = mode - 1");
+	CHECK(lua.get<SolverMode>("mode") == SolverMode::Fast);
+
+	lua.set("flip", [](SolverMode mode) {
+		return mode == SolverMode::Fast ? SolverMode::Safe : SolverMode::Fast;
+	});
+	lua.run("flipped = flip(1)");
+	CHECK(lua.get<SolverMode>("flipped") == SolverMode::Safe);
+
+	std::vector<SolverMode> modes{SolverMode::Fast, SolverMode::Safe};
+	lua.set("modes", modes);
+	lua.run("modes[1] = 2; modes[2] = 1");
+	CHECK(lua.get<std::vector<SolverMode>>("modes") ==
+	      std::vector<SolverMode>{SolverMode::Safe, SolverMode::Fast});
 }

@@ -220,6 +220,9 @@ class Lua
 	{
 		if constexpr (std::is_same_v<std::remove_cvref_t<T>, bool>)
 			return read_boolean(L, index);
+		else if constexpr (std::is_enum_v<std::remove_cvref_t<T>>)
+			return static_cast<T>(
+			    read_integer(L, index));
 		else if constexpr (std::is_integral_v<std::remove_cvref_t<T>>)
 			return static_cast<T>(read_integer(L, index));
 		else if constexpr (std::is_floating_point_v<std::remove_cvref_t<T>>)
@@ -239,6 +242,12 @@ class Lua
 	{
 		if constexpr (std::is_same_v<std::remove_cvref_t<T>, bool>)
 			lua_pushboolean(L, value ? 1 : 0);
+		else if constexpr (std::is_enum_v<std::remove_cvref_t<T>>)
+			lua_pushinteger(
+			    L,
+			    static_cast<lua_Integer>(
+			        static_cast<std::underlying_type_t<std::remove_cvref_t<T>>>(
+			            value)));
 		else if constexpr (std::is_integral_v<std::remove_cvref_t<T>>)
 			lua_pushinteger(L, static_cast<lua_Integer>(value));
 		else if constexpr (std::is_floating_point_v<std::remove_cvref_t<T>>)

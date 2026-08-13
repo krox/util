@@ -2,8 +2,11 @@
 
 #include "fmt/format.h"
 #include <cassert>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -190,6 +193,159 @@ void MappedFile::close() noexcept
 		munmap(ptr_, size_);
 	size_ = 0;
 	ptr_ = nullptr;
+}
+
+EventFd::EventFd(int initial_value)
+{
+	int flags = EFD_CLOEXEC | EFD_NONBLOCK;
+	fd_ = eventfd(initial_value, flags);
+	if (fd_ < 0)
+		throw std::system_error(errno, std::system_category(),
+		                        "eventfd failed");
+}
+
+void EventFd::close() noexcept
+{
+	if (fd_ >= 0)
+	{
+		::close(fd_); // ignore errors
+		fd_ = -1;
+	}
+}
+
+uint64_t EventFd::try_read()
+{
+	while (true)
+	{
+		uint64_t value;
+		auto r = ::read(fd_, &value, sizeof(value));
+		if (r == sizeof(value))
+			return value;
+		if (r < 0 && errno == EINTR)
+			continue;
+		if (r < 0 && errno == EAGAIN)
+			return 0;
+
+		throw std::system_error(errno, std::system_category(),
+		                        "eventfd read failed");
+	}
+}
+
+uint64_t EventFd::read()
+{
+	while (true)
+	{
+		uint64_t value;
+		auto result = ::read(fd_, &value, sizeof(value));
+
+		if (result == sizeof(value))
+			return value;
+		if (result < 0 && errno == EINTR)
+			continue;
+
+		if (result < 0 && errno == EAGAIN)
+		{
+			// NOTE: we have set the eventfd itself to non-blocking mode. So
+			// we need to block manually here using poll().
+			pollfd pfd{
+			    .fd = fd_,
+			    .events = POLLIN,
+			    .revents = 0,
+			};
+
+			while (::poll(&pfd, 1, -1) < 0)
+				if (errno != EINTR)
+					throw std::system_error(errno, std::system_category(),
+					                        "poll failed");
+
+			continue;
+		}
+
+		throw std::system_error(errno, std::system_category(),
+		                        "eventfd read failed");
+	}
+}
+
+void EventFd::write(uint64_t delta)
+{
+	assert(fd_ >= 0);
+
+	while (true)
+	{
+		// note: this 'write' errors on delta==0 and returns -1/EAGAIN when
+		// the internal counter would overflow (close to 2^64). Both
+		// essentially impossible in intended usecases.
+
+		auto r = ::write(fd_, &delta, sizeof(delta));
+		if (r == sizeof(delta))
+			return;
+		if (r < 0 && (errno == EINTR))
+			continue;
+		// note: dont retry on EAGAIN. That only happens if the internal
+		// counter is close to overflowing (near 2^64). Retry would busy
+		// spin, and its not an intended use case anyway.
+		throw std::system_error(errno, std::system_category(),
+		                        "eventfd write failed");
+	}
+}
+
+bool EventFd::write_safe(uint64_t delta) noexcept
+{
+	return ::write(fd_, &delta, sizeof(delta)) == sizeof(delta);
+}
+
+// InterruptManager static members
+std::atomic<bool> InterruptManager::active_{false};
+EventFd InterruptManager::event_;
+
+InterruptManager::InterruptManager()
+{
+	if (active_.exchange(true))
+		throw std::runtime_error(
+		    "InterruptManager: only one instance allowed at a time");
+	event_ = EventFd(0);
+	thread_ = std::jthread(&InterruptManager::thread_main, this);
+	signal(SIGINT, &InterruptManager::signal_handler);
+}
+
+InterruptManager::~InterruptManager() noexcept
+{
+	terminate_.store(true);
+	event_.write(1);
+	thread_.join();
+	signal(SIGINT, SIG_DFL);
+	event_.close();
+	active_.store(false);
+}
+
+void InterruptManager::thread_main()
+{
+	while (true)
+	{
+		// blocking read. The returned value does not matter, multiple
+		// signals are coalesced anyway.
+		event_.read();
+
+		// final iteration: notify, do not renew the stop_source, and exit
+		if (terminate_.load())
+		{
+			std::stop_source src = *source_.lock();
+			src.request_stop();
+			return;
+		}
+
+		// else, request stop, renew source, and keep going
+		{
+			std::stop_source src =
+			    std::exchange(*source_.lock(), std::stop_source());
+			src.request_stop();
+		}
+	}
+}
+
+std::stop_token InterruptManager::token() const noexcept
+{
+	return source_.lock()->get_token();
 }
 
 std::string decompress(std::span<const std::byte> data)

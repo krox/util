@@ -1,10 +1,15 @@
 #pragma once
 
 #include "util/memory.h"
+#include "util/synchronized.h"
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 // file IO utilities
@@ -130,6 +135,106 @@ class MappedFile
 	void const *data() const { return ptr_; }
 	size_t size() const { return size_; }
 	explicit operator bool() const { return ptr_; }
+};
+
+// RAII wrapper for 'eventfd'.
+// Only current usecase: implementation detail inside 'InterruptHandler'.
+class EventFd
+{
+	int fd_ = -1;
+
+  public:
+	// default constructor creates a null/closed state
+	EventFd() = default;
+
+	// create a new eventfd with given initial value (typically 0).
+	explicit EventFd(int initial_value);
+
+	~EventFd() noexcept { close(); }
+
+	// close the eventfd. No-op if already closed.
+	void close() noexcept;
+
+	// move-only
+	EventFd(EventFd const &) = delete;
+	EventFd &operator=(EventFd const &) = delete;
+	EventFd(EventFd &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+	EventFd &operator=(EventFd &&other) noexcept
+	{
+		if (this == &other)
+			return *this;
+		close();
+		fd_ = std::exchange(other.fd_, -1);
+		return *this;
+	}
+
+	// get underlying file descriptor. -1 if closed.
+	int fd() const noexcept { return fd_; }
+
+	// blocks until value is non-zero, then returns value and resets it to zero
+	uint64_t read();
+
+	// Non-blocking variant 'read(), returns 0 if nothing is available.
+	uint64_t try_read();
+
+	// increments the value by 'delta'. Non-blocking.
+	void write(uint64_t delta = 1);
+
+	// same as 'write', but without exceptions or retry-loop.
+	//   - returns true on immediate success, false otherwise
+	//   - In normal usage, fails are exceedingly unlikely, so the difference
+	//     between 'write' and 'write_safe' is not really detectable.
+	//   - This function is guaranteed to be async-signal-safe, so it can be
+	//     called from a signal handler. This is the main reason for this class
+	//     to exist.
+	bool write_safe(uint64_t delta = 1) noexcept;
+};
+
+// Effectively converts 'SIGINT' into a 'std::stop_token' notification.
+// Implementation details:
+//   * A signal handler is installed for 'SIGINT' that writes into an 'eventfd'
+//     (because that is one of the few things that is guaranteed to be safe
+//     inside a signal handler).
+//   * A dedicated thread listens on that 'eventfd' and calls 'request_stop()'
+//     on any token given out previously. The internal stop_source is replaced
+//     with a new one after each notification, so that we can re-use the
+//     'InterruptHandler'
+//   * When the 'InterruptHandler' is destroyed, all outstanding tokens are
+//     notified as well before the signal handler is uninstalled and the thread
+//     is joined. All tokens stay alive independently of the 'InterruptHandler'
+//     lifetime, though a typical user will have discarded them before then.
+class InterruptManager
+{
+	synchronized<std::stop_source> source_;
+	std::jthread thread_;
+	std::atomic<bool> terminate_{false};
+
+	static std::atomic<bool> active_;
+	static EventFd event_;
+	static void signal_handler(int) noexcept { event_.write_safe(1); }
+
+	void thread_main();
+
+  public:
+	// default constructor installs the signal handler and starts the thread.
+	// Only one instance of this class should exist at a time, as installing
+	// multiple signal handlers is not supported.
+	InterruptManager();
+
+	// destructor uninstalls the signal handler and joins the background thread.
+	~InterruptManager() noexcept;
+
+	// get a stop_token that will be notified when SIGINT is received.
+	//   * Only signals received after the token is obtained will result in
+	//     notification. Signals are never queued or made pending.
+	//   * The token will also be notified when the 'InterruptManager' is
+	//     destroyed. The user cannot distinguish this from an actual SIGINT.
+	//     (This semantic is intentional as it helps with some race conditions.
+	//     Does not come up in typical use though.)
+	//   * The tokens returned by successive calls to 'get_token()' might or
+	//     might not refer to the same underlying stop state. Does not matter in
+	//     practice.
+	std::stop_token token() const noexcept;
 };
 
 // zstd compression/decompression

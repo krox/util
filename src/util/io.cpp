@@ -30,62 +30,63 @@ bool has_zstd_magic(std::span<const std::byte> data)
 
 } // namespace
 
-void fclose_delete::operator()(FILE *p)
-{
-	if (std::fclose(p))
-		assert(false);
-}
-
-FilePointer open_file(std::string_view filename, char const *mode)
-{
-	auto p = std::fopen(std::string(filename).c_str(), mode);
-	if (!p)
-		throw std::runtime_error(fmt::format("could not open file '{}' ('{}')",
-		                                     filename, strerror(errno)));
-	return FilePointer(p);
-}
-
 File File::open(std::string_view filename, bool writeable)
 {
 	File file;
-	file.file_ = open_file(filename, writeable ? "r+" : "r");
+	auto p = std::fopen(std::string(filename).c_str(), writeable ? "r+" : "r");
+	if (!p)
+		throw std::runtime_error(fmt::format("could not open file '{}' ('{}')",
+		                                     filename, strerror(errno)));
+	file.file_ = p;
 	return file;
 }
 
 File File::create(std::string_view filename, bool overwrite)
 {
 	File file;
-	file.file_ = open_file(filename, overwrite ? "w+" : "w+x");
+	auto p =
+	    std::fopen(std::string(filename).c_str(), overwrite ? "w+" : "w+x");
+	if (!p)
+		throw std::runtime_error(fmt::format(
+		    "could not create file '{}' ('{}')", filename, strerror(errno)));
+	file.file_ = p;
 	return file;
 }
 
-void File::close() noexcept { file_.reset(); }
+void File::close() noexcept
+{
+	if (file_)
+	{
+		std::fclose(file_);
+		file_ = nullptr;
+	}
+}
 
 void File::flush()
 {
 	assert(file_);
-	if (std::fflush(file_.get()))
+	if (std::fflush(file_))
 		throw std::runtime_error("could not flush file");
 }
 
 void File::seek(size_t pos)
 {
 	assert(file_);
-	if (std::fseek(file_.get(), pos, SEEK_SET))
+	if (std::fseek(file_, pos, SEEK_SET))
 		throw std::runtime_error("could not seek in file");
 }
 
 void File::skip(size_t bytes)
 {
 	assert(file_);
-	if (std::fseek(file_.get(), bytes, SEEK_CUR))
+	if (std::fseek(file_, bytes, SEEK_CUR))
 		throw std::runtime_error("could not seek in file");
 }
 
 size_t File::tell() const
 {
 	assert(file_);
-	auto pos = std::ftell(file_.get());
+	auto pos = std::ftell(file_);
 	if (pos == -1)
 		throw std::runtime_error("could not tell position in file");
 	return pos;
@@ -94,7 +95,7 @@ size_t File::tell() const
 void File::read_raw(void *buffer, size_t size)
 {
 	assert(file_);
-	auto r = std::fread(buffer, 1, size, file_.get());
+	auto r = std::fread(buffer, 1, size, file_);
 	if (r != size)
 		throw std::runtime_error("could not read from file");
 }
@@ -102,18 +103,32 @@ void File::read_raw(void *buffer, size_t size)
 void File::write_raw(void const *buffer, size_t size)
 {
 	assert(file_);
-	auto r = std::fwrite(buffer, 1, size, file_.get());
+	auto r = std::fwrite(buffer, 1, size, file_);
 	if (r != size)
 		throw std::runtime_error("could not write to file");
 }
 
-MappedFile::MappedFile(char const *filename, char const *mode, bool writeable)
+int File::fd() const
 {
-	// open file
-	auto file = open_file(filename, mode);
-	int fd = fileno(file.get());
+	if (!file_)
+		return -1;
+	return fileno(file_);
+}
 
-	// get file size (already open, so std::filesystem::file_size seems stupid)
+void File::truncate(size_t size)
+{
+	assert(file_);
+	if (ftruncate(fd(), size))
+		throw std::runtime_error("could not truncate file");
+}
+
+MappedFile::MappedFile(char const *filename, bool writeable)
+{
+	// open file using File class
+	auto file = File::open(filename, writeable);
+	int fd = file.fd();
+
+	// get file size
 	struct stat st;
 	if (fstat(fd, &st))
 		assert(false);
@@ -129,7 +144,6 @@ MappedFile::MappedFile(char const *filename, char const *mode, bool writeable)
 		prot |= PROT_WRITE;
 	int flags = MAP_SHARED;
 	ptr_ = mmap(nullptr, size_, prot, flags, fd, 0);
-	file.reset();
 
 	// check for errors
 	if (ptr_ == MAP_FAILED)
@@ -144,19 +158,29 @@ MappedFile::MappedFile(char const *filename, char const *mode, bool writeable)
 
 MappedFile MappedFile::open(std::string_view filename, bool writeable)
 {
-	return MappedFile(std::string(filename).c_str(), writeable ? "r+" : "r",
-	                  writeable);
+	return MappedFile(std::string(filename).c_str(), writeable);
 }
 
 MappedFile MappedFile::create(std::string_view filename, size_t size,
                               bool overwrite)
 {
-	auto file =
-	    open_file(std::string(filename).c_str(), overwrite ? "w+" : "w+x");
-	if (ftruncate(fileno(file.get()), size))
-		assert(false);
-	file.reset();
-	return open(filename, true);
+	File file = File::create(filename, overwrite);
+	file.truncate(size);
+
+	// Create the mapping while file is still open
+	void *ptr =
+	    mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, file.fd(), 0);
+
+	// Check for mmap errors
+	if (ptr == MAP_FAILED)
+		throw std::runtime_error(
+		    fmt::format("could not mmap() file '{}' (errno = {})", filename,
+		                strerror(errno)));
+
+	MappedFile result;
+	result.ptr_ = ptr;
+	result.size_ = size;
+	return result;
 }
 
 void MappedFile::close() noexcept
@@ -227,7 +251,7 @@ std::vector<std::byte> compress(std::string_view text, int compression_level)
 
 std::string read_file(std::string_view filename)
 {
-	auto file = open_file(filename, "rb");
+	File file = File::open(filename, false);
 
 	std::fseek(file.get(), 0u, SEEK_END);
 	const auto size = std::ftell(file.get());
@@ -254,7 +278,7 @@ std::vector<std::byte> read_binary_file(std::string_view filename)
 {
 	static_assert(sizeof(std::byte) == 1);
 
-	auto file = open_file(filename, "rb");
+	File file = File::open(filename, false);
 
 	std::fseek(file.get(), 0u, SEEK_END);
 	const auto size = std::ftell(file.get());
@@ -273,7 +297,7 @@ std::vector<std::byte> read_binary_file(std::string_view filename)
 void write_file(std::string_view filename, std::string_view data)
 {
 	assert(!filename.empty());
-	auto file = open_file(filename, "wb");
+	File file = File::create(filename, true);
 
 	auto written = std::fwrite(data.data(), 1u, data.size(), file.get());
 	if ((size_t)written != (size_t)data.size())

@@ -11,26 +11,36 @@
 
 namespace util {
 
-// little wrapper for fopen() / close() that does RAII and throws on errors
-struct fclose_delete
-{
-	void operator()(FILE *p);
-};
-using FilePointer = std::unique_ptr<FILE, fclose_delete>;
-FilePointer open_file(std::string_view filename, char const *mode);
-
 // class for reading/writing (binary) files
 class File
 {
-	FilePointer file_;
+	FILE *file_ = nullptr;
 
   public:
 	File() = default;
+
+	// destructor and move semantics (move-only type)
+	~File() noexcept { close(); }
+	File(File &&other) noexcept : file_(std::exchange(other.file_, nullptr)) {}
+	File &operator=(File &&other) noexcept
+	{
+		if (this == &other)
+			return *this;
+		close();
+		file_ = std::exchange(other.file_, nullptr);
+		return *this;
+	}
+	File(File const &) = delete;
+	File &operator=(File const &) = delete;
+
 	static File open(std::string_view file, bool writeable = false);
 	static File create(std::string_view file, bool overwrite = false);
 	void close() noexcept;
 
-	explicit operator bool() const { return bool(file_); }
+	explicit operator bool() const { return file_ != nullptr; }
+
+	// get raw FILE* pointer for low-level operations
+	FILE *get() const { return file_; }
 
 	// flush internal buffer
 	//   * does not guarantee disk write (due to buffering in OS)
@@ -76,13 +86,19 @@ class File
 	{
 		write_raw(data, count * sizeof(T));
 	}
+
+	// get underlying file descriptor (-1 if file is not open)
+	int fd() const;
+
+	// truncate file to the given size
+	void truncate(size_t size);
 };
 
 class MappedFile
 {
 	void *ptr_ = nullptr;
 	size_t size_ = 0;
-	MappedFile(char const *, char const *, bool);
+	MappedFile(char const *, bool);
 
   public:
 	// constructors

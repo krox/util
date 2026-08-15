@@ -7,6 +7,7 @@
 #include <mutex>
 #include <numeric>
 #include <stdexcept>
+#include <stop_token>
 #include <thread>
 #include <type_traits>
 
@@ -51,9 +52,9 @@ TEST_CASE("threadpool")
 
 		struct overloaded_job
 		{
-			int operator()(util::stop_handle stop, int value) const
+			int operator()(std::stop_token stop, int value) const
 			{
-				while (!stop)
+				while (!stop.stop_requested())
 					std::this_thread::yield();
 				return value * 10;
 			}

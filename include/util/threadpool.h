@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <stop_token>
 #include <thread>
 #include <tuple>
 #include <type_traits>
@@ -26,30 +27,15 @@ class job_cancelled : public std::runtime_error
 	job_cancelled() : std::runtime_error("job cancelled") {}
 };
 
-// simpler alternative to std::stop_token that just refers to an atomic<bool>.
-class stop_handle
-{
-	std::atomic<bool> const *stop_ = nullptr;
-
-  public:
-	stop_handle() = default;
-	stop_handle(std::atomic<bool> const *stop) : stop_(stop) {}
-
-	operator bool() const noexcept
-	{
-		return stop_ && stop_->load(std::memory_order_relaxed);
-	}
-};
-
 template <class F, class... Args>
-inline constexpr bool use_stop_handle_v =
-    std::is_invocable_v<F, stop_handle, Args...>;
+inline constexpr bool use_stop_token_v =
+    std::is_invocable_v<F, std::stop_token, Args...>;
 
-template <bool UseStopHandle, class F, class... Args> struct async_result_impl;
+template <bool UseStopToken, class F, class... Args> struct async_result_impl;
 
 template <class F, class... Args> struct async_result_impl<true, F, Args...>
 {
-	using type = std::invoke_result_t<F, stop_handle, Args...>;
+	using type = std::invoke_result_t<F, std::stop_token, Args...>;
 };
 
 template <class F, class... Args> struct async_result_impl<false, F, Args...>
@@ -59,7 +45,7 @@ template <class F, class... Args> struct async_result_impl<false, F, Args...>
 
 template <class F, class... Args>
 using async_result_t =
-    typename async_result_impl<use_stop_handle_v<F, Args...>, F, Args...>::type;
+    typename async_result_impl<use_stop_token_v<F, Args...>, F, Args...>::type;
 
 // type-erased base class for TaskState
 class TaskStateBase
@@ -69,11 +55,7 @@ class TaskStateBase
 	std::atomic<bool> ready_{false};
 
 	// cooperative stopping (just a hint, no guaranteed semantics)
-	std::atomic<bool> stop_{false};
-
-	// progress reporting (just a hint, no guaranteed semantics)
-	std::atomic<int64_t> total_{0};
-	std::atomic<int64_t> progress_{0};
+	std::stop_source stop_;
 
   public:
 	TaskStateBase() = default;
@@ -100,33 +82,11 @@ class TaskStateBase
 
 	// request co-operative stopping. This is just a hint that the producer can
 	// check to stop early, but it is not guaranteed to be respected.
-	void request_stop() noexcept
+	void request_stop() noexcept { stop_.request_stop(); }
+	bool stop_requested() const noexcept { return stop_.stop_requested(); }
+	std::stop_token get_stop_token() const noexcept
 	{
-		stop_.store(true, std::memory_order_relaxed);
-	}
-	bool stop_requested() const noexcept
-	{
-		return stop_.load(std::memory_order_relaxed);
-	}
-	stop_handle get_stop_handle() const noexcept { return &stop_; }
-
-	// progress reporting.
-	// This is just reporting, not an enforced synchronization mechanism
-	void set_total(int64_t total) noexcept
-	{
-		total_.store(total, std::memory_order_relaxed);
-	}
-	void increment_progress(int64_t delta) noexcept
-	{
-		progress_.fetch_add(delta, std::memory_order_relaxed);
-	}
-	int64_t total() const noexcept
-	{
-		return total_.load(std::memory_order_relaxed);
-	}
-	int64_t progress() const noexcept
-	{
-		return progress_.load(std::memory_order_relaxed);
+		return stop_.get_token();
 	}
 
   protected:
@@ -320,11 +280,11 @@ template <class F, class... Args> class Job final : public JobBase
 		{
 			if constexpr (std::is_same_v<result_type, void>)
 			{
-				if constexpr (use_stop_handle_v<F, Args...>)
+				if constexpr (use_stop_token_v<F, Args...>)
 					std::apply(
 					    [this](auto &&...args) {
 						    std::invoke(std::move(f_),
-						                promise_->get_stop_handle(),
+						                promise_->get_stop_token(),
 						                std::forward<decltype(args)>(args)...);
 					    },
 					    std::move(args_));
@@ -334,11 +294,11 @@ template <class F, class... Args> class Job final : public JobBase
 			}
 			else
 			{
-				if constexpr (use_stop_handle_v<F, Args...>)
+				if constexpr (use_stop_token_v<F, Args...>)
 					promise_->set_value(std::apply(
 					    [this](auto &&...args) {
 						    return std::invoke(
-						        std::move(f_), promise_->get_stop_handle(),
+						        std::move(f_), promise_->get_stop_token(),
 						        std::forward<decltype(args)>(args)...);
 					    },
 					    std::move(args_)));

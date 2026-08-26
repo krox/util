@@ -740,6 +740,59 @@ bool erase_one_if(Vector<T, Impl> &c, auto pred) noexcept
 	return true;
 }
 
+template <class T, class Impl>
+size_t replace(Vector<T, Impl> &c, auto const &old_value,
+               auto const &new_value) noexcept
+{
+	size_t count = 0;
+	for (auto &x : c)
+		if (x == old_value)
+		{
+			x = new_value;
+			++count;
+		}
+	return count;
+}
+
+template <class T, class Impl>
+size_t replace_if(Vector<T, Impl> &c, auto pred, auto const &new_value) noexcept
+{
+	size_t count = 0;
+	for (auto &x : c)
+		if (pred(x))
+		{
+			x = new_value;
+			++count;
+		}
+	return count;
+}
+
+template <class T, class Impl>
+bool replace_one(Vector<T, Impl> &c, auto const &old_value,
+                 auto const &new_value) noexcept
+{
+	for (auto &x : c)
+		if (x == old_value)
+		{
+			x = new_value;
+			return true;
+		}
+	return false;
+}
+
+template <class T, class Impl>
+bool replace_one_if(Vector<T, Impl> &c, auto pred,
+                    auto const &new_value) noexcept
+{
+	for (auto &x : c)
+		if (pred(x))
+		{
+			x = new_value;
+			return true;
+		}
+	return false;
+}
+
 // append elements to the end of a vector
 template <class T, class Impl>
 void append(Vector<T, Impl> &c, std::span<const T> a)

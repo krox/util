@@ -163,6 +163,29 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		CHECK((b.size() == 2 && b[0] == 1 && b[1] == 3));
 	}
 
+	SECTION("replace functions")
+	{
+		auto make = []() { return TestType{1, 2, 3, 2}; };
+
+		auto c = make();
+		CHECK(replace(c, 2, 5) == 2);
+		CHECK(c == TestType{1, 5, 3, 5});
+
+		auto d = make();
+		CHECK(replace_if(d, [](auto const &x) { return x == 2; }, 5) == 2);
+		CHECK(d == TestType{1, 5, 3, 5});
+
+		auto e = make();
+		CHECK(replace_one(e, 2, 5));
+		CHECK(e == TestType{1, 5, 3, 2});
+		CHECK(!replace_one(e, 99, 5));
+
+		auto f = make();
+		CHECK(replace_one_if(f, [](auto const &x) { return x == 2; }, 5));
+		CHECK(f == TestType{1, 5, 3, 2});
+		CHECK(!replace_one_if(f, [](auto const &x) { return x == 99; }, 5));
+	}
+
 	SECTION("filter_action")
 	{
 		auto make = []() { return TestType{1, 2, 3, 4}; };

@@ -445,16 +445,11 @@ template <int features = 0> class bit_vector_impl
 			std::memset(data(), 0, size_limbs() * sizeof(limb_t));
 	}
 
-	// make sure capacity is at least newcap
-	//     * does nothing if newcap <= capacity()
-	//     * if spare=true, any reallocation will at least double the capacity
-	void reserve(size_t newcap, bool spare = false)
+	// Force reallocation to specific number of limbs. Backend for
+	// reserve/resize, usually not called directly.
+	void reallocate_limbs(size_t newcap_limbs)
 	{
-		if (newcap <= capacity())
-			return;
-		if (spare)
-			newcap = std::max(newcap, 2 * capacity());
-		size_t newcap_limbs = (newcap + limb_bits - 1) / limb_bits;
+		assert(newcap_limbs >= size_limbs());
 		auto newdata = allocate<limb_t>(newcap_limbs);
 		std::memcpy(newdata.data(), data(), size_limbs() * sizeof(limb_t));
 		std::memset(newdata.data() + size_limbs(), 0,
@@ -462,10 +457,37 @@ template <int features = 0> class bit_vector_impl
 		data_ = std::move(newdata);
 	}
 
-	// set new bits to zero, does not reduce capacity
+	// Make sure capacity is at least newcap. No-op if newcap <= capacity().
+	void reserve(size_t newcap)
+	{
+		if (newcap <= capacity())
+			return;
+		size_t newcap_limbs = (newcap + limb_bits - 1) / limb_bits;
+		reallocate_limbs(newcap_limbs);
+	}
+
+	// Same as 'reserve', but grows geometrically upon reallocation.
+	void reserve_with_spare(size_t newcap)
+	{
+		if (newcap <= capacity())
+			return;
+		size_t newcap_limbs = (newcap + limb_bits - 1) / limb_bits;
+		newcap_limbs = std::max(newcap_limbs, 2 * capacity_limbs());
+		reallocate_limbs(newcap_limbs);
+	}
+
+	// Resize the bit vector to newsize. New bits are set to zero, does not
+	// reduce capacity.
 	void resize(size_t newsize)
 	{
-		reserve(newsize, false);
+		// policy: always use spare upon '.resize' (but not '.reserve'). Same as
+		// in util::vector
+		resize_with_spare(newsize);
+	}
+
+	void resize_with_spare(size_t newsize)
+	{
+		reserve_with_spare(newsize);
 		size_t newsize_limbs = (newsize + limb_bits - 1) / limb_bits;
 
 		// decreasing size -> set all removed bits to zero
@@ -485,7 +507,7 @@ template <int features = 0> class bit_vector_impl
 	void push_back(bool value)
 	{
 		if (size() == capacity())
-			reserve(size() + 1, true);
+			reserve_with_spare(size() + 1);
 		size_ += 1;
 		(*this)[size_ - 1] = value;
 	}
@@ -506,7 +528,7 @@ template <int features = 0> class bit_vector_impl
 		if constexpr (features & auto_resize)
 			if (i >= size())
 			{
-				reserve(i + 1, true);
+				reserve_with_spare(i + 1);
 				resize(i + 1);
 			}
 		return reference(data_[i / limb_bits], i % limb_bits);

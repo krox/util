@@ -3,52 +3,23 @@
 // a couple tiny helpers to make error handling just a little bit nicer.
 
 #include "fmt/format.h"
+#include <source_location>
 #include <stdexcept>
+#include <utility>
 
 namespace util {
 
-// calls std::terminate, printing a message using libfmt to stderr first
+// Print current stack trace in human readable form. Requires C++23 with
+// 'std::stacktrace' support. Actual usefulness depends on platform of course.
+void print_stacktrace();
+
+// Essentially equivalent to classic 'assert', but with some modern amenities
+// - Message is formatted using libfmt.
+// - In release mode, failure is explicit UB, potentially helping the optimizer.
+// - In debug mode, also prints a stacktrace if available.
 template <class... Args>
-[[noreturn]] void terminate(fmt::format_string<Args...> str,
-                            Args &&...args) noexcept
-{
-	fmt::print(stderr, str, std::forward<Args>(args)...);
-	std::terminate();
-}
-
-[[noreturn]] inline void terminate() noexcept { std::terminate(); }
-
-// throws an exception, formatting the message using libfmt
-template <class Ex = std::runtime_error, class... Args>
-[[noreturn]] void raise(fmt::format_string<Args...> str, Args &&...args)
-{
-	throw Ex(fmt::format(str, std::forward<Args>(args)...));
-}
-
-// Invokes undefined bahaviour. Will be part of std in C++23.
-#ifdef NDEBUG
-#ifdef __GNUC__
-[[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
-#elif defined(_MSC_VER)
-[[noreturn]] inline void unreachable() noexcept { __assume(0); }
-#else
-[[noreturn]] inline void unreachable() noexcept
-{ // returning from a [[noreturn]] function is UB
-}
-#endif
-#else
-[[noreturn]] inline void unreachable() noexcept
-{
-	terminate("util::unreachable called");
-}
-#endif
-
-// assume is like assert, but creates a builtin_assume in release mode
-//   * only use for simple stuff (null-checks, simple bounds-checks, etc.),
-//     because otherwise, something might be evaluated even in release mode.
-template <class... Args>
-void assume(bool cond, fmt::format_string<Args...> str = "util::assume failed",
-            Args &&...args) noexcept
+void assume(bool cond, fmt::format_string<Args...> str = "", Args &&...args,
+            std::source_location loc = std::source_location::current()) noexcept
 {
 	(void)str;
 	((void)args, ...);
@@ -56,10 +27,50 @@ void assume(bool cond, fmt::format_string<Args...> str = "util::assume failed",
 		return;
 
 #ifdef NDEBUG
-	unreachable();
-#else
-	terminate(str, std::forward<Args>(args)...);
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+	std::unreachable();
+#elif defined(__GNUC__)
+	__builtin_unreachable();
 #endif
+#else
+	fmt::print(stderr, "Assumption failed: {}\n  at {}:{}\n",
+	           fmt::format(str, std::forward<Args>(args)...), loc.file_name(),
+	           loc.line());
+	print_stacktrace();
+	std::terminate();
+#endif
+}
+
+// Same as 'assume(false)', but with [[noreturn]] attribute to make the compiler
+// happy in typical usages.
+template <class... Args>
+[[noreturn]] void
+unreachable(fmt::format_string<Args...> str = "", Args &&...args,
+            std::source_location loc = std::source_location::current()) noexcept
+{
+	(void)str;
+	((void)args, ...);
+
+#ifdef NDEBUG
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+	std::unreachable();
+#elif defined(__GNUC__)
+	__builtin_unreachable();
+#endif
+#else
+	fmt::print(stderr, "Assumption failed: {}\n  at {}:{}\n",
+	           fmt::format(str, std::forward<Args>(args)...), loc.file_name(),
+	           loc.line());
+	print_stacktrace();
+	std::terminate();
+#endif
+}
+
+// throws an exception, formatting the message using libfmt
+template <class Ex = std::runtime_error, class... Args>
+[[noreturn]] void raise(fmt::format_string<Args...> str, Args &&...args)
+{
+	throw Ex(fmt::format(str, std::forward<Args>(args)...));
 }
 
 // Check a value, throwing an exception if it fails, returning the value if it

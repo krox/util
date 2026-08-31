@@ -4,8 +4,28 @@
 #include "util/vector.h"
 #include "util/vector2d.h"
 
+#include <deque>
+#include <list>
+#include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
+
+TEST_CASE("vector concepts", "[vector]")
+{
+	static_assert(
+	    util::VectorOf<util::small_vector<std::string, 4>, std::string>);
+	static_assert(
+	    util::VectorOf<util::static_vector<std::string, 4>, std::string>);
+	static_assert(
+	    util::VectorOf<util::stable_vector<std::string>, std::string>);
+	static_assert(
+	    util::VectorOf<util::indirect_vector<std::string>, std::string>);
+	static_assert(util::VectorOf<std::vector<std::string>, std::string>);
+	static_assert(util::VectorOf<std::deque<std::string>, std::string>);
+	static_assert(!util::VectorOf<std::list<std::string>, std::string>);
+	static_assert(!util::VectorOf<std::set<std::string>, std::string>);
+}
 
 // wrapper around int that tracks all special members
 struct Int

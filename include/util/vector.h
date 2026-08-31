@@ -281,7 +281,13 @@ template <typename T> class IndirectStorage
 	}
 };
 
-template <class T, class Impl> class Vector
+} // namespace detail
+
+// Common implementation for all the flavors of util::vector. While this type is
+// not hidden in 'detail::', all usage should still go through the
+// 'util::*_vector' types. In particular, the 'Impl' backend is an
+// implementation detail and not a supported customization point.
+template <class T, class Impl> class basic_vector
 {
 	// No strange types allowed in current implementation. If necessary, use
 	// an additional level of indirection, e.g., something like
@@ -310,53 +316,58 @@ template <class T, class Impl> class Vector
 
 	// default/copy/move constructor
 
-	constexpr Vector() = default;
+	constexpr basic_vector() = default;
 
-	Vector(Vector const &other) : impl_(other.size())
+	basic_vector(basic_vector const &other) : impl_(other.size())
 	{
 		std::uninitialized_copy_n(other.data(), other.size(), data());
 		set_size_unsafe(other.size());
 	}
 
-	Vector(Vector &&other) noexcept : Vector() { swap(other); }
+	basic_vector(basic_vector &&other) noexcept : basic_vector()
+	{
+		swap(other);
+	}
 
 	// constructor from data
 
-	Vector(size_t count, T const &value) : impl_(count)
+	basic_vector(size_t count, T const &value) : impl_(count)
 	{
 		std::uninitialized_fill_n(data(), count, value);
 		set_size_unsafe(count);
 	}
 
-	explicit Vector(size_t count) : Vector(count, T()) {}
+	explicit basic_vector(size_t count) : basic_vector(count, T()) {}
 
 	template <class It,
 	          class = typename std::iterator_traits<It>::iterator_category>
-	Vector(It first, It last) : impl_(std::distance(first, last))
+	basic_vector(It first, It last) : impl_(std::distance(first, last))
 	{
 		std::uninitialized_copy(first, last, data());
 		set_size_unsafe(std::distance(first, last));
 	}
 
-	Vector(std::initializer_list<T> init) : Vector(init.begin(), init.end()) {}
+	basic_vector(std::initializer_list<T> init)
+	    : basic_vector(init.begin(), init.end())
+	{}
 
 	// assignment operator
 
-	Vector &operator=(Vector const &other)
+	basic_vector &operator=(basic_vector const &other)
 	{
 		if (this != &other)
 			assign(other.begin(), other.end());
 		return *this;
 	}
 
-	Vector &operator=(Vector &&other) noexcept
+	basic_vector &operator=(basic_vector &&other) noexcept
 	{
 		clear(); // not obvious what is reasonable here
 		swap(other);
 		return *this;
 	}
 
-	Vector &operator=(std::initializer_list<T> ilist)
+	basic_vector &operator=(std::initializer_list<T> ilist)
 	{
 		assign(ilist.begin(), ilist.end());
 		return *this;
@@ -677,12 +688,13 @@ template <class T, class Impl> class Vector
 
 	// swap with another vector
 
-	void swap(Vector &other) noexcept { impl_.swap(other.impl_); }
-	friend void swap(Vector &a, Vector &b) noexcept { a.swap(b); }
+	void swap(basic_vector &other) noexcept { impl_.swap(other.impl_); }
+	friend void swap(basic_vector &a, basic_vector &b) noexcept { a.swap(b); }
 };
 
 template <typename T, class Impl, typename T2, class Impl2>
-bool operator==(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
+bool operator==(basic_vector<T, Impl> const &a,
+                basic_vector<T2, Impl2> const &b) noexcept
 {
 	if (a.size() != b.size())
 		return false;
@@ -693,15 +705,60 @@ bool operator==(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
 }
 
 template <typename T, class Impl, typename T2, class Impl2>
-auto operator<=>(Vector<T, Impl> const &a, Vector<T2, Impl2> const &b) noexcept
+auto operator<=>(basic_vector<T, Impl> const &a,
+                 basic_vector<T2, Impl2> const &b) noexcept
 {
 	return std::lexicographical_compare_three_way(a.begin(), a.end(), b.begin(),
 	                                              b.end());
 }
 
+// malloc-based vector, essentially equivalent to std::vector
+template <class T> using vector = basic_vector<T, detail::MallocStorage<T>>;
+
+// vector with "small buffer optimization"
+//   - sizes <= N are stored inline without any heap allocation
+//   - size and capacity are stored as uint32_t instead of size_t
+//   - buffer shares space with the data pointer and capacity. This is in
+//     contrast to many other small-vector implementations like LLVM and Boost.
+template <class T, size_t N>
+using small_vector = basic_vector<T, detail::SboStorage<T, N>>;
+
+// fixed capacity of N, no dynamic memory allocation at all
+template <class T, size_t N>
+using static_vector = basic_vector<T, detail::StaticStorage<T, N>>;
+
+// vector with stable pointers and iterators (except for end()), implemented
+// with lazy/over-commited memory allocation using mmap(). The size (2^36 bytes)
+// is somewhat arbitrary. Ideally larger than physical memory, and
+// (significantly) smaller than virtual adress space. Note that the latter is
+// "only" 2^48 bytes on many 64bit platforms (and not sure how much the OS would
+// be willing to give us in a single mmap()).
+template <class T, size_t N = (1LL << 36) / sizeof(T)>
+using stable_vector = basic_vector<T, detail::MmapStorage<T, N>>;
+
+// vector that stores its size and capacity inside the allocation. The struct
+// itself contains only a single pointer, thus very space efficient in case the
+// vector is typically empty anyway.
+// TODO: if T itself is a pointer type, we could do some bit stuffing to get a
+//       N=1 small-object-optimization going.
+template <class T>
+using indirect_vector = basic_vector<T, detail::IndirectStorage<T>>;
+
+// concept for a vector-like container with elements of type E.
+template <class C, class E>
+concept VectorOf = std::same_as<typename C::value_type, E> &&
+                   requires(C c, E value, std::size_t i) {
+	                   { c.push_back(value) };
+	                   { c.pop_back() };
+	                   { c.clear() };
+	                   { c.size() } -> std::convertible_to<std::size_t>;
+	                   { c[i] } -> std::same_as<E &>;
+                   };
+template <class C>
+concept VectorType = VectorOf<C, typename C::value_type>;
+
 // short-form of erase-remove idiom
-template <class T, class Impl>
-size_t erase(Vector<T, Impl> &c, auto const &value)
+size_t erase(VectorType auto &c, auto const &value)
 {
 	auto it = std::remove(c.begin(), c.end(), value);
 	auto r = std::distance(it, c.end());
@@ -710,7 +767,7 @@ size_t erase(Vector<T, Impl> &c, auto const &value)
 }
 
 // short-form of erase-remove idiom
-template <class T, class Impl> size_t erase_if(Vector<T, Impl> &c, auto pred)
+size_t erase_if(VectorType auto &c, auto pred)
 {
 	auto it = std::remove_if(c.begin(), c.end(), std::ref(pred));
 	auto r = std::distance(it, c.end());
@@ -719,8 +776,7 @@ template <class T, class Impl> size_t erase_if(Vector<T, Impl> &c, auto pred)
 }
 
 // erase the first element equal to value. returns true if found.
-template <class T, class Impl>
-bool erase_one(Vector<T, Impl> &c, auto const &value) noexcept
+bool erase_one(VectorType auto &c, auto const &value) noexcept
 {
 	auto it = std::find(c.begin(), c.end(), value);
 	if (it == c.end())
@@ -730,8 +786,7 @@ bool erase_one(Vector<T, Impl> &c, auto const &value) noexcept
 }
 
 // erase the first element matching pred. returns true if found.
-template <class T, class Impl>
-bool erase_one_if(Vector<T, Impl> &c, auto pred) noexcept
+bool erase_one_if(VectorType auto &c, auto pred) noexcept
 {
 	auto it = std::find_if(c.begin(), c.end(), std::ref(pred));
 	if (it == c.end())
@@ -740,8 +795,7 @@ bool erase_one_if(Vector<T, Impl> &c, auto pred) noexcept
 	return true;
 }
 
-template <class T, class Impl>
-size_t replace(Vector<T, Impl> &c, auto const &old_value,
+size_t replace(VectorType auto &c, auto const &old_value,
                auto const &new_value) noexcept
 {
 	size_t count = 0;
@@ -754,8 +808,7 @@ size_t replace(Vector<T, Impl> &c, auto const &old_value,
 	return count;
 }
 
-template <class T, class Impl>
-size_t replace_if(Vector<T, Impl> &c, auto pred, auto const &new_value) noexcept
+size_t replace_if(VectorType auto &c, auto pred, auto const &new_value) noexcept
 {
 	size_t count = 0;
 	for (auto &x : c)
@@ -767,8 +820,7 @@ size_t replace_if(Vector<T, Impl> &c, auto pred, auto const &new_value) noexcept
 	return count;
 }
 
-template <class T, class Impl>
-bool replace_one(Vector<T, Impl> &c, auto const &old_value,
+bool replace_one(VectorType auto &c, auto const &old_value,
                  auto const &new_value) noexcept
 {
 	for (auto &x : c)
@@ -780,8 +832,7 @@ bool replace_one(Vector<T, Impl> &c, auto const &old_value,
 	return false;
 }
 
-template <class T, class Impl>
-bool replace_one_if(Vector<T, Impl> &c, auto pred,
+bool replace_one_if(VectorType auto &c, auto pred,
                     auto const &new_value) noexcept
 {
 	for (auto &x : c)
@@ -794,15 +845,14 @@ bool replace_one_if(Vector<T, Impl> &c, auto pred,
 }
 
 // append elements to the end of a vector
-template <class T, class Impl>
-void append(Vector<T, Impl> &c, std::span<const T> a)
+template <VectorType C>
+void append(C &c, std::span<const typename C::value_type> a)
 {
 	c.insert(c.end(), a.begin(), a.end());
 }
 
 // trim elements from both ends. Returns number of erased elements.
-template <class T, class Impl>
-std::pair<size_t, size_t> trim_if(Vector<T, Impl> &c, auto &&pred)
+std::pair<size_t, size_t> trim_if(VectorType auto &c, auto &&pred)
 {
 	auto r = std::pair<size_t, size_t>(0, 0);
 	while (!c.empty() && pred(c.back()))
@@ -815,62 +865,28 @@ std::pair<size_t, size_t> trim_if(Vector<T, Impl> &c, auto &&pred)
 	c.erase(c.begin(), c.begin() + r.first);
 	return r;
 }
-template <class T, class Impl>
-std::pair<size_t, size_t> trim(Vector<T, Impl> &c, auto const &needle)
+
+std::pair<size_t, size_t> trim(VectorType auto &c, auto const &needle)
 {
-	return trim_if(c, [&needle](T const &x) { return x == needle; });
+	return trim_if(c, [&needle](auto const &x) { return x == needle; });
 }
 
 // sort and remove duplicates
-template <class T, class Impl> void unique_sort(Vector<T, Impl> &c)
+void unique_sort(VectorType auto &c)
 {
 	std::sort(c.begin(), c.end());
 	c.erase(std::unique(c.begin(), c.end()), c.end());
 }
 
 // sort and remove duplicates
-template <class T, class Impl, class Pred>
-void unique_sort(Vector<T, Impl> &c, Pred pred)
+void unique_sort(VectorType auto &c, auto pred)
 {
-	auto not_pred = [&pred](T const &a, T const &b) { return !pred(a, b); };
+	auto not_pred = [&pred](auto const &a, auto const &b) {
+		return !pred(a, b);
+	};
 	std::sort(c.begin(), c.end(), pred);
 	c.erase(std::unique(c.begin(), c.end(), not_pred), c.end());
 }
-
-} // namespace detail
-
-// malloc-based vector, essentially equivalent to std::vector
-template <typename T>
-using vector = detail::Vector<T, detail::MallocStorage<T>>;
-
-// vector with "small buffer optimization"
-//   - sizes <= N are stored inline without any heap allocation
-//   - size and capacity are stored as uint32_t instead of size_t
-//   - buffer shares space with the data pointer and capacity. This is in
-//     contrast to many other small-vector implementations like LLVM and Boost.
-template <typename T, size_t N>
-using small_vector = detail::Vector<T, detail::SboStorage<T, N>>;
-
-// fixed capacity of N, no dynamic memory allocation at all
-template <typename T, size_t N>
-using static_vector = detail::Vector<T, detail::StaticStorage<T, N>>;
-
-// vector with stable pointers and iterators (except for end()), implemented
-// with lazy/over-commited memory allocation using mmap(). The size (2^36 bytes)
-// is somewhat arbitrary. Ideally larger than physical memory, and
-// (significantly) smaller than virtual adress space. Note that the latter is
-// "only" 2^48 bytes on many 64bit platforms (and not sure how much the OS would
-// be willing to give us in a single mmap()).
-template <typename T, size_t N = (1LL << 36) / sizeof(T)>
-using stable_vector = detail::Vector<T, detail::MmapStorage<T, N>>;
-
-// vector that stores its size and capacity inside the allocation. The struct
-// itself contains only a single pointer, thus very space efficient in case the
-// vector is typically empty anyway.
-// TODO: if T itself is a pointer type, we could do some bit stuffing to get a
-//       N=1 small-object-optimization going.
-template <typename T>
-using indirect_vector = detail::Vector<T, detail::IndirectStorage<T>>;
 
 enum class filter_action : uint8_t
 {
@@ -923,7 +939,7 @@ It filter_inplace(It first, It last,
 	return out;
 }
 
-void filter_inplace(auto &c, auto pred)
+void filter_inplace(VectorType auto &c, auto pred)
 {
 	auto it = filter_inplace(std::begin(c), std::end(c), std::ref(pred));
 	c.erase(it, std::end(c));
@@ -1310,7 +1326,7 @@ template <class Value> class vector_multimap
 	{
 		if (index >= data_.size())
 			return 0;
-		return detail::erase(data_[index], value);
+		return util::erase(data_[index], value);
 	}
 
 	// erase at most one element of a given key that is equal to value. Returns
@@ -1319,7 +1335,7 @@ template <class Value> class vector_multimap
 	{
 		if (index >= data_.size())
 			return false;
-		return detail::erase_one(data_[index], value);
+		return util::erase_one(data_[index], value);
 	}
 
 	// erase all elements of a given key that match pred, returning the number
@@ -1328,7 +1344,7 @@ template <class Value> class vector_multimap
 	{
 		if (index >= data_.size())
 			return 0;
-		return detail::erase_if(data_[index], pred);
+		return util::erase_if(data_[index], pred);
 	}
 
 	// more general filtering of elements of a given key.
@@ -1355,13 +1371,13 @@ template <class Value> class vector_multimap
 	{
 		if (index >= data_.size())
 			return;
-		detail::unique_sort(data_[index]);
+		util::unique_sort(data_[index]);
 	}
 	void unique_sort(size_t index, auto comp)
 	{
 		if (index >= data_.size())
 			return;
-		detail::unique_sort(data_[index], comp);
+		util::unique_sort(data_[index], comp);
 	}
 
 	// total number of stored elements

@@ -8,20 +8,20 @@ using namespace std::chrono_literals;
 
 namespace {
 
-void run_worker(util::Logger &output, util::Logger::Bar &bar, std::string name,
-                std::chrono::milliseconds delay, uint64_t log_every)
+void run_worker(util::Logger::Scope &scope, std::chrono::milliseconds delay,
+                uint64_t log_every)
 {
-	auto scope = output.scope(name);
-	while (bar.ticks() < bar.total())
+	while (scope.ticks() < scope.total())
 	{
 		std::this_thread::sleep_for(delay);
-		bar.increment();
-		auto tick = bar.ticks();
-		auto total = bar.total();
+		scope.increment();
+		auto tick = scope.ticks();
+		auto total = scope.total();
 		if (tick % log_every == 0 && tick < total)
 			scope.info("checkpoint {}/{}", tick, total);
 	}
 	scope.info("done after {:.2f}s", scope.secs());
+	scope.finish();
 }
 
 } // namespace
@@ -30,20 +30,19 @@ int main()
 {
 	util::Logger output;
 	auto demo = output.scope("demo");
-	auto ingest = output.bar(90, "ingest assets");
-	auto preprocess = output.bar(120, "preprocess frames");
-	auto upload = output.bar(75, "upload snapshots");
-	util::Logger::Bar verify;
+	auto ingest = output.scope("ingest assets");
+	auto preprocess = output.scope("preprocess frames");
+	auto upload = output.scope("upload snapshots");
+	util::Logger::Scope verify;
+	ingest.total_atomic() = 90;
+	preprocess.total_atomic() = 120;
+	upload.total_atomic() = 75;
 
 	demo.info("starting Logger demo");
 
-	std::jthread ingest_thread(run_worker, std::ref(output), std::ref(ingest),
-	                           std::string("ingest"), 35ms, 30);
-	std::jthread preprocess_thread(run_worker, std::ref(output),
-	                               std::ref(preprocess),
-	                               std::string("preprocess"), 45ms, 40);
-	std::jthread upload_thread(run_worker, std::ref(output), std::ref(upload),
-	                           std::string("upload"), 60ms, 25);
+	std::jthread ingest_thread(run_worker, std::ref(ingest), 35ms, 30);
+	std::jthread preprocess_thread(run_worker, std::ref(preprocess), 45ms, 40);
+	std::jthread upload_thread(run_worker, std::ref(upload), 60ms, 25);
 
 	std::this_thread::sleep_for(900ms);
 	preprocess.set_total(140);
@@ -51,25 +50,21 @@ int main()
 	             preprocess.total());
 
 	std::this_thread::sleep_for(1800ms);
-	verify = output.bar(45, "verify bundle");
+	verify = output.scope("verify bundle");
+	verify.total_atomic() = 45;
 	demo.info("spawned late-stage verification task");
-	std::jthread verify_thread(run_worker, std::ref(output), std::ref(verify),
-	                           std::string("verify"), 50ms, 15);
+	std::jthread verify_thread(run_worker, std::ref(verify), 50ms, 15);
 
 	ingest_thread.join();
-	ingest = {};
 	demo.debug("removed completed ingest bar");
 
 	preprocess_thread.join();
-	preprocess = {};
 	demo.debug("removed completed preprocess bar");
 
 	upload_thread.join();
-	upload = {};
 	demo.debug("removed completed upload bar");
 
 	verify_thread.join();
-	verify = {};
 	demo.debug("removed completed verify bar");
 
 	demo.info("all tasks finished after {:.2f}s", demo.secs());

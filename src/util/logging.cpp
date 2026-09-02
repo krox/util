@@ -86,35 +86,112 @@ void Logger::set_level(Level level)
 
 Logger::Scope Logger::scope(std::string_view name)
 {
-	return Scope(&(*this)[name]);
+	auto &component = (*this)[name];
+	auto state = std::make_shared<ScopeState>(&component, std::string(name),
+	                                          component.level());
+	{
+		auto lock = std::unique_lock(mutex_);
+		scopes_.push_back(state);
+	}
+
+	cv_.notify_one();
+	return Scope(std::move(state));
 }
 
 Logger::Scope::Scope() = default;
 
-Logger::Scope::Scope(Component *component) noexcept
-    : component_(component), level_(component_.load()->level())
+Logger::Scope::Scope(std::shared_ptr<ScopeState> state) noexcept
+    : state_(std::move(state))
 {}
 
 Logger::Scope::~Scope() noexcept { finish(); }
 
-Logger::Component *Logger::Scope::component() const noexcept
+Logger::Scope::Scope(Scope &&other) noexcept : state_(std::move(other.state_))
+{}
+
+Logger::Scope &Logger::Scope::operator=(Scope &&other) noexcept
 {
-	return component_.load();
+	if (this == &other)
+		return *this;
+	finish();
+	state_ = std::move(other.state_);
+	return *this;
 }
 
-Logger::Level Logger::Scope::level() const noexcept { return level_.load(); }
-void Logger::Scope::set_level(Level l) noexcept { level_.store(l); }
+Logger::Component *Logger::Scope::component() const noexcept
+{
+	if (!state_ || state_->finished.load())
+		return nullptr;
+	return state_->component;
+}
+
+Logger::Level Logger::Scope::level() const noexcept
+{
+	if (state_)
+		return state_->level.load();
+	else
+		return Level::info;
+}
+
+void Logger::Scope::set_level(Level l) noexcept
+{
+	if (state_)
+		state_->level.store(l);
+}
+
+uint64_t Logger::Scope::ticks() const noexcept
+{
+	if (state_)
+		return state_->ticks.load();
+	else
+		return 0;
+}
+
+uint64_t Logger::Scope::total() const noexcept
+{
+	if (state_)
+		return state_->total.load();
+	else
+		return 0;
+}
+
+void Logger::Scope::set_ticks(uint64_t ticks_value) noexcept
+{
+	if (state_)
+		state_->ticks.store(ticks_value);
+}
+
+void Logger::Scope::set_total(uint64_t total_value) noexcept
+{
+	if (state_)
+		state_->total.store(total_value);
+}
+
+void Logger::Scope::increment(uint64_t tick_count) noexcept
+{
+	if (state_)
+		state_->ticks.fetch_add(tick_count);
+}
 
 void Logger::Scope::finish() noexcept
 {
-	auto *comp = component_.exchange(nullptr);
-	if (comp)
-		comp->total_time_ += Clock::now() - start_time_;
+	if (!state_)
+		return;
+
+	auto elapsed_time = Clock::now() - state_->start_time;
+	if (!state_->finished.exchange(true))
+	{
+		state_->finished_elapsed.store(elapsed_time);
+		if (state_->component)
+			state_->component->total_time_ += elapsed_time;
+	}
 }
 
 std::chrono::steady_clock::duration Logger::Scope::elapsed() const noexcept
 {
-	return Clock::now() - start_time_;
+	if (!state_)
+		return Clock::duration::zero();
+	return state_->elapsed();
 }
 
 double Logger::Scope::secs() const noexcept
@@ -122,84 +199,46 @@ double Logger::Scope::secs() const noexcept
 	return std::chrono::duration<double>(elapsed()).count();
 }
 
-Logger::Bar::Bar() noexcept = default;
-
-Logger::Bar::Bar(BarState *state) noexcept : state_(state) {}
-
-void Logger::Bar::finish() noexcept
-{
-	auto *state = state_.exchange(nullptr);
-	if (state)
-		state->finished.store(true);
-}
-
-Logger::Bar::~Bar() noexcept { finish(); }
-
-Logger::Bar::Bar(Bar &&other) noexcept : state_(other.state_.exchange(nullptr))
+Logger::ScopeState::ScopeState(Component *component_, std::string label_,
+                               Level level_) noexcept
+    : component(component_), label(std::move(label_)), level(level_)
 {}
 
-Logger::Bar &Logger::Bar::operator=(Bar &&other) noexcept
+Logger::Clock::duration Logger::ScopeState::elapsed() const noexcept
 {
-	if (this == &other)
-		return *this;
-	finish();
-	state_.store(other.state_.exchange(nullptr));
-	return *this;
+	if (finished.load())
+		return finished_elapsed.load();
+	return Clock::now() - start_time;
 }
 
-void Logger::Bar::set_total(uint64_t total) noexcept
+size_t Logger::ScopeState::line_count() const noexcept
 {
-	if (auto *state = state_.load())
-		state->total.store(total);
+	return total.load() == 0 ? 1 : 2;
 }
 
-void Logger::Bar::set_ticks(uint64_t ticks) noexcept
-{
-	if (auto *state = state_.load())
-		state->ticks.store(ticks);
-}
-
-void Logger::Bar::increment(uint64_t ticks) noexcept
-{
-	if (auto *state = state_.load())
-		state->ticks += ticks;
-}
-
-uint64_t Logger::Bar::ticks() const noexcept
-{
-	if (auto *state = state_.load())
-		return state->ticks.load();
-	return 0;
-}
-
-uint64_t Logger::Bar::total() const noexcept
-{
-	if (auto *state = state_.load())
-		return state->total.load();
-	return 0;
-}
-
-Logger::BarState::BarState(uint64_t total_, std::string label_)
-    : label(std::move(label_)), total(total_)
-{}
-
-std::string Logger::BarState::format(int line_width) const
+std::string Logger::ScopeState::format(int line_width) const
 {
 	auto tcks = ticks.load();
 	auto ttl = total.load();
 	double progress = (ttl > 0) ? static_cast<double>(tcks) / ttl : 0.0;
-	auto elapsed = Clock::now() - start_time;
-	auto elapsed_secs = std::chrono::duration<double>(elapsed).count();
+	auto elapsed_time = elapsed();
+	auto elapsed_secs = std::chrono::duration<double>(elapsed_time).count();
 	auto eta = (progress > 0.0)
 	               ? std::chrono::duration<double>(elapsed_secs *
 	                                               (1.0 - progress) / progress)
 	               : std::chrono::duration<double>(0.0);
 
 	auto line1 =
-	    pad_string(label, fmt::format("{} of {}", tcks, ttl), line_width);
+	    pad_string(label,
+	               fmt::format("elapsed: {:%T}",
+	                           std::chrono::duration_cast<std::chrono::seconds>(
+	                               elapsed_time)),
+	               line_width);
+	if (ttl == 0)
+		return line1;
+
 	auto line2 =
-	    fmt::format("] {:6.2f}% elapsed: {:%T} ETA: {:%T}", progress * 100.0,
-	                std::chrono::duration_cast<std::chrono::seconds>(elapsed),
+	    fmt::format("] {:6.2f}% {}/{} ETA: {:%T}", progress * 100.0, tcks, ttl,
 	                std::chrono::duration_cast<std::chrono::seconds>(eta));
 	int pbar_width = std::max(0, line_width - display_width(line2) - 1);
 
@@ -226,21 +265,6 @@ Logger::~Logger()
 	if (rendered_lines_ > 0)
 		fmt::print(stdout, "\n");
 }
-
-Logger::Bar Logger::bar(uint64_t total, std::string label)
-{
-	auto state = std::make_unique<BarState>(total, std::move(label));
-	auto result = Bar(state.get());
-
-	{
-		auto lock = std::unique_lock(mutex_);
-		bars_.push_back(std::move(state));
-	}
-
-	cv_.notify_one();
-	return result;
-}
-
 void Logger::print_summary()
 {
 	std::vector<Component const *> components;
@@ -307,13 +331,14 @@ void Logger::thread_main(std::stop_token stop)
 	auto callback = std::stop_callback(stop, [this] { cv_.notify_all(); });
 
 	std::deque<Message> messages;
-	std::vector<BarState const *> bars;
+	std::vector<std::shared_ptr<ScopeState>> scopes;
 	while (true)
 	{
 		messages.clear();
-		bars.clear();
+		scopes.clear();
 
-		// note: critical section only drains the messages and observe the bars.
+		// note: critical section only drains the messages and observe live
+		// scopes. Printing is done outside the lock.
 		// Printing is done outside the lock
 		{
 			auto lock = std::unique_lock(mutex_);
@@ -323,16 +348,17 @@ void Logger::thread_main(std::stop_token stop)
 
 			std::swap(messages, msg_queue_);
 
-			std::erase_if(bars_,
-			              [](auto const &bar) { return bar->finished.load(); });
+			std::erase_if(scopes_, [](auto const &scope) {
+				return scope == nullptr || scope->finished.load();
+			});
 
-			bars.reserve(bars_.size());
-			for (auto const &bar : bars_)
-				bars.push_back(bar.get());
+			scopes.reserve(scopes_.size());
+			for (auto const &scope : scopes_)
+				scopes.push_back(scope);
 		}
 
-		if (!messages.empty() || !bars.empty() || rendered_lines_ != 0)
-			write_terminal(messages, bars);
+		if (!messages.empty() || !scopes.empty() || rendered_lines_ != 0)
+			write_terminal(messages, scopes);
 		if (log_file_ && !messages.empty())
 			write_file(messages);
 
@@ -345,8 +371,9 @@ void Logger::thread_main(std::stop_token stop)
 	}
 }
 
-void Logger::write_terminal(std::deque<Message> const &messages,
-                            std::vector<BarState const *> const &bars) noexcept
+void Logger::write_terminal(
+    std::deque<Message> const &messages,
+    std::vector<std::shared_ptr<ScopeState>> const &scopes) noexcept
 {
 	fmt::memory_buffer frame;
 	fmt::format_to(std::back_inserter(frame), "\x1b[?25l");
@@ -367,11 +394,11 @@ void Logger::write_terminal(std::deque<Message> const &messages,
 	}
 
 	size_t lines = 0;
-	for (auto const *bar : bars)
+	for (auto const &scope : scopes)
 	{
 		fmt::format_to(std::back_inserter(frame), "{}\n",
-		               bar->format(line_width_));
-		lines += 2;
+		               scope->format(line_width_));
+		lines += scope->line_count();
 	}
 	fmt::format_to(std::back_inserter(frame), "\x1b[?25h");
 

@@ -509,14 +509,14 @@ void example()
   util::Logger logger;
   logger.set_level(util::Logger::Level::info);
   auto log = logger.scope("main");
+  log.total_atomic() = 100;
   log.info("hello {}", 42);
 
-  auto bar = logger.bar(100, "download");
   for (size_t i = 0; i < 100; ++i)
   {
-    bar.increment();
+    log.increment();
     if ((i + 1) % 25 == 0)
-      log.info("checkpoint {}/{}", i + 1, bar.total());
+      log.info("checkpoint {}/{}", i + 1, log.total());
   }
 
   logger.print_summary();

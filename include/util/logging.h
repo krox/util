@@ -13,6 +13,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -36,7 +37,6 @@ class Logger
 	enum class Level;
 	class Component;
 	class Scope;
-	class Bar;
 
 	// constructor creates the background thread, does not print anything yet.
 	//   * if 'log_file' is non-empty, all log messages (but not progress bars)
@@ -56,11 +56,8 @@ class Logger
 	// look up a component by name, creating it if it does not exist yet.
 	Component &operator[](std::string_view component_name);
 
-	// open a scope for logging
+	// open a scope for logging and terminal status reporting
 	Scope scope(std::string_view name);
-
-	// add a progress bar (label is optional, no uniqueness requirement)
-	Bar bar(uint64_t total, std::string label);
 
 	// set the default log level for this instance. Affects all components
 	// created afterwards, and updates the level of all existing components.
@@ -88,13 +85,13 @@ class Logger
 
 	// internal types
 	struct Message;
-	struct BarState;
+	struct ScopeState;
 
 	std::mutex mutex_;
 	std::condition_variable cv_;
 	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
 	std::vector<std::unique_ptr<Component>> components_;
-	std::vector<std::unique_ptr<BarState>> bars_;
+	std::vector<std::shared_ptr<ScopeState>> scopes_;
 	Level default_level_;
 	Clock::time_point summary_start_ = Clock::now();
 	File log_file_; // optional, only opened if a filename was given
@@ -106,10 +103,11 @@ class Logger
 	std::jthread thread_;
 
 	void thread_main(std::stop_token stop);
-	// formats+writes to stdout (with ANSI cursor control, redrawing bars in
-	// place); tracks rendered_lines_.
-	void write_terminal(std::deque<Message> const &messages,
-	                    std::vector<BarState const *> const &bars) noexcept;
+	// formats+writes to stdout (with ANSI cursor control, redrawing live
+	// scope status lines in place); tracks rendered_lines_.
+	void write_terminal(
+	    std::deque<Message> const &messages,
+	    std::vector<std::shared_ptr<ScopeState>> const &scopes) noexcept;
 	// formats+writes plain text to log_file_ (no bars, no ANSI codes)
 	void write_file(std::deque<Message> const &messages) noexcept;
 };
@@ -161,17 +159,14 @@ class Logger::Component
 
 class Logger::Scope
 {
-	// NOTE: 'Scope' does have a null-state, indicated by 'component_' being
-	// nullptr. Thats useful as:
+	// NOTE: 'Scope' does have a null-state. Thats useful as:
 	//   * Time-accounting is otherwise tied to Scope's lifetime, setting a
 	//     scope to null-state will stop timing explicitly.
 	//   * In the null-state, all logging is a silent no-op.
 
-	relaxed_atomic<Component *> component_ = nullptr;
-	relaxed_atomic<Level> level_ = Level::info;
-	Clock::time_point const start_time_ = Clock::now();
+	std::shared_ptr<ScopeState> state_;
 
-	explicit Scope(Component *component) noexcept;
+	explicit Scope(std::shared_ptr<ScopeState> state) noexcept;
 
 	friend class Logger;
 
@@ -188,13 +183,19 @@ class Logger::Scope
 	Level level() const noexcept;
 	void set_level(Level l) noexcept;
 
+	uint64_t ticks() const noexcept;
+	uint64_t total() const noexcept;
+	void set_ticks(uint64_t ticks) noexcept;
+	void set_total(uint64_t total) noexcept;
+	void increment(uint64_t ticks = 1) noexcept;
+
 	void finish() noexcept;
 
-	// dont copy (would mess with time accounting). No need for move.
+	// dont copy (would mess with time accounting).
 	Scope(Scope const &) = delete;
 	Scope &operator=(Scope const &) = delete;
-	Scope(Scope &&other) = delete;
-	Scope &operator=(Scope &&other) = delete;
+	Scope(Scope &&other) noexcept;
+	Scope &operator=(Scope &&other) noexcept;
 
 	// Returns the elapsed time since the scope was created.
 	std::chrono::steady_clock::duration elapsed() const noexcept;
@@ -209,7 +210,7 @@ class Logger::Scope
 	         Args &&...args) const
 	{
 		auto comp = component();
-		if (!comp || level > level_)
+		if (!comp || level > this->level())
 			return;
 		comp->do_log(level, fmt::format(format, std::forward<Args>(args)...));
 	}
@@ -250,41 +251,22 @@ class Logger::Scope
 	}
 };
 
-class Logger::Bar
+struct Logger::ScopeState
 {
-	relaxed_atomic<BarState *> state_ = nullptr;
-
-	explicit Bar(BarState *state) noexcept;
-
-	friend class Logger;
-
-  public:
-	Bar() noexcept;
-	~Bar() noexcept;
-	void finish() noexcept;
-
-	Bar(Bar const &) = delete;
-	Bar &operator=(Bar const &) = delete;
-	Bar(Bar &&other) noexcept;
-	Bar &operator=(Bar &&other) noexcept;
-
-	void set_total(uint64_t total) noexcept;
-	void set_ticks(uint64_t ticks) noexcept;
-	void increment(uint64_t ticks = 1) noexcept;
-	uint64_t ticks() const noexcept;
-	uint64_t total() const noexcept;
-};
-
-struct Logger::BarState
-{
+	Component *component = nullptr;
 	std::string label;
 	relaxed_atomic<uint64_t> ticks{0};
 	relaxed_atomic<uint64_t> total{0};
+	relaxed_atomic<Level> level{Level::info};
 	relaxed_atomic<bool> finished{false};
 	Clock::time_point start_time = Clock::now();
+	relaxed_atomic<Clock::duration> finished_elapsed{Clock::duration::zero()};
 
-	BarState(uint64_t total_, std::string label_);
+	ScopeState(Component *component_, std::string label_,
+	           Level level_) noexcept;
 
+	Clock::duration elapsed() const noexcept;
+	size_t line_count() const noexcept;
 	std::string format(int line_width) const;
 };
 

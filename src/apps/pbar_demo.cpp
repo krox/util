@@ -34,9 +34,9 @@ int main()
 	auto preprocess = output.scope("preprocess frames");
 	auto upload = output.scope("upload snapshots");
 	util::Logger::Scope verify;
-	ingest.total_atomic() = 90;
-	preprocess.total_atomic() = 120;
-	upload.total_atomic() = 75;
+	ingest.set_total(90);
+	preprocess.set_total(120);
+	upload.set_total(75);
 
 	demo.info("starting Logger demo");
 
@@ -51,7 +51,7 @@ int main()
 
 	std::this_thread::sleep_for(1800ms);
 	verify = output.scope("verify bundle");
-	verify.total_atomic() = 45;
+	verify.set_total(45);
 	demo.info("spawned late-stage verification task");
 	std::jthread verify_thread(run_worker, std::ref(verify), 50ms, 15);
 

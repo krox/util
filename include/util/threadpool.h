@@ -325,16 +325,16 @@ template <class F, class... Args> class Job final : public JobBase
 };
 
 // simple thread pool with central queue of tasks
-//     * Destructor joins all workers (similar behaviour to std::jthread).
-//       Pending jobs are cancelled and already running ones are waited for.
-//     * Cancelled jobs recieve a 'job_cancelled' exception in their associated
-//       promise/future
-//     * The future returned by ThreadPool::async() does not block on
-//       destruction, so it can simply be discarded if the return value is not
-//       needed. This is in contrast to std::async().
-//     * Nothing fancy inside (no look-free structures, no work stealing, etc)
-//     * Submitting jobs is thread-safe, including from within a running job.
-//     * TODO: some co-operative stoping, maybe using std::stop_token
+// - Destructor joins all workers (similar behaviour to std::jthread). No more
+//   new work is accepted when the destructor starts, but all pending work is
+//   finished as usual before the destructor returns.
+//   - Nitpick: It would be even better to still allow new work submitted from
+//     within running jobs, while ThreadPool's destructor is already running.
+// - The handle returned by ThreadPool::async() does not block on destruction.
+//   It can be freely discarded for "fire-and-forget" tasks. This is in contrast
+//   to std::async().
+// - Submitting jobs is thread-safe, including from within a running job.
+// - TODO: clarify co-operative stopping
 class ThreadPool
 {
 
@@ -342,24 +342,7 @@ class ThreadPool
 	std::vector<std::jthread> threads_;
 
 	// job queue, usually FIFO
-	synchronized_queue<std::unique_ptr<JobBase>> queue_;
-
-	// controls behaviour of the worker threads
-	std::atomic<bool> terminate_{false};
-
-	// "main function" of the worker threads
-	void loop_function() noexcept
-	{
-		auto should_terminate = [this]() -> bool { return terminate_; };
-		while (true)
-		{
-			auto job = queue_.pop(should_terminate);
-			if (job)
-				(*job)->run();
-			else
-				break;
-		}
-	}
+	synchronized_queue<JobBase> queue_;
 
   public:
 	ThreadPool() : ThreadPool(std::thread::hardware_concurrency()) {}
@@ -368,7 +351,15 @@ class ThreadPool
 	{
 		threads_.reserve(n);
 		for (int i = 0; i < n; ++i)
-			threads_.push_back(std::jthread(&ThreadPool::loop_function, this));
+			threads_.emplace_back([&q = queue_] {
+				while (true)
+				{
+					if (auto job = q.pop())
+						job->run();
+					else
+						break;
+				}
+			});
 	}
 
 	// not movable because the workers have to keep a reference to the pool
@@ -379,22 +370,11 @@ class ThreadPool
 
 	~ThreadPool()
 	{
-		terminate_ = true;
-		auto q = queue_.pop_all();
-		queue_.notify();
-		for (auto &job : q)
-			job->cancel();
+		queue_.close();
+		// implicit: join workers after queue is drained
 	}
 
 	int num_threads() const noexcept { return (int)threads_.size(); }
-
-	void add_job(std::unique_ptr<JobBase> job) noexcept
-	{
-		if (terminate_)
-			job->cancel();
-		else
-			queue_.push(std::move(job));
-	}
 
 	// asynchronously call a function (or anything invoke'able)
 	//     * Both f and args must be movable, but no copy is required
@@ -410,49 +390,58 @@ class ThreadPool
 	template <class F, class... Args>
 	auto async(F f, Args... args) noexcept -> Task<async_result_t<F, Args...>>
 	{
-		auto job =
+		auto typed_job =
 		    std::make_unique<Job<F, Args...>>(std::move(f), std::move(args)...);
-		auto future = job->get_future();
-		add_job(std::move(job));
+		auto future = typed_job->get_future();
+		std::unique_ptr<JobBase> job = std::move(typed_job);
+
+		job = queue_.push(std::move(job));
+		if (job) // 'push' was rejected (e.g. queue closed) -> cancel job
+			job->cancel();
+
 		return future;
 	}
-
-	// run a function in parallel on each worker thread. The function object
-	// itself is copied and gets passed the thread ID
-	//   * If 'f' returns non-void, the results are collected and returned as a
-	//     vector. Ordered by participant-ID
-	//   * If any instance of 'f' throws, the exception is propagated. If
-	//     multiple instances throw, all but one exception are discarded.
-	//   * no guarantee on actual number of participating workers, but it will
-	//     be at most 'num_threads()'.
-	auto parallel(std::invocable<int> auto f)
-	{
-		using Result = std::invoke_result_t<decltype(f), int>;
-		std::vector<Task<Result>> tasks;
-		tasks.reserve(num_threads());
-		for (int i = 0; i < num_threads(); ++i)
-			tasks.push_back(async(f, i));
-
-		// wait for all work to finish before collecting results. This ensures
-		// no references escape in case of an exception.
-		for (auto &t : tasks)
-			t.wait();
-
-		if constexpr (std::is_same_v<Result, void>)
-		{
-			for (auto &t : tasks)
-				t.get();
-		}
-		else
-		{
-			std::vector<Result> results;
-			results.reserve(tasks.size());
-			for (auto &t : tasks)
-				results.push_back(t.get());
-			return results;
-		}
-	}
 };
+
+// Run a function in parallel on each worker thread.
+// - Each worker thread gets their own copy of the function object, which must
+//   thus be copyable.
+// - The function object is invoked with (thread_id, num_threads).
+// - If 'f' returns non-void, the results are collected and returned as a
+//   vector (Ordered by participant-ID)
+// - If any instance of 'f' throws, the exception is propagated. If multiple
+//   workers throw, all but one exception are discarded.
+// - No guarantee on actual number of participating workers, but it will be at
+//   most 'num_threads()'.
+// - future: stop other workers early as soon as one throws.
+auto parallel(ThreadPool &pool, std::invocable<int, int> auto f)
+{
+	using Result = std::invoke_result_t<decltype(f), int, int>;
+	int n = pool.num_threads();
+	std::vector<Task<Result>> tasks;
+	tasks.reserve(n);
+	for (int i = 0; i < n; ++i)
+		tasks.push_back(pool.async(f, i, n));
+
+	// wait for all work to finish before collecting results. This ensures
+	// no references escape in case of an exception.
+	for (auto &t : tasks)
+		t.wait();
+
+	if constexpr (std::is_same_v<Result, void>)
+	{
+		for (auto &t : tasks)
+			t.get();
+	}
+	else
+	{
+		std::vector<Result> results;
+		results.reserve(tasks.size());
+		for (auto &t : tasks)
+			results.push_back(t.get());
+		return results;
+	}
+}
 
 struct bulk_options
 {

@@ -158,10 +158,10 @@ TEST_CASE("synchronized")
 
 TEST_CASE("synchronized_queue")
 {
-	SECTION("try_pop returns nullopt when empty")
+	SECTION("try_pop returns nullptr when empty")
 	{
 		util::synchronized_queue<int> queue;
-		CHECK_FALSE(queue.try_pop().has_value());
+		CHECK_FALSE(queue.try_pop());
 		CHECK(queue.size() == 0);
 		CHECK(queue.empty());
 	}
@@ -170,32 +170,44 @@ TEST_CASE("synchronized_queue")
 	{
 		util::synchronized_queue<int> queue;
 		CHECK(queue.empty());
-		queue.push(1);
+		queue.push(std::make_unique<int>(1));
 		CHECK_FALSE(queue.empty());
 	}
 
 	SECTION("preserves fifo order")
 	{
 		util::synchronized_queue<int> queue;
-		queue.push(1);
-		queue.push(2);
-		queue.push(3);
+		queue.push(std::make_unique<int>(1));
+		queue.push(std::make_unique<int>(2));
+		queue.push(std::make_unique<int>(3));
 		CHECK(queue.size() == 3);
 
-		CHECK(queue.try_pop() == std::optional<int>{1});
-		CHECK(queue.try_pop() == std::optional<int>{2});
-		CHECK(queue.try_pop() == std::optional<int>{3});
-		CHECK_FALSE(queue.try_pop().has_value());
+		auto first = queue.try_pop();
+		REQUIRE(first);
+		CHECK(*first == 1);
+
+		auto second = queue.try_pop();
+		REQUIRE(second);
+		CHECK(*second == 2);
+
+		auto third = queue.try_pop();
+		REQUIRE(third);
+		CHECK(*third == 3);
+		CHECK_FALSE(queue.try_pop());
 	}
 
 	SECTION("pop_all drains the queue")
 	{
 		util::synchronized_queue<int> queue;
-		queue.push(1);
-		queue.push(2);
+		queue.push(std::make_unique<int>(1));
+		queue.push(std::make_unique<int>(2));
 
 		auto all = queue.pop_all();
 		CHECK(all.size() == 2);
+		REQUIRE(all[0]);
+		REQUIRE(all[1]);
+		CHECK(*all[0] == 1);
+		CHECK(*all[1] == 2);
 		CHECK(queue.size() == 0);
 	}
 
@@ -204,28 +216,27 @@ TEST_CASE("synchronized_queue")
 		util::synchronized_queue<int> queue;
 		std::thread producer([&] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(20));
-			queue.push(7);
+			queue.push(std::make_unique<int>(7));
 		});
 
-		int value = queue.pop();
-		CHECK(value == 7);
+		auto value = queue.pop();
+		REQUIRE(value);
+		CHECK(*value == 7);
 		producer.join();
 	}
 
-	SECTION("pop with stop_waiting predicate returns nullopt on notify")
+	SECTION("pop returns nullptr when the queue is closed and empty")
 	{
 		util::synchronized_queue<int> queue;
-		std::atomic<bool> stop{false};
 
-		std::thread notifier([&] {
+		std::thread closer([&] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(20));
-			stop = true;
-			queue.notify();
+			queue.close();
 		});
 
-		auto result = queue.pop([&] { return stop.load(); });
-		CHECK_FALSE(result.has_value());
-		notifier.join();
+		auto result = queue.pop();
+		CHECK_FALSE(result);
+		closer.join();
 	}
 
 	SECTION("multiple producers, single consumer preserves all elements")
@@ -239,12 +250,12 @@ TEST_CASE("synchronized_queue")
 		for (int p = 0; p < producer_count; ++p)
 			producers.emplace_back([&] {
 				for (int i = 0; i < values_per_producer; ++i)
-					queue.push(i);
+					queue.push(std::make_unique<int>(i));
 			});
 
 		int received = 0;
 		while (received < producer_count * values_per_producer)
-			if (queue.pop([] { return false; }))
+			if (queue.pop())
 				++received;
 
 		for (auto &t : producers)

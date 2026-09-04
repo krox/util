@@ -184,17 +184,27 @@ template <class T> class synchronized
 };
 
 // thread-safe queue
-//     * just a std::deque + std::mutex, nothing fancy
-//     * value type must be nothrow-movable, but no copies required
+// - just a std::deque + std::mutex, nothing fancy
+// - based on 'std::unique_ptr' to manage ownership transfer
+//   - Side effect: subclasses of 'T' can be stored just as well
+// - explicit 'closed' state to manage clean shutdown in typical usage
+//   - NOTE: racing destruction with anything is still UB. Calling '.close()' is
+//     not sufficient to prevent this, you must ensure any waiting threads
+//     actually receive the closing signal (returning null from '.pop()') before
+//     destroying the queue.
+// - Future ideas:
+//   - Make the queue itself lock-free
+//   - Make a Handle type that acts as a shared_ptr to a shared queue. This
+//     would solve the UB behaviour mentioned above: Each thread has their own
+//     handle, the queue is only destroyed when all threads are done.
+//   - Advanced version: distinguish between ReaderHandle and WriterHandle. Then
+//     call 'close()' automatically when the last writer is gone.
 template <class T> class synchronized_queue
 {
-	static_assert(std::is_nothrow_move_constructible_v<T>);
-	static_assert(std::is_nothrow_move_assignable_v<T>);
-	static_assert(std::is_nothrow_destructible_v<T>);
-
-	std::deque<T> queue_; // push to back, pop from front
+	std::deque<std::unique_ptr<T>> queue_; // push to back, pop from front
 	mutable std::mutex mutex_;
-	std::condition_variable condition_; // .pop() blocks on this
+	bool closed_ = false;
+	std::condition_variable cv_; // .pop() blocks on this
 
   public:
 	// current number of elements in the queue
@@ -209,79 +219,79 @@ template <class T> class synchronized_queue
 	// returns size() == 0
 	bool empty() const noexcept { return size() == 0; }
 
-	// pop one element
-	//     * blocks until one is available
-	//     * returns nullopt if stop_waiting() becomes true
-	//     * stop_waiting is called only while holding the mutex of this queue,
-	//       thus it can be guarded by it
-	template <class Predicate>
-	std::optional<T> pop(Predicate stop_waiting) noexcept
+	bool closed() const noexcept
 	{
 		auto lock = std::unique_lock(mutex_);
-		while (true)
-		{
-			// NOTE: order matters. If an element is available, we want to
-			//       return it regardless of the state of stop_waiting
-
-			if (!queue_.empty())
-			{
-				auto r = std::move(queue_.front());
-				queue_.pop_front();
-				return r;
-			}
-
-			if (stop_waiting())
-				return std::nullopt;
-
-			condition_.wait(lock);
-		}
+		return closed_;
 	}
 
-	// pop one element, immediately returning std::nullopt if none is available.
-	// Equivalent to .pop([]{return true;});
-	std::optional<T> try_pop() noexcept
+	// close the queue. After this, no new elements can be added, but existing
+	// ones can still be popped.
+	void close() noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		closed_ = true;
+		lock.unlock();
+		cv_.notify_all();
+	}
+
+	// pop one element
+	// - blocks until one is available
+	// - returns null only if queue is/becomes closed AND empty
+	std::unique_ptr<T> pop() noexcept
+	{
+		auto lock = std::unique_lock(mutex_);
+		cv_.wait(lock, [this] { return !queue_.empty() || closed_; });
+
+		// NOTE: order matters. If an element is available, we want to
+		//       return it regardless of the closed state
+
+		if (!queue_.empty())
+		{
+			auto r = std::move(queue_.front());
+			queue_.pop_front();
+			return r;
+		}
+		else
+			return nullptr;
+	}
+
+	// non-blocking variant of pop() that returns nullptr immediately if the
+	// queue is empty
+	std::unique_ptr<T> try_pop() noexcept
 	{
 		auto lock = std::unique_lock(mutex_);
 		if (queue_.empty())
-			return std::nullopt;
-		std::optional<T> r = std::move(queue_.front());
-		queue_.pop_front();
-		return r;
-	}
-
-	// pop one element, blocking until one becomes available.
-	// Equivalent to .pop([]{return false;}).value()
-	T pop() noexcept
-	{
-		auto lock = std::unique_lock(mutex_);
-		while (queue_.empty())
-			condition_.wait(lock);
+			return nullptr;
 		auto r = std::move(queue_.front());
 		queue_.pop_front();
 		return r;
 	}
 
-	// remove and return all elements from the queue
-	std::deque<T> pop_all() noexcept
+	// pop all currently available elements from the queue. Non-blocking, can
+	// return empty.
+	std::deque<std::unique_ptr<T>> pop_all() noexcept
 	{
 		auto lock = std::unique_lock(mutex_);
-		std::deque<T> r;
+		std::deque<std::unique_ptr<T>> r;
 		swap(r, queue_);
 		return r;
 	}
 
-	// add an element to the queue
-	void push(T value) noexcept
+	// Add an element to the queue. Returns null on success, returns the value
+	// back on failure (for example if the queue is closed)
+	std::unique_ptr<T> push(std::unique_ptr<T> value) noexcept
 	{
+		if (!value)
+			return nullptr;
 		auto lock = std::unique_lock(mutex_);
+		if (closed_)
+			return value;
 		queue_.push_back(std::move(value));
 		lock.unlock();
-		condition_.notify_one();
+		cv_.notify_one();
+		return nullptr;
 	}
-
-	// notify all threads waiting in .pop(...), so that their 'stop_waiting'
-	// condition will be checked (again)
-	void notify() noexcept { condition_.notify_all(); }
 };
 
 // thread-safe multi-producer single-consumer queue.

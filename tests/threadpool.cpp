@@ -70,17 +70,21 @@ TEST_CASE("threadpool")
 		CHECK(task.get() == 70);
 	}
 
-	SECTION("parallel member function collects ordered results")
+	SECTION("parallel free function collects ordered results")
 	{
 		util::ThreadPool pool{4};
 
-		auto results =
-		    pool.parallel([](int worker_id) { return worker_id * worker_id; });
+		auto results = util::parallel(
+		    pool,
+		    [](int worker_id, int num_threads) {
+			    CHECK(num_threads == 4);
+			    return worker_id * worker_id;
+		    });
 
 		CHECK(results == std::vector<int>{0, 1, 4, 9});
 	}
 
-	SECTION("parallel member function waits for all workers before rethrowing")
+	SECTION("parallel free function waits for all workers before rethrowing")
 	{
 		util::ThreadPool pool{2};
 		std::promise<void> thrower_started;
@@ -92,18 +96,21 @@ TEST_CASE("threadpool")
 		std::atomic<bool> blocker_finished = false;
 
 		auto call = std::async(std::launch::async, [&] {
-			REQUIRE_THROWS_AS(pool.parallel([&](int worker_id) {
-				if (worker_id == 0)
-				{
-					thrower_started.set_value();
-					release_thrower_future.wait();
-					throw std::runtime_error("foo");
-				}
+			REQUIRE_THROWS_AS(util::parallel(
+				                  pool,
+				                  [&](int worker_id, int num_threads) {
+					                  REQUIRE(num_threads == 2);
+					                  if (worker_id == 0)
+					                  {
+						                  thrower_started.set_value();
+						                  release_thrower_future.wait();
+						                  throw std::runtime_error("foo");
+					                  }
 
-				blocker_started.set_value();
-				release_blocker_future.wait();
-				blocker_finished.store(true);
-			}),
+					                  blocker_started.set_value();
+					                  release_blocker_future.wait();
+					                  blocker_finished.store(true);
+				                  }),
 			                  std::runtime_error);
 		});
 

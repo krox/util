@@ -36,50 +36,14 @@ TEST_CASE("threadpool")
 		CHECK(g.get() == 42);
 	}
 
-	SECTION("async passes stop handle when supported")
-	{
-		util::ThreadPool pool{1};
-		std::promise<void> blocker_started;
-		std::promise<void> blocker_release;
-		auto blocker_release_future = blocker_release.get_future();
-
-		auto blocker = pool.async([&] {
-			blocker_started.set_value();
-			blocker_release_future.wait();
-		});
-
-		blocker_started.get_future().wait();
-
-		struct overloaded_job
-		{
-			int operator()(std::stop_token stop, int value) const
-			{
-				while (!stop.stop_requested())
-					std::this_thread::yield();
-				return value * 10;
-			}
-
-			int operator()(int value) const { return value * -1; }
-		};
-
-		auto task = pool.async(overloaded_job{}, 7);
-		task.request_stop();
-		blocker_release.set_value();
-
-		blocker.get();
-		CHECK(task.get() == 70);
-	}
-
 	SECTION("parallel free function collects ordered results")
 	{
 		util::ThreadPool pool{4};
 
-		auto results = util::parallel(
-		    pool,
-		    [](int worker_id, int num_threads) {
-			    CHECK(num_threads == 4);
-			    return worker_id * worker_id;
-		    });
+		auto results = util::parallel(pool, [](int worker_id, int num_threads) {
+			CHECK(num_threads == 4);
+			return worker_id * worker_id;
+		});
 
 		CHECK(results == std::vector<int>{0, 1, 4, 9});
 	}
@@ -96,22 +60,22 @@ TEST_CASE("threadpool")
 		std::atomic<bool> blocker_finished = false;
 
 		auto call = std::async(std::launch::async, [&] {
-			REQUIRE_THROWS_AS(util::parallel(
-				                  pool,
-				                  [&](int worker_id, int num_threads) {
-					                  REQUIRE(num_threads == 2);
-					                  if (worker_id == 0)
-					                  {
-						                  thrower_started.set_value();
-						                  release_thrower_future.wait();
-						                  throw std::runtime_error("foo");
-					                  }
+			REQUIRE_THROWS_AS(
+			    util::parallel(pool,
+			                   [&](int worker_id, int num_threads) {
+				                   REQUIRE(num_threads == 2);
+				                   if (worker_id == 0)
+				                   {
+					                   thrower_started.set_value();
+					                   release_thrower_future.wait();
+					                   throw std::runtime_error("foo");
+				                   }
 
-					                  blocker_started.set_value();
-					                  release_blocker_future.wait();
-					                  blocker_finished.store(true);
-				                  }),
-			                  std::runtime_error);
+				                   blocker_started.set_value();
+				                   release_blocker_future.wait();
+				                   blocker_finished.store(true);
+			                   }),
+			    std::runtime_error);
 		});
 
 		thrower_started.get_future().wait();
@@ -126,7 +90,18 @@ TEST_CASE("threadpool")
 		CHECK(blocker_finished.load());
 	}
 
-	SECTION("parallel for_each free function")
+	SECTION("parallel free function rejects pools without workers")
+	{
+		util::ThreadPool pool{0};
+
+		REQUIRE_THROWS_AS(util::parallel(pool,
+		                                 [](int worker_id, int num_threads) {
+			                                 return worker_id + num_threads;
+		                                 }),
+		                  std::runtime_error);
+	}
+
+	SECTION("parallel_for_each free function")
 	{
 		std::vector<int> v = {1, 2, 3, 4, 5};
 
@@ -134,11 +109,11 @@ TEST_CASE("threadpool")
 		util::bulk_options options;
 		options.chunk_size = 2;
 
-		util::for_each(pool, v, [](int &x) { x *= 3; }, options);
+		util::parallel_for_each(pool, v, [](int &x) { x *= 3; }, options);
 		CHECK(v == std::vector{3, 6, 9, 12, 15});
 	}
 
-	SECTION("parallel for_each free function with worker-local state")
+	SECTION("parallel_for_each free function with worker-local state")
 	{
 		std::vector<int> v(10'000);
 		for (int i = 0; i < (int)v.size(); ++i)
@@ -152,7 +127,7 @@ TEST_CASE("threadpool")
 		std::mutex states_mutex;
 		std::vector<std::shared_ptr<std::atomic<int>>> states;
 
-		util::for_each(
+		util::parallel_for_each(
 		    pool, v,
 		    [&]() {
 			    auto state = std::make_shared<std::atomic<int>>(0);
@@ -195,7 +170,7 @@ TEST_CASE("threadpool")
 		util::bulk_options options;
 		options.chunk_size = 9;
 
-		REQUIRE_THROWS_AS(util::for_each(
+		REQUIRE_THROWS_AS(util::parallel_for_each(
 		                      pool, v, [] { return 0; },
 		                      [](int &, int x) {
 			                      if (x == 42)
@@ -214,7 +189,7 @@ TEST_CASE("threadpool")
 		options.chunk_size = 17;
 		std::atomic<int> state_count{0};
 
-		util::for_each(
+		util::parallel_for_each(
 		    pool, v,
 		    [&] {
 			    state_count.fetch_add(1);
@@ -238,7 +213,7 @@ TEST_CASE("threadpool")
 		util::bulk_options options;
 		options.chunk_size = 2;
 
-		auto r = util::filter_unordered(
+		auto r = util::parallel_filter_unordered(
 		    pool, v, [](int x) -> bool { return x % 2 == 1; }, options);
 
 		std::sort(r.begin(), r.end());
@@ -258,7 +233,7 @@ TEST_CASE("threadpool")
 		std::mutex states_mutex;
 		std::vector<std::shared_ptr<std::atomic<int>>> states;
 
-		auto r = util::filter_unordered(
+		auto r = util::parallel_filter_unordered(
 		    pool, v,
 		    [&]() {
 			    auto state = std::make_shared<std::atomic<int>>(0);
@@ -293,31 +268,7 @@ TEST_CASE("threadpool")
 		CHECK(saw_reuse);
 	}
 
-	SECTION("bulk_execute collects per-participant results")
-	{
-		std::vector<int> v(10'000);
-		for (int i = 0; i < (int)v.size(); ++i)
-			v[(size_t)i] = i;
-
-		util::ThreadPool pool{4};
-		util::bulk_options options;
-		options.chunk_size = 113;
-
-		auto partials = util::bulk_execute(
-		    pool, v.size(), [] { return 0; },
-		    [&v](int &state, size_t begin, size_t end) {
-			    for (size_t i = begin; i < end; ++i)
-				    state += v[i];
-		    },
-		    [](int state) { return state; }, options);
-
-		REQUIRE(!partials.empty());
-		CHECK(partials.size() <= (size_t)pool.num_threads());
-		CHECK(std::accumulate(partials.begin(), partials.end(), 0) ==
-		      49'995'000);
-	}
-
-	SECTION("bulk_execute finalizes results and destroys scratch on helpers")
+	SECTION("parallel helpers destroy scratch on worker threads")
 	{
 		struct Scratch
 		{
@@ -370,9 +321,10 @@ TEST_CASE("threadpool")
 		std::atomic<int> destroyed_on_owner{0};
 		util::bulk_options options;
 		options.chunk_size = 17;
+		std::vector<int> v(257, 0);
 
-		auto results = util::bulk_execute(
-		    pool, 257,
+		util::parallel_for_each(
+		    pool, v,
 		    [&] {
 			    Scratch state;
 			    state.destroyed = &destroyed;
@@ -380,32 +332,14 @@ TEST_CASE("threadpool")
 			    state_count.fetch_add(1);
 			    return state;
 		    },
-		    [](Scratch &state, size_t begin, size_t end) {
+		    [](Scratch &state, int &) {
 			    state.owner = std::this_thread::get_id();
-			    state.processed += (int)(end - begin);
+			    state.processed += 1;
 		    },
-		    [](Scratch &&state) { return state.processed; }, options);
+		    options);
 
-		CHECK(results.size() == (size_t)state_count.load());
-		CHECK(std::accumulate(results.begin(), results.end(), 0) == 257);
+		CHECK(std::accumulate(v.begin(), v.end(), 0) == 0);
 		CHECK(destroyed.load() == state_count.load());
 		CHECK(destroyed_on_owner.load() == destroyed.load());
-	}
-
-	SECTION("bulk_execute propagates exceptions")
-	{
-		util::ThreadPool pool{4};
-		util::bulk_options options;
-		options.chunk_size = 9;
-
-		REQUIRE_THROWS_AS(util::bulk_execute(
-		                      pool, 128, [] { return 0; },
-		                      [](int &, size_t begin, size_t end) {
-			                      for (size_t i = begin; i < end; ++i)
-				                      if (i == 42)
-					                      throw std::runtime_error("foo");
-		                      },
-		                      [](int state) { return state; }, options),
-		                  std::runtime_error);
 	}
 }

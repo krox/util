@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/atomic.h"
 #include "util/synchronized.h"
 #include <atomic>
 #include <cassert>
@@ -10,6 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <stop_token>
 #include <thread>
 #include <tuple>
@@ -27,85 +29,6 @@ class job_cancelled : public std::runtime_error
 	job_cancelled() : std::runtime_error("job cancelled") {}
 };
 
-template <class F, class... Args>
-inline constexpr bool use_stop_token_v =
-    std::is_invocable_v<F, std::stop_token, Args...>;
-
-template <bool UseStopToken, class F, class... Args> struct async_result_impl;
-
-template <class F, class... Args> struct async_result_impl<true, F, Args...>
-{
-	using type = std::invoke_result_t<F, std::stop_token, Args...>;
-};
-
-template <class F, class... Args> struct async_result_impl<false, F, Args...>
-{
-	using type = std::invoke_result_t<F, Args...>;
-};
-
-template <class F, class... Args>
-using async_result_t =
-    typename async_result_impl<use_stop_token_v<F, Args...>, F, Args...>::type;
-
-// type-erased base class for TaskState
-class TaskStateBase
-{
-	// this is the only synchronization point. Readers wait on 'ready_' to
-	// become true before reading the result value or exception.
-	std::atomic<bool> ready_{false};
-
-	// cooperative stopping (just a hint, no guaranteed semantics)
-	std::stop_source stop_;
-
-  public:
-	TaskStateBase() = default;
-
-	// not movable. Doing so would mess with the synchronization.
-	TaskStateBase(TaskStateBase const &) = delete;
-	TaskStateBase &operator=(TaskStateBase const &) = delete;
-	TaskStateBase(TaskStateBase &&) = delete;
-	TaskStateBase &operator=(TaskStateBase &&) = delete;
-
-	// check if a value/exception is ready without blocking.
-	bool ready() const noexcept
-	{
-		return ready_.load(std::memory_order_acquire);
-	}
-
-	// blocks until value/exception is set
-	void wait() const noexcept
-	{
-		// note: 'atomic::wait' guarantees to only return when the value
-		// actually changed away from the expected. No spurious wakeups.
-		ready_.wait(false, std::memory_order_acquire);
-	}
-
-	// request co-operative stopping. This is just a hint that the producer can
-	// check to stop early, but it is not guaranteed to be respected.
-	void request_stop() noexcept { stop_.request_stop(); }
-	bool stop_requested() const noexcept { return stop_.stop_requested(); }
-	std::stop_token get_stop_token() const noexcept
-	{
-		return stop_.get_token();
-	}
-
-  protected:
-	void set_ready() noexcept
-	{
-#ifdef NDEBUG
-		ready_.store(true, std::memory_order_release);
-#else
-		bool old = ready_.exchange(true, std::memory_order_release);
-
-		// note: this check does catch race conditions, but this is too late.
-		// Competing calls to 'set_value(...)' or the like can already have
-		// corrupted memory.
-		assert(old == false);
-#endif
-		ready_.notify_all();
-	}
-};
-
 // Can hold either a value of type T or an exception.
 //   * single-producer: calling 'set_*' multiple times is UB
 //   * multi-consumer: any number of threads can call 'ready()', 'wait()', and
@@ -113,73 +36,67 @@ class TaskStateBase
 //     'T' is provided.
 //   * typical use: a shared_ptr<TaskState<T>> can be used as a single-slot
 //     channel, similar to a promise/future pair.
-template <class T> class TaskState : public TaskStateBase
+template <class T> class TaskState
 {
+  public:
+	// 'void' is not quite a type in C++, so we use 'std::monostate' as a
+	// placeholder.
+	using value_type = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
+
+  private:
+	std::atomic<bool> ready_{false};
+
 	// note: 'exception_ptr' has a natural null state, T might not even have a
 	// default constructor. So this is the right order of members.
-	std::variant<std::exception_ptr, T> value_;
+	std::variant<std::exception_ptr, value_type> value_;
 
   public:
-	// blocks till ready. Returns value or rethrows exception.
-	T &get()
+	bool ready() const noexcept
 	{
-		wait();
-
-		if (std::holds_alternative<std::exception_ptr>(value_))
-			std::rethrow_exception(std::get<std::exception_ptr>(value_));
-		assert(std::holds_alternative<T>(value_));
-		return std::get<T>(value_);
+		return ready_.load(std::memory_order_acquire);
 	}
 
-	T const &get() const
+	// block till the task is completed)
+	void wait() const noexcept
+	{
+		ready_.wait(false, std::memory_order_acquire);
+	}
+
+	// blocks till ready. Returns value or rethrows exception.
+	value_type &get()
 	{
 		wait();
 
 		if (std::holds_alternative<std::exception_ptr>(value_))
 			std::rethrow_exception(std::get<std::exception_ptr>(value_));
-		assert(std::holds_alternative<T>(value_));
-		return std::get<T>(value_);
+		assert(std::holds_alternative<value_type>(value_));
+		return std::get<value_type>(value_);
+	}
+
+	value_type const &get() const
+	{
+		wait();
+
+		if (std::holds_alternative<std::exception_ptr>(value_))
+			std::rethrow_exception(std::get<std::exception_ptr>(value_));
+		assert(std::holds_alternative<value_type>(value_));
+		return std::get<value_type>(value_);
 	}
 
 	// set a value
-	template <class U = T>
-	    requires std::constructible_from<T, U>
-	void set_value(U &&value)
+	void set_value(value_type value = {})
 	{
-		value_.template emplace<T>(std::forward<U>(value));
-		set_ready();
+		value_.template emplace<value_type>(std::move(value));
+		ready_.store(true, std::memory_order_release);
+		ready_.notify_all();
 	}
 
 	// set an exception
 	void set_exception(std::exception_ptr exception)
 	{
 		value_.template emplace<std::exception_ptr>(std::move(exception));
-		set_ready();
-	}
-};
-
-// void specialization of TaskState.
-template <> class TaskState<void> : public TaskStateBase
-{
-	std::exception_ptr exception_ = nullptr;
-
-  public:
-	// blocks till ready. rethrows any exception.
-	void get() const
-	{
-		wait();
-		if (exception_)
-			std::rethrow_exception(exception_);
-	}
-
-	// set a value
-	void set_value() { set_ready(); }
-
-	// set an exception
-	void set_exception(std::exception_ptr exception)
-	{
-		exception_ = exception;
-		set_ready();
+		ready_.store(true, std::memory_order_release);
+		ready_.notify_all();
 	}
 };
 
@@ -188,6 +105,8 @@ template <class T> class Task
 	std::shared_ptr<TaskState<T>> state_;
 
   public:
+	using value_type = typename TaskState<T>::value_type;
+
 	Task() = default;
 
 	explicit Task(std::shared_ptr<TaskState<T>> state)
@@ -214,27 +133,15 @@ template <class T> class Task
 		state_->wait();
 	}
 
-	T get()
+	value_type &get()
 	{
 		assert(state_);
-		if constexpr (std::is_same_v<T, void>)
-		{
-			state_->get();
-			state_.reset();
-			return;
-		}
-		else
-		{
-			T result = std::move(state_->get());
-			state_.reset();
-			return result;
-		}
+		return state_->get();
 	}
-
-	void request_stop() noexcept
+	value_type const &get() const
 	{
 		assert(state_);
-		state_->request_stop();
+		return state_->get();
 	}
 };
 
@@ -250,16 +157,20 @@ class JobBase
 
 template <class F, class... Args> class Job final : public JobBase
 {
-	using result_type = async_result_t<F, Args...>;
+	using result_type = std::invoke_result_t<F, Args...>;
 
-	std::shared_ptr<TaskState<result_type>> promise_ =
-	    std::make_shared<TaskState<result_type>>();
+	std::shared_ptr<TaskState<result_type>> state_ =
+	    std::make_shared<TaskState<result_type>>(); // never null
 	F f_;
 	std::tuple<Args...> args_;
 
   public:
+	// no copy/move. Users should only deal with 'unique_ptr<Job>' or
+	// similar
 	Job(Job const &) = delete;
 	Job &operator=(Job const &) = delete;
+	Job(Job &&) noexcept = delete;
+	Job &operator=(Job &&) noexcept = delete;
 
 	Job(F f, Args... args) noexcept
 	    : f_(std::move(f)), args_(std::move(args)...)
@@ -267,11 +178,9 @@ template <class F, class... Args> class Job final : public JobBase
 
 	~Job()
 	{
-		// At this point, we assume promise_ to be fulfilled (either by a
-		// value or by an exception). Otherwise, anyone waiting on its
-		// future will be stuck indefinitely.
-
-		assert(promise_->ready());
+		// sanity check: if the job is destroyed without being completed,
+		// someone might still be waiting on its result, which would be UB
+		assert(state_->ready());
 	}
 
 	void run() noexcept
@@ -280,48 +189,26 @@ template <class F, class... Args> class Job final : public JobBase
 		{
 			if constexpr (std::is_same_v<result_type, void>)
 			{
-				if constexpr (use_stop_token_v<F, Args...>)
-					std::apply(
-					    [this](auto &&...args) {
-						    std::invoke(std::move(f_),
-						                promise_->get_stop_token(),
-						                std::forward<decltype(args)>(args)...);
-					    },
-					    std::move(args_));
-				else
-					std::apply(std::move(f_), std::move(args_));
-				promise_->set_value();
+				std::apply(std::move(f_), std::move(args_));
+				state_->set_value();
 			}
 			else
 			{
-				if constexpr (use_stop_token_v<F, Args...>)
-					promise_->set_value(std::apply(
-					    [this](auto &&...args) {
-						    return std::invoke(
-						        std::move(f_), promise_->get_stop_token(),
-						        std::forward<decltype(args)>(args)...);
-					    },
-					    std::move(args_)));
-				else
-					promise_->set_value(
-					    std::apply(std::move(f_), std::move(args_)));
+				state_->set_value(std::apply(std::move(f_), std::move(args_)));
 			}
 		}
 		catch (...)
 		{
-			// NOTE: 'promise_.set_value()' cannot throw in our usecase,
-			//       so we know any exception came from invoking f_ itself
-			promise_->set_exception(std::current_exception());
+			state_->set_exception(std::current_exception());
 		}
 	}
 
 	void cancel() noexcept
 	{
-		promise_->set_exception(std::make_exception_ptr(job_cancelled{}));
+		state_->set_exception(std::make_exception_ptr(job_cancelled{}));
 	}
 
-	// call at most once
-	auto get_future() noexcept { return Task<result_type>{promise_}; }
+	auto get_task() noexcept { return Task<result_type>{state_}; }
 };
 
 // simple thread pool with central queue of tasks
@@ -334,15 +221,10 @@ template <class F, class... Args> class Job final : public JobBase
 //   It can be freely discarded for "fire-and-forget" tasks. This is in contrast
 //   to std::async().
 // - Submitting jobs is thread-safe, including from within a running job.
-// - TODO: clarify co-operative stopping
 class ThreadPool
 {
-
-	// worker threads
-	std::vector<std::jthread> threads_;
-
-	// job queue, usually FIFO
-	synchronized_queue<JobBase> queue_;
+	std::vector<std::jthread> threads_; // worker threads
+	synchronized_queue<JobBase> queue_; // pending jobs
 
   public:
 	ThreadPool() : ThreadPool(std::thread::hardware_concurrency()) {}
@@ -362,7 +244,7 @@ class ThreadPool
 			});
 	}
 
-	// not movable because the workers have to keep a reference to the pool
+	// not movable: workers keep a reference to the pool/queue
 	ThreadPool(ThreadPool const &) = delete;
 	ThreadPool(ThreadPool &&) = delete;
 	ThreadPool &operator=(ThreadPool const &) = delete;
@@ -381,25 +263,26 @@ class ThreadPool
 	//     * Arguments are captured by value (just like std::async). Use
 	//       std::ref/cref for references, but beware of escaping dangling
 	//       references, especially because
-	//     * The returned future does not block on destruction (this is
+	//     * The returned handle does not block on destruction (this is
 	//       different from std::async). The maximum lifetime of captured
 	//       references is determined by the ThreadPool itself, the destructor
 	//       of which cancels or waits for all all pending jobs.
 	//     * If f throws, the exception is captured and can be retrieved
 	//       from the returned future.
 	template <class F, class... Args>
-	auto async(F f, Args... args) noexcept -> Task<async_result_t<F, Args...>>
+	auto async(F f,
+	           Args... args) noexcept -> Task<std::invoke_result_t<F, Args...>>
 	{
 		auto typed_job =
 		    std::make_unique<Job<F, Args...>>(std::move(f), std::move(args)...);
-		auto future = typed_job->get_future();
+		auto task = typed_job->get_task();
 		std::unique_ptr<JobBase> job = std::move(typed_job);
 
 		job = queue_.push(std::move(job));
 		if (job) // 'push' was rejected (e.g. queue closed) -> cancel job
 			job->cancel();
 
-		return future;
+		return task;
 	}
 };
 
@@ -418,6 +301,9 @@ auto parallel(ThreadPool &pool, std::invocable<int, int> auto f)
 {
 	using Result = std::invoke_result_t<decltype(f), int, int>;
 	int n = pool.num_threads();
+	if (n == 0)
+		throw std::runtime_error("parallel requires at least one worker");
+
 	std::vector<Task<Result>> tasks;
 	tasks.reserve(n);
 	for (int i = 0; i < n; ++i)
@@ -446,172 +332,101 @@ auto parallel(ThreadPool &pool, std::invocable<int, int> auto f)
 struct bulk_options
 {
 	size_t chunk_size = 1;
-	size_t max_participants = std::numeric_limits<size_t>::max();
+	//	size_t max_participants = infinity; // not implemented
 };
 
-// flexible backend for parallel algorithms
-template <class MakeState, class RunChunk, class FinishState>
-auto bulk_execute(ThreadPool &pool, size_t count, MakeState make_state,
-                  RunChunk run_chunk, FinishState finish_state,
-                  bulk_options options = {})
-{
-	using State = std::remove_cvref_t<std::invoke_result_t<MakeState &>>;
-	using Result =
-	    std::remove_cvref_t<std::invoke_result_t<FinishState &, State>>;
-
-	assert(options.chunk_size >= 1);
-	assert(options.max_participants >= 1);
-
-	if (count == 0)
-		return std::vector<Result>{};
-
-	// empty pool -> run everything in the current thread
-	if (pool.num_threads() == 0)
-	{
-		State state = std::invoke(make_state);
-		for (size_t begin = 0; begin < count; begin += options.chunk_size)
-		{
-			size_t end = std::min(begin + options.chunk_size, count);
-			std::invoke(run_chunk, state, begin, end);
-		}
-
-		std::vector<Result> results;
-		results.reserve(1);
-		results.push_back(std::invoke(finish_state, std::move(state)));
-		return results;
-	}
-
-	// number of participants is limited by (1) available threads,
-	// (2) available chunks, and (3) user-provided 'max_participants'
-	size_t chunk_count = (count + options.chunk_size - 1) / options.chunk_size;
-	size_t participants = std::min(chunk_count, options.max_participants);
-	participants = std::min(participants, (size_t)pool.num_threads());
-
-	// These atomics are used to distribute work between participants and signal
-	// early stopping in case of an exception.
-	std::atomic<size_t> next{0};
-	std::atomic<bool> stop{false};
-
-	auto worker = [&]() -> std::optional<Result> {
-		// check if any work is left before even starting. If there is nothing
-		// to do (e.g. if this worker started late), we skip the potentially
-		// expensive state creation. This is a best-effort optimization, no
-		// particular guaranee is made.
-		if (stop.load(std::memory_order_relaxed))
-			return std::nullopt;
-		if (next.load(std::memory_order_relaxed) >= count)
-			return std::nullopt;
-
-		try
-		{
-			State state = std::invoke(make_state);
-			while (!stop.load(std::memory_order_relaxed))
-			{
-				size_t begin = next.fetch_add(options.chunk_size,
-				                              std::memory_order_relaxed);
-				if (begin >= count)
-					break;
-				size_t end = std::min(begin + options.chunk_size, count);
-
-				std::invoke(run_chunk, state, begin, end);
-			}
-
-			return std::optional<Result>(
-			    std::in_place, std::invoke(finish_state, std::move(state)));
-		}
-		catch (...)
-		{
-			stop.store(true, std::memory_order_relaxed);
-			throw;
-		}
-	};
-
-	// enqueue one job per participant. Ideally, each one would be picked up by
-	// a different worker thread, but this is not strictly guaranteed.
-	std::vector<Task<std::optional<Result>>> as;
-	as.reserve(participants);
-
-	// note: the workers contain references local variables, so an exception in
-	// here would be bad. Dont think its actually possible, but just to be safe
-	// we wrap it in 'noexcept'.
-	[&]() noexcept {
-		for (size_t i = 0; i < participants; ++i)
-			as.push_back(pool.async(worker));
-		for (auto &a : as)
-			a.wait();
-	}();
-
-	// collect results. (the '.get()' might rethrow an exception from the
-	// worker)
-	std::vector<Result> results;
-	results.reserve(participants);
-	for (auto &a : as)
-		if (auto result = a.get(); result)
-			results.push_back(std::move(*result));
-	return results;
-}
-
 // parallel loop: execute 'f(x)' for each element 'x' in the range 'r'
-void for_each(ThreadPool &pool, std::ranges::random_access_range auto &&r,
-              auto f, bulk_options options)
+void parallel_for_each(ThreadPool &pool,
+                       std::ranges::random_access_range auto &&r, auto f,
+                       bulk_options options)
 {
-	using State = std::tuple<>;
-	auto make_state = []() { return State{}; };
-	auto finalize_state = [](State &&) { return State{}; };
-
 	auto first = std::ranges::begin(r);
 	size_t count = static_cast<size_t>(std::ranges::distance(r));
+	if (count == 0)
+		return;
+	assert(options.chunk_size >= 1);
 
-	auto run_chunk = [&f, first](State &, size_t begin, size_t end) {
-		for (size_t i = begin; i < end; ++i)
-			std::invoke(f, *(first + i));
-	};
-
-	bulk_execute(pool, count, make_state, run_chunk, finalize_state, options);
+	relaxed_atomic<size_t> next{0};
+	parallel(pool, [&](int, int) {
+		while (true)
+		{
+			size_t begin = next.fetch_add(options.chunk_size);
+			if (begin >= count)
+				break;
+			size_t end = std::min(begin + options.chunk_size, count);
+			for (size_t i = begin; i < end; ++i)
+				std::invoke(f, *(first + i));
+		}
+	});
 }
 
 // parallel loop with worker-local scratch state: execute 'f(state, x)' for
 // each element 'x' in the range 'r'
-void for_each(ThreadPool &pool, std::ranges::random_access_range auto &&r,
-              auto make_state, auto f, bulk_options options)
+void parallel_for_each(ThreadPool &pool,
+                       std::ranges::random_access_range auto &&r,
+                       auto make_state, auto f, bulk_options options)
 {
 	using State =
 	    std::remove_cvref_t<std::invoke_result_t<decltype(make_state) &>>;
-	auto finalize_state = [](State &&) { return std::tuple<>{}; };
 
 	auto first = std::ranges::begin(r);
 	size_t count = static_cast<size_t>(std::ranges::distance(r));
+	if (count == 0)
+		return;
+	assert(options.chunk_size >= 1);
 
-	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
-		for (size_t i = begin; i < end; ++i)
-			std::invoke(f, state, *(first + i));
-	};
+	relaxed_atomic<size_t> next{0};
 
-	bulk_execute(pool, count, make_state, run_chunk, finalize_state, options);
+	parallel(pool, [&](int, int) {
+		// early-out for late-arriving workers: If no work is left, dont create
+		// any state.
+		if (next.load() >= count)
+			return;
+
+		State state = std::invoke(make_state);
+		while (true)
+		{
+			size_t begin = next.fetch_add(options.chunk_size);
+			if (begin >= count)
+				break;
+			size_t end = std::min(begin + options.chunk_size, count);
+			for (size_t i = begin; i < end; ++i)
+				std::invoke(f, state, *(first + i));
+		}
+	});
 }
 
 // parallel filter: collect all elements 'x' for which 'f(x)' returns true.
 // Order of the returned elements is unspecified.
-auto filter_unordered(ThreadPool &pool,
-                      std::ranges::random_access_range auto &&r, auto f,
-                      bulk_options options)
+auto parallel_filter_unordered(ThreadPool &pool,
+                               std::ranges::random_access_range auto &&r,
+                               auto f, bulk_options options)
 {
 	using T = std::ranges::range_value_t<decltype(r)>;
-	using State = std::vector<T>;
-	auto make_state = []() { return State{}; };
-	auto finalize_state = [](State &&state) { return std::move(state); };
-
 	auto first = std::ranges::begin(r);
 	size_t count = static_cast<size_t>(std::ranges::distance(r));
+	if (count == 0)
+		return std::vector<T>{};
+	assert(options.chunk_size >= 1);
 
-	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
-		for (size_t i = begin; i < end; ++i)
-			if (std::invoke(f, *(first + i)))
-				state.push_back(*(first + i));
-	};
+	relaxed_atomic<size_t> next{0};
 
-	auto result = bulk_execute(pool, count, make_state, run_chunk,
-	                           finalize_state, options);
+	auto result = parallel(pool, [&](int, int) {
+		std::vector<T> output;
+
+		while (true)
+		{
+			size_t begin = next.fetch_add(options.chunk_size);
+			if (begin >= count)
+				break;
+			size_t end = std::min(begin + options.chunk_size, count);
+			for (size_t i = begin; i < end; ++i)
+				if (std::invoke(f, *(first + i)))
+					output.push_back(*(first + i));
+		}
+
+		return output;
+	});
 
 	std::vector<T> merged;
 	for (auto &part : result)
@@ -623,34 +438,42 @@ auto filter_unordered(ThreadPool &pool,
 // parallel filter with worker-local scratch state: collect all elements 'x'
 // for which 'f(state, x)' returns true. Order of the returned elements is
 // unspecified.
-auto filter_unordered(ThreadPool &pool,
-                      std::ranges::random_access_range auto &&r,
-                      auto make_state, auto f, bulk_options options)
+auto parallel_filter_unordered(ThreadPool &pool,
+                               std::ranges::random_access_range auto &&r,
+                               auto make_state, auto f, bulk_options options)
 {
 	using T = std::ranges::range_value_t<decltype(r)>;
-	using Scratch =
+	using State =
 	    std::remove_cvref_t<std::invoke_result_t<decltype(make_state) &>>;
-	struct State
-	{
-		Scratch scratch;
-		std::vector<T> output;
-	};
-
-	auto finalize_state = [](State &&state) { return std::move(state.output); };
-
 	auto first = std::ranges::begin(r);
 	size_t count = static_cast<size_t>(std::ranges::distance(r));
+	if (count == 0)
+		return std::vector<T>{};
 
-	auto run_chunk = [&f, first](State &state, size_t begin, size_t end) {
-		for (size_t i = begin; i < end; ++i)
-			if (std::invoke(f, state.scratch, *(first + i)))
-				state.output.push_back(*(first + i));
-	};
+	assert(options.chunk_size >= 1);
 
-	auto result = bulk_execute(
-	    pool, count,
-	    [&make_state] { return State{std::invoke(make_state), {}}; }, run_chunk,
-	    finalize_state, options);
+	relaxed_atomic<size_t> next{0};
+
+	auto result = parallel(pool, [&](int, int) {
+		std::vector<T> output;
+
+		if (next.load() >= count)
+			return output;
+
+		State state = std::invoke(make_state);
+		while (true)
+		{
+			size_t begin = next.fetch_add(options.chunk_size);
+			if (begin >= count)
+				break;
+			size_t end = std::min(begin + options.chunk_size, count);
+			for (size_t i = begin; i < end; ++i)
+				if (std::invoke(f, state, *(first + i)))
+					output.push_back(*(first + i));
+		}
+
+		return output;
+	});
 
 	std::vector<T> merged;
 	for (auto &part : result)

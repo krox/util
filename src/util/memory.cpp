@@ -22,7 +22,12 @@ void *detail::util_mmap(size_t length)
 	int prot = PROT_READ | PROT_WRITE;
 	auto p = mmap(nullptr, length, prot, flags, 0, 0);
 	if (p == MAP_FAILED)
-		throw std::bad_alloc{};
+		throw std::runtime_error("mmap failed");
+
+	// Exclude the mapping from any core dumps. Otherwise, saving a dump is
+	// annoyingly slow, even if most of the mapping is unused.
+	if (madvise(p, length, MADV_DONTDUMP) != 0)
+		throw std::runtime_error("madvise failed");
 	return p;
 }
 

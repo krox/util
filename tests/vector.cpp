@@ -4,6 +4,7 @@
 #include "util/vector.h"
 #include "util/vector2d.h"
 
+#include <array>
 #include <deque>
 #include <list>
 #include <set>
@@ -173,6 +174,8 @@ TEMPLATE_TEST_CASE("vectors", "[vector]", (util::vector<Int>),
 		a.push_back(2);
 		append(b, std::span<const Int>(a.begin(), a.end()));
 		append(b, std::span<const Int>(a.begin(), a.end()));
+		auto joined = concat(std::array<TestType, 2>{TestType{1, 2}, TestType{3}});
+		CHECK(joined == TestType{1, 2, 3});
 		trim(b, 1);
 		CHECK(b.size() == 3);
 		erase(b, 2);

@@ -757,6 +757,12 @@ concept VectorOf = std::same_as<typename C::value_type, E> &&
 template <class C>
 concept VectorType = VectorOf<C, typename C::value_type>;
 
+template <class C, class R>
+concept VectorAppendSource =
+    VectorType<C> && std::ranges::contiguous_range<R> &&
+    std::ranges::sized_range<R> &&
+    std::same_as<std::ranges::range_value_t<R>, typename C::value_type>;
+
 // short-form of erase-remove idiom
 size_t erase(VectorType auto &c, auto const &value)
 {
@@ -845,10 +851,24 @@ bool replace_one_if(VectorType auto &c, auto pred,
 }
 
 // append elements to the end of a vector
-template <VectorType C>
-void append(C &c, std::span<const typename C::value_type> a)
+template <VectorType C, class R>
+    requires VectorAppendSource<C, R>
+void append(C &c, R &&a)
 {
-	c.insert(c.end(), a.begin(), a.end());
+	c.insert(c.end(), std::ranges::begin(a), std::ranges::end(a));
+}
+
+// concatenate multiple vectors into one
+template <std::ranges::range R>
+auto concat(R &&cs) -> std::ranges::range_value_t<R>
+    requires VectorType<std::ranges::range_value_t<R>> &&
+             VectorAppendSource<std::ranges::range_value_t<R>,
+                                std::ranges::range_reference_t<R>>
+{
+	std::ranges::range_value_t<R> result;
+	for (auto const &c : cs)
+		append(result, c);
+	return result;
 }
 
 // trim elements from both ends. Returns number of erased elements.

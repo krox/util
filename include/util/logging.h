@@ -24,6 +24,17 @@
 
 namespace util {
 
+enum class LogLevel
+{
+	off,
+	critical,
+	error,
+	warning,
+	info,
+	debug,
+	trace
+};
+
 // Handles output to stdout
 //   * Thread-safe: Any thread can use operator() to print a log message
 //   * Asynchronous: Actual printing is done in a dedicated thread
@@ -34,7 +45,7 @@ class Logger
 	using Clock = std::chrono::steady_clock;
 
 	// user-facing types
-	enum class Level;
+	using Level = LogLevel;
 	class Component;
 	class Scope;
 
@@ -74,6 +85,44 @@ class Logger
 	//   * msg is already formatted
 	//   * comonent can be empty/null for top-level messages
 	void do_log(Component const *component, Level level, std::string_view msg);
+
+	// generic logging function
+	template <class... Args>
+	void log(Level level, fmt::format_string<Args...> format, Args &&...args)
+	{
+		do_log(nullptr, level,
+		       fmt::format(format, std::forward<Args>(args)...));
+	}
+	template <class... Args>
+	void trace(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::trace, format, std::forward<Args>(args)...);
+	}
+	template <class... Args>
+	void debug(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::debug, format, std::forward<Args>(args)...);
+	}
+	template <class... Args>
+	void info(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::info, format, std::forward<Args>(args)...);
+	}
+	template <class... Args>
+	void warning(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::warning, format, std::forward<Args>(args)...);
+	}
+	template <class... Args>
+	void error(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::error, format, std::forward<Args>(args)...);
+	}
+	template <class... Args>
+	void critical(fmt::format_string<Args...> format, Args &&...args)
+	{
+		log(Level::critical, format, std::forward<Args>(args)...);
+	}
 
 	// block until all pending messages have been processed and written
 	void flush() noexcept;
@@ -120,17 +169,6 @@ struct Logger::Message
 	// Only set if the producer requested notification when the
 	// message has been processed.
 	std::optional<std::promise<void>> completion;
-};
-
-enum class Logger::Level
-{
-	off,
-	critical,
-	error,
-	warning,
-	info,
-	debug,
-	trace
 };
 
 class Logger::Component

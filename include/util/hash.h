@@ -14,6 +14,8 @@
 
 namespace util {
 
+template <class T, class Impl> class basic_vector;
+
 // SHA2-256
 std::array<std::byte, 32> sha256(std::span<const std::byte>,
                                  int rounds = 64) noexcept;
@@ -422,6 +424,18 @@ std::enable_if_t<is_contiguously_hashable_v<T>> hash_append(HashAlgorithm &h,
 
 template <class HashAlgorithm, class T, class A>
 void hash_append(HashAlgorithm &h, std::vector<T, A> const &a) noexcept
+{
+	hash_append(h, a.size());
+
+	if constexpr (is_contiguously_hashable_v<T>)
+		h(a.data(), a.size() * sizeof(T));
+	else
+		for (auto &x : a)
+			hash_append(h, x);
+}
+
+template <class HashAlgorithm, class T, class Impl>
+void hash_append(HashAlgorithm &h, basic_vector<T, Impl> const &a) noexcept
 {
 	hash_append(h, a.size());
 

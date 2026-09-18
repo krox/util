@@ -2,6 +2,7 @@
 
 #include "util/hash_map.h"
 #include "util/random.h"
+#include "util/vector.h"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -174,4 +175,16 @@ TEST_CASE("hash map with seeded hasher", "[hash_map][hash]")
 	std::sort(v2.begin(), v2.end());
 	CHECK(v0 == v1);
 	CHECK(v1 == v2);
+}
+
+TEST_CASE("hash map with util vector string key", "[hash_map][hash]")
+{
+	using Key = util::vector<std::string>;
+
+	util::hash_map<Key, int> m;
+	REQUIRE(m.insert({Key{"alpha", "beta"}, 7}).second);
+	REQUIRE(m.insert({Key{"gamma"}, 11}).second);
+	CHECK(m.contains(Key{"alpha", "beta"}));
+	CHECK(m.at(Key{"alpha", "beta"}) == 7);
+	CHECK(m.at(Key{"gamma"}) == 11);
 }

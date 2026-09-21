@@ -2,7 +2,10 @@
 
 #include "util/atomic.h"
 #include "util/fixed_map.h"
+#include "util/functional.h"
 #include "util/io.h"
+#include "util/stopwatch.h"
+#include "util/vector.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -10,6 +13,7 @@
 #include <cstdint>
 #include <deque>
 #include <fmt/format.h>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -23,6 +27,101 @@
 #include <vector>
 
 namespace util {
+
+// Little terminal renderer to re-draw dynamic lines on the bottom of the
+// terminal. Intended for progress bars and the like.
+class Terminal
+{
+  public:
+	using line_sink = function_view<void(std::string_view)>;
+	using print_t = std::function<void(line_sink, int)>;
+
+  private:
+	static constexpr std::chrono::milliseconds interval_{50};
+
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::deque<std::string> msg_queue_;
+	util::vector<std::unique_ptr<print_t>> sections_;
+	int rendered_lines_ = 0;
+	std::jthread thread_;
+	util::vector<char> frame_;
+	std::optional<std::promise<std::string>> input_promise_;
+
+	// must be called with locked mutex
+	void prepare_frame();
+
+	void thread_main(std::stop_token stop);
+
+  public:
+	class Section
+	{
+		Terminal *terminal_ = nullptr;
+		print_t *print_ = nullptr;
+
+	  public:
+		Section() = default;
+		explicit Section(Terminal *terminal, print_t *print)
+		    : terminal_(terminal), print_(print)
+		{
+			assert(terminal);
+			assert(print);
+		}
+
+		Section(const Section &) = delete;
+		Section &operator=(const Section &) = delete;
+		Section(Section &&other) noexcept
+		    : terminal_(std::exchange(other.terminal_, nullptr)),
+		      print_(std::exchange(other.print_, nullptr))
+		{}
+		Section &operator=(Section &&other) noexcept
+		{
+			close();
+			terminal_ = std::exchange(other.terminal_, nullptr);
+			print_ = std::exchange(other.print_, nullptr);
+			return *this;
+		}
+
+		~Section() { close(); }
+
+		void close() noexcept;
+	};
+
+	friend class Section;
+
+	Terminal() : thread_(&Terminal::thread_main, this) {}
+
+	// enqueue message
+	void print(std::string msg)
+	{
+		{
+			auto lock = std::unique_lock(mutex_);
+			msg_queue_.push_back(std::move(msg));
+		}
+		cv_.notify_one();
+	}
+
+	// block until all enqueued messages are processed
+	void flush()
+	{
+		auto lock = std::unique_lock(mutex_);
+		cv_.wait(lock, [this] { return msg_queue_.empty(); });
+	}
+
+	// create a new dynamic section
+	Section section(print_t print)
+	{
+		assert(print);
+		auto section_ptr = std::make_unique<print_t>(std::move(print));
+		auto r = Section(this, section_ptr.get());
+		{
+			auto lock = std::unique_lock(mutex_);
+			sections_.push_back(std::move(section_ptr));
+		}
+		cv_.notify_one();
+		return r;
+	}
+};
 
 enum class LogLevel
 {
@@ -41,21 +140,17 @@ enum class LogLevel
 //   * Keeps progress bars on the bottom of the terminal, log messages above
 class Logger
 {
+
   public:
 	using Clock = std::chrono::steady_clock;
 
 	// user-facing types
 	using Level = LogLevel;
-	class Component;
 	class Scope;
 
-	// constructor creates the background thread, does not print anything yet.
-	//   * if 'log_file' is non-empty, all log messages (but not progress bars)
-	//     are additionally written there as plain text.
-	explicit Logger(std::string_view log_file = {});
-
-	// destructor processes any remaining messages, then joins background thread
-	~Logger();
+	Logger(Level default_level = Level::info)
+	    : default_level_(default_level), time_stack_()
+	{}
 
 	// not copyable or movable. Typicallly there should only be a single
 	// instance for the entire program anyway.
@@ -64,34 +159,30 @@ class Logger
 	Logger(Logger &&) = delete;
 	Logger &operator=(Logger &&) = delete;
 
-	// look up a component by name, creating it if it does not exist yet.
-	Component &operator[](std::string_view component_name);
-
 	// open a scope for logging and terminal status reporting
 	Scope scope(std::string_view name);
+	Scope scope(std::string_view name, Level l);
 
-	// set the default log level for this instance. Affects all components
-	// created afterwards, and updates the level of all existing components.
-	void set_level(Level level);
+	// non-templated logging backend function
+	void do_log(std::string msg) { terminal_.print(std::move(msg)); }
+
+	// default level of the logger. Affects (1) all subsequent scopes that are
+	// created without explicit level and (2) any subsequent top-level messages.
+	void set_default_level(Level level) { default_level_.store(level); }
+	Level default_level() const noexcept { return default_level_.load(); }
 
 	// print timing summary for all components via normal top-level info logs
-	void print_summary();
+	void print_summary() { do_log(time_stack_.lock()->summary()); }
 
 	// reset accumulated component timings and summary baseline timer
-	void reset_summary();
+	void reset_summary() { time_stack_.lock()->clear(); }
 
-	// non-template backend for logging.
-	//   * level is not checked at this point anymore
-	//   * msg is already formatted
-	//   * comonent can be empty/null for top-level messages
-	void do_log(Component const *component, Level level, std::string_view msg);
-
-	// generic logging function
+	// top-level logging functions
 	template <class... Args>
 	void log(Level level, fmt::format_string<Args...> format, Args &&...args)
 	{
-		do_log(nullptr, level,
-		       fmt::format(format, std::forward<Args>(args)...));
+		if (level <= default_level())
+			do_log(fmt::format(format, std::forward<Args>(args)...));
 	}
 	template <class... Args>
 	void trace(fmt::format_string<Args...> format, Args &&...args)
@@ -125,74 +216,12 @@ class Logger
 	}
 
 	// block until all pending messages have been processed and written
-	void flush() noexcept;
+	void flush() noexcept { terminal_.flush(); }
 
   private:
-	// configuration
-	static constexpr auto interval_ = std::chrono::milliseconds(50);
-	static constexpr int line_width_ = 80;
-
-	// internal types
-	struct Message;
-	struct ScopeState;
-
-	std::mutex mutex_;
-	std::condition_variable cv_;
-	std::deque<Message> msg_queue_; // Pending messages, protected by mutex_
-	std::vector<std::unique_ptr<Component>> components_;
-	std::vector<std::shared_ptr<ScopeState>> scopes_;
-	Level default_level_;
-	Clock::time_point summary_start_ = Clock::now();
-	File log_file_; // optional, only opened if a filename was given
-	size_t rendered_lines_ = 0;
-
-	// NOTE: must be the last member. Its constructor starts the background
-	// thread immediately, which may access any of the members above, so all
-	// of them need to be fully constructed first.
-	std::jthread thread_;
-
-	void thread_main(std::stop_token stop);
-	// formats+writes to stdout (with ANSI cursor control, redrawing live
-	// scope status lines in place); tracks rendered_lines_.
-	void write_terminal(
-	    std::deque<Message> const &messages,
-	    std::vector<std::shared_ptr<ScopeState>> const &scopes) noexcept;
-	// formats+writes plain text to log_file_ (no bars, no ANSI codes)
-	void write_file(std::deque<Message> const &messages) noexcept;
-};
-
-struct Logger::Message
-{
-	Component const *component = nullptr;
-	std::string message;
-
-	// Only set if the producer requested notification when the
-	// message has been processed.
-	std::optional<std::promise<void>> completion;
-};
-
-class Logger::Component
-{
-	// NOTE: 'Component' does not have a null-state. It is only created by
-	// Logger and lives as long as that parent object.
-
-	Logger &output_;
-	std::string name_;
-	relaxed_atomic<Level> level_{Level::info};
-	relaxed_atomic<Clock::duration> total_time_;
-
-	explicit Component(Logger &output, std::string name);
-	friend class Logger;
-
-  public:
-	std::string_view name() const noexcept;
-	Level level() const noexcept;
-	void set_level(Level l) noexcept;
-	Clock::duration elapsed() const noexcept;
-
-	// log a message prefixed by this components name.
-	//   * does not check level, that is done by the caller (Logger::Scope)
-	void do_log(Level l, std::string_view msg);
+	relaxed_atomic<Level> default_level_;
+	synchronized<TimeStack> time_stack_;
+	Terminal terminal_; // threadsafe itself
 };
 
 class Logger::Scope
@@ -202,55 +231,64 @@ class Logger::Scope
 	//     scope to null-state will stop timing explicitly.
 	//   * In the null-state, all logging is a silent no-op.
 
-	std::shared_ptr<ScopeState> state_;
-
-	explicit Scope(std::shared_ptr<ScopeState> state) noexcept;
+	Logger *logger_ = nullptr;
+	std::string name_;
+	Terminal::Section terminal_section_;
+	using Clock = TimeStack::Clock;
+	Clock::time_point start_ = Clock::now();
+	relaxed_atomic<int64_t> ticks_ = 0;
+	relaxed_atomic<int64_t> total_ = 0;
+	relaxed_atomic<Logger::Level> level_ = Logger::Level::info;
 
 	friend class Logger;
 
+	void print(Terminal::line_sink sink, int width);
+
   public:
-	Scope();
-	~Scope() noexcept;
+	Scope() = default;
+	Scope(Logger *logger, std::string name, Level level);
+	~Scope() noexcept { close(); }
+	void close() noexcept;
 
-	// Returns the component associated with this scope, or nullptr if the scope
-	// is in the null-state.
-	// note: component lifetime is tied to Logger, so this pointer remains
-	// valid independent of the scope.
-	Component *component() const noexcept;
+	std::string const &name() const noexcept { return name_; }
 
-	Level level() const noexcept;
-	void set_level(Level l) noexcept;
+	Level level() const noexcept { return level_.load(); }
+	void set_level(Level l) noexcept { level_.store(l); }
 
-	uint64_t ticks() const noexcept;
-	uint64_t total() const noexcept;
-	void set_ticks(uint64_t ticks) noexcept;
-	void set_total(uint64_t total) noexcept;
-	void increment(uint64_t ticks = 1) noexcept;
+	int64_t ticks() const noexcept { return ticks_.load(); }
+	int64_t total() const noexcept { return total_.load(); }
+	void set_ticks(int64_t ticks) noexcept { ticks_.store(ticks); }
+	void set_total(int64_t total) noexcept { total_.store(total); }
+	void increment(int64_t ticks = 1) noexcept { ticks_.fetch_add(ticks); }
 
-	void finish() noexcept;
-
-	// dont copy (would mess with time accounting).
+	// dont move. The printing callback has references to ticks/total.
 	Scope(Scope const &) = delete;
 	Scope &operator=(Scope const &) = delete;
-	Scope(Scope &&other) noexcept;
-	Scope &operator=(Scope &&other) noexcept;
+	Scope(Scope &&other) noexcept = delete;
+	Scope &operator=(Scope &&other) noexcept = delete;
 
 	// Returns the elapsed time since the scope was created.
-	std::chrono::steady_clock::duration elapsed() const noexcept;
+	Clock::duration elapsed() const noexcept { return Clock::now() - start_; }
 
 	// same as 'elapsed()' but in seconds.
-	double secs() const noexcept;
+	double secs() const noexcept
+	{
+		return std::chrono::duration<double>(elapsed()).count();
+	}
 
-	// log a message at specified level. This is a no-op if the configured log
-	// level is lower than the specified level.
+	// log a message at specified level
+	//   * no-op if level is lower than current logging level.
+	//   * also no-op if the scope is in null-state.
 	template <typename... Args>
 	void log(Level level, fmt::format_string<Args...> format,
 	         Args &&...args) const
 	{
-		auto comp = component();
-		if (!comp || level > this->level())
+		if (!logger_ || level > this->level())
 			return;
-		comp->do_log(level, fmt::format(format, std::forward<Args>(args)...));
+		std::string buf = fmt::format("[{}] ", name_);
+		fmt::format_to(std::back_inserter(buf), format,
+		               std::forward<Args>(args)...);
+		logger_->do_log(std::move(buf));
 	}
 
 	template <typename... Args>
@@ -289,23 +327,14 @@ class Logger::Scope
 	}
 };
 
-struct Logger::ScopeState
+inline Logger::Scope Logger::scope(std::string_view name)
 {
-	Component *component = nullptr;
-	std::string label;
-	relaxed_atomic<uint64_t> ticks{0};
-	relaxed_atomic<uint64_t> total{0};
-	relaxed_atomic<Level> level{Level::info};
-	relaxed_atomic<bool> finished{false};
-	Clock::time_point start_time = Clock::now();
-	relaxed_atomic<Clock::duration> finished_elapsed{Clock::duration::zero()};
+	return scope(name, default_level());
+}
 
-	ScopeState(Component *component_, std::string label_,
-	           Level level_) noexcept;
-
-	Clock::duration elapsed() const noexcept;
-	size_t line_count() const noexcept;
-	std::string format(int line_width) const;
-};
+inline Logger::Scope Logger::scope(std::string_view name, Level l)
+{
+	return Scope(this, std::string(name), l);
+}
 
 } // namespace util

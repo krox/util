@@ -1,7 +1,12 @@
 #pragma once
 
+#include "util/hash_map.h"
+#include "util/vector.h"
 #include <cassert>
 #include <chrono>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace util {
 
@@ -68,6 +73,28 @@ class StopwatchGuard
 
 	StopwatchGuard(const StopwatchGuard &) = delete;
 	StopwatchGuard &operator=(const StopwatchGuard &) = delete;
+};
+
+// Nested timing stack for hierarchical performance measurements
+class TimeStack
+{
+  public:
+	using Clock = std::chrono::steady_clock;
+	using Scope = util::vector<std::string>;
+
+	void push(std::string_view label);
+	void pop();
+	std::span<const std::string> stack() const { return curr_; }
+
+	// human-readable summary of timings
+	std::string summary() const;
+
+	void clear();
+
+  private:
+	Clock::time_point last_ = Clock::now();
+	Scope curr_;
+	util::tiny_map<Scope, Clock::duration> timings_;
 };
 
 } // namespace util

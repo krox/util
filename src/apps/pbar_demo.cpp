@@ -1,6 +1,7 @@
 #include "util/logging.h"
 
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -21,7 +22,6 @@ void run_worker(util::Logger::Scope &scope, std::chrono::milliseconds delay,
 			scope.info("checkpoint {}/{}", tick, total);
 	}
 	scope.info("done after {:.2f}s", scope.secs());
-	scope.finish();
 }
 
 } // namespace
@@ -33,7 +33,7 @@ int main()
 	auto ingest = output.scope("ingest assets");
 	auto preprocess = output.scope("preprocess frames");
 	auto upload = output.scope("upload snapshots");
-	util::Logger::Scope verify;
+	std::unique_ptr<util::Logger::Scope> verify;
 	ingest.set_total(90);
 	preprocess.set_total(120);
 	upload.set_total(75);
@@ -50,10 +50,11 @@ int main()
 	             preprocess.total());
 
 	std::this_thread::sleep_for(1800ms);
-	verify = output.scope("verify bundle");
-	verify.set_total(45);
+	verify = std::make_unique<util::Logger::Scope>(&output, "verify bundle",
+	                                               output.default_level());
+	verify->set_total(45);
 	demo.info("spawned late-stage verification task");
-	std::jthread verify_thread(run_worker, std::ref(verify), 50ms, 15);
+	std::jthread verify_thread(run_worker, std::ref(*verify), 50ms, 15);
 
 	ingest_thread.join();
 	demo.debug("removed completed ingest bar");
@@ -67,8 +68,15 @@ int main()
 	verify_thread.join();
 	demo.debug("removed completed verify bar");
 
+	verify->close();
+	verify.reset();
+	upload.close();
+	preprocess.close();
+	ingest.close();
+
 	demo.info("all tasks finished after {:.2f}s", demo.secs());
 	output.print_summary();
+	demo.close();
 	std::this_thread::sleep_for(750ms);
 	return 0;
 }

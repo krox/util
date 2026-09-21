@@ -251,6 +251,7 @@ set(UTIL_SOURCES
 	src/util/sampler.cpp
 	src/util/sqlite.cpp
 	src/util/stats.cpp
+	src/util/stopwatch.cpp
 	src/util/string.cpp
 	src/util/unionfind.cpp
 )

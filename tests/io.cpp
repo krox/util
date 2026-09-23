@@ -187,9 +187,14 @@ TEST_CASE("InterruptManager token renewal on interrupt", "[io][interrupt]")
 	// The first token should be stopped
 	CHECK(token1.stop_requested());
 
-	// But we can get a new one from InterruptManager
+	// interrupt no longer auto-renews, so token() still returns the stopped
+	// epoch until 'reset()' is called explicitly
 	std::stop_token token2 = im.token();
-	CHECK(!token2.stop_requested());
+	CHECK(token2.stop_requested());
+
+	im.reset();
+	std::stop_token token3 = im.token();
+	CHECK(!token3.stop_requested());
 
 	// Request stop again
 	std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -198,6 +203,6 @@ TEST_CASE("InterruptManager token renewal on interrupt", "[io][interrupt]")
 	// Wait for processing
 	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-	// Now token2 should be stopped
-	CHECK(token2.stop_requested());
+	// Now token3 should be stopped
+	CHECK(token3.stop_requested());
 }

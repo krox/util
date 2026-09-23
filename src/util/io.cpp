@@ -294,31 +294,35 @@ bool EventFd::write_safe(uint64_t delta) noexcept
 	return ::write(fd_, &delta, sizeof(delta)) == sizeof(delta);
 }
 
-// InterruptManager static members
-std::atomic<bool> InterruptManager::active_{false};
-EventFd InterruptManager::event_;
+void InterruptManager::signal_handler(int) noexcept
+{
+	if (auto ptr = event_ptr_.load(); ptr)
+		ptr->write_safe(1);
+}
 
 InterruptManager::InterruptManager()
 {
-	if (active_.exchange(true))
+	EventFd *expected = nullptr;
+	if (!event_ptr_.compare_exchange_strong(expected, &event_))
 		throw std::runtime_error(
 		    "InterruptManager: only one instance allowed at a time");
-	event_ = EventFd(0);
-	thread_ = std::jthread(&InterruptManager::thread_main, this);
 	signal(SIGINT, &InterruptManager::signal_handler);
+	// only start the thread once we know construction will succeed, otherwise
+	// it would block forever on event_.read() while being joined during
+	// stack unwinding
+	thread_ = std::jthread(&InterruptManager::thread_main, this);
 }
 
 InterruptManager::~InterruptManager() noexcept
 {
-	terminate_.store(true);
+	thread_.request_stop();
 	event_.write(1);
 	thread_.join();
 	signal(SIGINT, SIG_DFL);
-	event_.close();
-	active_.store(false);
+	event_ptr_.store(nullptr);
 }
 
-void InterruptManager::thread_main()
+void InterruptManager::thread_main(std::stop_token stoken)
 {
 	while (true)
 	{
@@ -326,21 +330,18 @@ void InterruptManager::thread_main()
 		// signals are coalesced anyway.
 		event_.read();
 
-		// final iteration: notify, do not renew the stop_source, and exit
-		if (terminate_.load())
-		{
-			std::stop_source src = *source_.lock();
-			src.request_stop();
+		if (stoken.stop_requested())
 			return;
-		}
 
-		// else, request stop, renew source, and keep going
-		{
-			std::stop_source src =
-			    std::exchange(*source_.lock(), std::stop_source());
-			src.request_stop();
-		}
+		std::stop_source src = *source_.lock();
+		src.request_stop();
 	}
+}
+
+void InterruptManager::reset() noexcept
+{
+	std::stop_source new_source;
+	*source_.lock() = std::move(new_source);
 }
 
 std::stop_token InterruptManager::token() const noexcept

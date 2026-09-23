@@ -190,51 +190,39 @@ class EventFd
 	bool write_safe(uint64_t delta = 1) noexcept;
 };
 
-// Effectively converts 'SIGINT' into a 'std::stop_token' notification.
-// Implementation details:
-//   * A signal handler is installed for 'SIGINT' that writes into an 'eventfd'
-//     (because that is one of the few things that is guaranteed to be safe
-//     inside a signal handler).
-//   * A dedicated thread listens on that 'eventfd' and calls 'request_stop()'
-//     on any token given out previously. The internal stop_source is replaced
-//     with a new one after each notification, so that we can re-use the
-//     'InterruptHandler'
-//   * When the 'InterruptHandler' is destroyed, all outstanding tokens are
-//     notified as well before the signal handler is uninstalled and the thread
-//     is joined. All tokens stay alive independently of the 'InterruptHandler'
-//     lifetime, though a typical user will have discarded them before then.
+// Create std::stop_token's that are notified when SIGINT is received
+// - Re-usable via '.reset()'
+// - Only once instance should exist at any time, typically as a global
+//   variable.
 class InterruptManager
 {
+	// Implementation:
+	// - A signal handler is installed for 'SIGINT' that writes into an
+	//   'eventfd' (because that is one of the few things that is guaranteed to
+	//   be safe inside a signal handler)
+	// - A dedicated thread listens on that 'eventfd' and calls 'request_stop()'
+	//   when it gets a notification.
 	synchronized<std::stop_source> source_;
+	EventFd event_{0};
 	std::jthread thread_;
-	std::atomic<bool> terminate_{false};
 
-	static std::atomic<bool> active_;
-	static EventFd event_;
-	static void signal_handler(int) noexcept { event_.write_safe(1); }
+	inline static std::atomic<EventFd *> event_ptr_{nullptr};
 
-	void thread_main();
+	static void signal_handler(int) noexcept;
+	void thread_main(std::stop_token stoken);
 
   public:
-	// default constructor installs the signal handler and starts the thread.
-	// Only one instance of this class should exist at a time, as installing
-	// multiple signal handlers is not supported.
+	// Default constructor installs the signal handler and starts the thread.
 	InterruptManager();
 
 	// destructor uninstalls the signal handler and joins the background thread.
 	~InterruptManager() noexcept;
 
 	// get a stop_token that will be notified when SIGINT is received.
-	//   * Only signals received after the token is obtained will result in
-	//     notification. Signals are never queued or made pending.
-	//   * The token will also be notified when the 'InterruptManager' is
-	//     destroyed. The user cannot distinguish this from an actual SIGINT.
-	//     (This semantic is intentional as it helps with some race conditions.
-	//     Does not come up in typical use though.)
-	//   * The tokens returned by successive calls to 'get_token()' might or
-	//     might not refer to the same underlying stop state. Does not matter in
-	//     practice.
 	std::stop_token token() const noexcept;
+
+	// reset the internal stop_source, thus starting a new cancellation epoch
+	void reset() noexcept;
 };
 
 // zstd compression/decompression

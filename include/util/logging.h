@@ -147,6 +147,7 @@ class Logger
 	// user-facing types
 	using Level = LogLevel;
 	class Scope;
+	class ProgressBar;
 
 	Logger(Level default_level = Level::info)
 	    : default_level_(default_level), time_stack_()
@@ -162,6 +163,8 @@ class Logger
 	// open a scope for logging and terminal status reporting
 	Scope scope(std::string_view name);
 	Scope scope(std::string_view name, Level l);
+
+	ProgressBar bar(int64_t total);
 
 	// non-templated logging backend function
 	void do_log(std::string msg) { terminal_.print(std::move(msg)); }
@@ -236,8 +239,6 @@ class Logger::Scope
 	Terminal::Section terminal_section_;
 	using Clock = TimeStack::Clock;
 	Clock::time_point start_ = Clock::now();
-	relaxed_atomic<int64_t> ticks_ = 0;
-	relaxed_atomic<int64_t> total_ = 0;
 	relaxed_atomic<Logger::Level> level_ = Logger::Level::info;
 
 	friend class Logger;
@@ -255,12 +256,6 @@ class Logger::Scope
 	Level level() const noexcept { return level_.load(); }
 	void set_level(Level l) noexcept { level_.store(l); }
 
-	int64_t ticks() const noexcept { return ticks_.load(); }
-	int64_t total() const noexcept { return total_.load(); }
-	void set_ticks(int64_t ticks) noexcept { ticks_.store(ticks); }
-	void set_total(int64_t total) noexcept { total_.store(total); }
-	void increment(int64_t ticks = 1) noexcept { ticks_.fetch_add(ticks); }
-
 	// dont move. The printing callback has references to ticks/total.
 	Scope(Scope const &) = delete;
 	Scope &operator=(Scope const &) = delete;
@@ -269,12 +264,6 @@ class Logger::Scope
 
 	// Returns the elapsed time since the scope was created.
 	Clock::duration elapsed() const noexcept { return Clock::now() - start_; }
-
-	// same as 'elapsed()' but in seconds.
-	double secs() const noexcept
-	{
-		return std::chrono::duration<double>(elapsed()).count();
-	}
 
 	// log a message at specified level
 	//   * no-op if level is lower than current logging level.
@@ -327,6 +316,42 @@ class Logger::Scope
 	}
 };
 
+class Logger::ProgressBar
+{
+
+	Logger *logger_ = nullptr;
+	Terminal::Section terminal_section_;
+	using Clock = TimeStack::Clock;
+	Clock::time_point start_ = Clock::now();
+	relaxed_atomic<int64_t> ticks_ = 0;
+	relaxed_atomic<int64_t> total_ = 0;
+
+	friend class Logger;
+
+	void print(Terminal::line_sink sink, int width);
+
+  public:
+	ProgressBar() = default;
+	ProgressBar(Logger *logger, int64_t total);
+	~ProgressBar() noexcept { close(); }
+	void close() noexcept;
+
+	int64_t ticks() const noexcept { return ticks_.load(); }
+	int64_t total() const noexcept { return total_.load(); }
+	void set_ticks(int64_t ticks) noexcept { ticks_.store(ticks); }
+	void set_total(int64_t total) noexcept { total_.store(total); }
+	void increment(int64_t ticks = 1) noexcept { ticks_.fetch_add(ticks); }
+
+	// dont move. The printing callback has references to ticks/total.
+	ProgressBar(ProgressBar const &) = delete;
+	ProgressBar &operator=(ProgressBar const &) = delete;
+	ProgressBar(ProgressBar &&other) noexcept = delete;
+	ProgressBar &operator=(ProgressBar &&other) noexcept = delete;
+
+	// Returns the elapsed time since the scope was created.
+	Clock::duration elapsed() const noexcept { return Clock::now() - start_; }
+};
+
 inline Logger::Scope Logger::scope(std::string_view name)
 {
 	return scope(name, default_level());
@@ -335,6 +360,11 @@ inline Logger::Scope Logger::scope(std::string_view name)
 inline Logger::Scope Logger::scope(std::string_view name, Level l)
 {
 	return Scope(this, std::string(name), l);
+}
+
+inline Logger::ProgressBar Logger::bar(int64_t total)
+{
+	return ProgressBar(this, total);
 }
 
 } // namespace util

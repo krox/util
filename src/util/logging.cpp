@@ -70,12 +70,19 @@ void Terminal::prepare_frame()
 
 	// dynamic lines
 	rendered_lines_ = 0;
+	int width = 80;
+	if (!sections_.empty())
+	{
+		for (int i = 0; i < width; ++i)
+			append(frame_, "⎯");
+		frame_.push_back('\n');
+		++rendered_lines_;
+	}
 	auto sink = [&](std::string_view line) {
 		append(frame_, line);
 		frame_.push_back('\n');
 		++rendered_lines_;
 	};
-	int width = 80;
 	for (auto &section : sections_)
 		(*section)(sink, width);
 
@@ -161,14 +168,34 @@ void Logger::Scope::print(Terminal::line_sink sink, int width)
 	sink(pad_string(name(),
 	                fmt::format("elapsed: {:%T}", duration_cast<seconds>(elap)),
 	                width));
+}
 
-	if (total() == 0)
+Logger::ProgressBar::ProgressBar(Logger *logger, int64_t total)
+    : logger_(logger), total_(total)
+{
+	assert(logger_ != nullptr);
+	auto printer = [this](auto sink, int width) { print(sink, width); };
+	terminal_section_ = logger_->terminal_.section(printer);
+}
+
+void Logger::ProgressBar::close() noexcept
+{
+	if (logger_ == nullptr)
 		return;
+	terminal_section_.close();
+	logger_ = nullptr;
+}
+
+void Logger::ProgressBar::print(Terminal::line_sink sink, int width)
+{
+	using std::chrono::duration_cast;
+	using std::chrono::seconds;
+
 	double progress = static_cast<double>(ticks()) / total();
 	std::string suffix;
 	if (0.0 < progress && progress <= 1.0)
 	{
-		auto eta = elap * ((1.0 - progress) / progress);
+		auto eta = elapsed() * ((1.0 - progress) / progress);
 		suffix = fmt::format("] {:6.2f}% {}/{} ETA: {:%T}", progress * 100.0,
 		                     ticks(), total(), duration_cast<seconds>(eta));
 	}

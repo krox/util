@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
@@ -124,6 +125,232 @@ void File::truncate(size_t size)
 	if (ftruncate(fd(), size))
 		throw std::runtime_error("could not truncate file");
 }
+
+RawFile::RawFile(int fd) noexcept : fd_(fd) {}
+
+RawFile::~RawFile() noexcept { close(); }
+
+void RawFile::close() noexcept
+{
+	if (fd_ >= 0)
+	{
+		::close(fd_);
+		fd_ = -1;
+	}
+}
+
+RawFile::RawFile(RawFile &&other) noexcept : fd_(std::exchange(other.fd_, -1))
+{}
+
+RawFile &RawFile::operator=(RawFile &&other) noexcept
+{
+	if (this != &other)
+	{
+		close();
+		fd_ = std::exchange(other.fd_, -1);
+	}
+	return *this;
+}
+
+RawFile RawFile::open(std::string_view filename, bool writeable)
+{
+	int flags = O_CLOEXEC | (writeable ? O_RDWR : O_RDONLY);
+	int fd = ::open(std::string(filename).c_str(), flags);
+	if (fd == -1)
+		throw std::system_error(errno, std::system_category(), "open failed");
+	return RawFile(fd);
+}
+
+RawFile RawFile::create(std::string_view filename, bool overwrite)
+{
+	int flags = O_CLOEXEC | O_RDWR | O_CREAT | (overwrite ? O_TRUNC : O_EXCL);
+	int fd = ::open(std::string(filename).c_str(), flags, 0644);
+	if (fd == -1)
+		throw std::system_error(errno, std::system_category(), "create failed");
+	return RawFile(fd);
+}
+
+RawFile::operator bool() const noexcept { return fd_ >= 0; }
+
+int RawFile::fd() const noexcept { return fd_; }
+
+void RawFile::read(void *buffer, size_t size)
+{
+	assert(fd_ >= 0);
+	auto *out = static_cast<std::byte *>(buffer);
+	for (size_t total = 0; total < size;)
+	{
+		ssize_t n = ::read(fd_, out + total, size - total);
+		if (n == 0)
+			throw std::runtime_error("read failed: unexpected EOF");
+		if (n < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			throw std::system_error(errno, std::system_category(),
+			                        "read failed");
+		}
+		total += static_cast<size_t>(n);
+	}
+}
+
+void RawFile::write(void const *buffer, size_t size)
+{
+	assert(fd_ >= 0);
+	auto const *in = static_cast<std::byte const *>(buffer);
+	for (size_t total = 0; total < size;)
+	{
+		ssize_t n = ::write(fd_, in + total, size - total);
+		if (n == 0)
+			throw std::runtime_error("write failed: zero-byte write");
+		if (n < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			throw std::system_error(errno, std::system_category(),
+			                        "write failed");
+		}
+		total += static_cast<size_t>(n);
+	}
+}
+
+#ifdef UTIL_ZSTD
+ZstdFile::ZstdFile(RawFile &&file, void *stream) noexcept
+    : RawFile(std::move(file)), stream_(stream)
+{}
+
+ZstdFile::~ZstdFile() noexcept { close(); }
+
+ZstdFile ZstdFile::create(std::string_view filename, bool overwrite)
+{
+	auto stream = ZSTD_createCStream();
+	if (!stream)
+		throw std::runtime_error("ZSTD_createCStream failed");
+
+	auto const level_result = ZSTD_CCtx_setParameter(
+	    stream, ZSTD_c_compressionLevel, compression_level);
+	auto const checksum_result =
+	    ZSTD_CCtx_setParameter(stream, ZSTD_c_checksumFlag, checksum);
+	if (ZSTD_isError(level_result) || ZSTD_isError(checksum_result))
+	{
+		ZSTD_freeCStream(stream);
+		throw std::runtime_error("ZSTD_CCtx_setParameter failed");
+	}
+
+	try
+	{
+		return ZstdFile(RawFile::create(filename, overwrite), stream);
+	}
+	catch (...)
+	{
+		ZSTD_freeCStream(stream);
+		throw;
+	}
+}
+
+ZstdFile::ZstdFile(ZstdFile &&other) noexcept
+    : RawFile(std::move(other)), stream_(std::exchange(other.stream_, nullptr)),
+      buffer_(std::move(other.buffer_)),
+      write_buffer_(std::move(other.write_buffer_)),
+      bytes_processed_(other.bytes_processed_),
+      bytes_written_(other.bytes_written_), last_frame_(other.last_frame_)
+{}
+
+ZstdFile &ZstdFile::operator=(ZstdFile &&other) noexcept
+{
+	if (this != &other)
+	{
+		close();
+		RawFile::operator=(std::move(other));
+		stream_ = std::exchange(other.stream_, nullptr);
+		buffer_ = std::move(other.buffer_);
+		write_buffer_ = std::move(other.write_buffer_);
+		bytes_processed_ = other.bytes_processed_;
+		bytes_written_ = other.bytes_written_;
+		last_frame_ = other.last_frame_;
+	}
+	return *this;
+}
+
+void ZstdFile::write_impl(std::span<const std::byte> data, int end)
+{
+	assert(stream_);
+	bytes_processed_ += data.size();
+	if (bytes_processed_ - last_frame_ >= frame_threshold_)
+		end = ZSTD_e_end;
+
+	write_buffer_.resize(write_buffer_size_);
+	ZSTD_inBuffer in{data.data(), data.size(), 0};
+	size_t remaining = 0;
+	do
+	{
+		ZSTD_outBuffer out{write_buffer_.data(), write_buffer_.size(), 0};
+		remaining =
+		    ZSTD_compressStream2(static_cast<ZSTD_CStream *>(stream_), &out,
+		                         &in, static_cast<ZSTD_EndDirective>(end));
+		if (ZSTD_isError(remaining))
+			throw std::runtime_error(
+			    fmt::format("ZSTD_compressStream2 failed: {}",
+			                ZSTD_getErrorName(remaining)));
+		RawFile::write(out.dst, out.pos);
+		bytes_written_ += out.pos;
+	} while (in.pos < in.size || (end != ZSTD_e_continue && remaining != 0));
+
+	if (end == ZSTD_e_end)
+		last_frame_ = bytes_processed_;
+}
+
+void ZstdFile::flush_buffer(int end)
+{
+	if (!buffer_.empty())
+	{
+		write_impl(buffer_, ZSTD_e_continue);
+		buffer_.clear();
+	}
+	if (end != ZSTD_e_continue)
+		write_impl({}, end);
+}
+
+void ZstdFile::close() noexcept
+{
+	if (!stream_)
+		return;
+	try
+	{
+		flush_buffer(ZSTD_e_end);
+	}
+	catch (...)
+	{
+		// Destruction and move assignment cannot report failures. The stream is
+		// still released and the descriptor closed below.
+	}
+	ZSTD_freeCStream(static_cast<ZSTD_CStream *>(stream_));
+	stream_ = nullptr;
+	RawFile::close();
+}
+
+void ZstdFile::flush()
+{
+	assert(stream_);
+	flush_buffer(ZSTD_e_flush);
+}
+
+void ZstdFile::write(void const *data, size_t size)
+{
+	assert(stream_);
+	auto bytes = std::span(static_cast<std::byte const *>(data), size);
+	if (bytes.size() >= block_size_)
+	{
+		flush_buffer(ZSTD_e_continue);
+		write_impl(bytes, ZSTD_e_continue);
+		return;
+	}
+
+	buffer_.insert(buffer_.end(), bytes.begin(), bytes.end());
+	if (buffer_.size() >= block_size_)
+		flush_buffer(ZSTD_e_continue);
+}
+#endif
 
 MappedFile::MappedFile(char const *filename, bool writeable)
 {

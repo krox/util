@@ -8,6 +8,16 @@
 #include <thread>
 #include <unistd.h>
 
+namespace {
+
+struct RemoveFileOnExit
+{
+	std::filesystem::path path;
+	~RemoveFileOnExit() { std::filesystem::remove(path); }
+};
+
+} // namespace
+
 TEST_CASE("zstd text compression roundtrip", "[io]")
 {
 	const std::string text =
@@ -42,19 +52,57 @@ TEST_CASE("read_file auto-decompresses zstd frames", "[io]")
 
 	const auto path = std::filesystem::temp_directory_path() /
 	                  "util-zstd-read-file-auto-decompress.zst";
-	struct RemoveFileOnExit
-	{
-		std::filesystem::path path;
-		~RemoveFileOnExit() { std::filesystem::remove(path); }
-	} cleanup{path};
+	RemoveFileOnExit cleanup{path};
 
 	{
 		auto file = util::File::create(path.string(), true);
-		file.write_raw(compressed.data(), compressed.size());
+		file.write(compressed.data(), compressed.size());
 	}
 	const auto read_back = util::read_file(path.string());
 
 	CHECK(read_back == text);
+}
+
+TEST_CASE("RawFile reads and writes exact byte counts", "[io]")
+{
+	const auto path =
+	    std::filesystem::temp_directory_path() / "util-raw-file-test.bin";
+	RemoveFileOnExit cleanup{path};
+
+	const std::string written{"raw file\0payload", 16};
+	{
+		auto file = util::RawFile::create(path.string());
+		CHECK(file);
+		file.write(written.data(), written.size());
+	}
+
+	auto file = util::RawFile::open(path.string());
+	std::string read_back(written.size(), '\0');
+	file.read(read_back.data(), read_back.size());
+	CHECK(read_back == written);
+	CHECK_THROWS_AS(file.read(read_back.data(), 1), std::runtime_error);
+}
+
+TEST_CASE("ZstdFile writes buffered compressed data", "[io]")
+{
+	const auto path =
+	    std::filesystem::temp_directory_path() / "util-zstd-file-test.zst";
+	RemoveFileOnExit cleanup{path};
+
+	const std::string first = "A buffered zstd file write. ";
+	const std::string expected = first + "formatted value: 42\n";
+	{
+		auto file = util::ZstdFile::create(path.string());
+		CHECK(file);
+		file.write(first.data(), first.size());
+		file.print("formatted value: {}\n", 42);
+		CHECK(file.bytes_processed() == 0);
+		file.flush();
+		CHECK(file.bytes_processed() == expected.size());
+		CHECK(file.bytes_written() > 0);
+	}
+
+	CHECK(util::read_file(path.string()) == expected);
 }
 
 // EventFd Tests

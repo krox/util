@@ -10,7 +10,12 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
+
+#ifdef UTIL_ZSTD
+#include "fmt/format.h"
+#endif
 
 // file IO utilities
 
@@ -98,6 +103,133 @@ class File
 	// truncate file to the given size
 	void truncate(size_t size);
 };
+
+// RAII wrapper for a file descriptor. read/write operations are direct
+// syscalls, no buffering.
+class RawFile
+{
+	int fd_ = -1;
+
+  public:
+	RawFile() = default;
+	explicit RawFile(int fd) noexcept;
+
+	~RawFile() noexcept;
+	void close() noexcept;
+
+	// move-only
+	RawFile(RawFile &&other) noexcept;
+	RawFile &operator=(RawFile &&other) noexcept;
+	RawFile(RawFile const &) = delete;
+	RawFile &operator=(RawFile const &) = delete;
+
+	static RawFile open(std::string_view file, bool writeable = false);
+	static RawFile create(std::string_view file, bool overwrite = false);
+
+	explicit operator bool() const noexcept;
+	int fd() const noexcept;
+
+	// Read exactly 'size' bytes from the file.
+	// - issues multiple read() syscalls if necessary
+	// - throws on premature EOF or other errors
+	// - might block if the file is a pipe/socket and not enough data is
+	//   available
+	void read(void *buffer, size_t size);
+
+	// Write exactly 'size' bytes to the file.
+	// - issues multiple write() syscalls if necessary
+	// - throws on errors
+	// - might block if the file is a pipe/socket and not enough buffer space is
+	//   available
+	void write(void const *buffer, size_t size);
+};
+
+#ifdef UTIL_ZSTD
+// Append-only file with zstd compression. Writes are buffered and
+// compressed/written in chunks.
+class ZstdFile : private RawFile
+{
+	// max (uncompressed) size of a single zstd block is 128 KiB. We aim to call
+	// into zstd with at least that much data.
+	static constexpr size_t block_size_ = 128 * 1024;
+
+	// max (compressed) size of a single zstd block is 128 KiB + some headers. A
+	// smaller write buffer could force zstd to emit shorter blocks, which hurts
+	// compression ratio.
+	static constexpr size_t write_buffer_size_ = 129 * 1024;
+
+	// starting a new frame worsens overall compression ratio because all
+	// context is lost and has to be rebuilt. On the other hand it makes the
+	// compressed file nicer to use (e.g. better random access, multithreaded
+	// decompression, etc.).
+	static constexpr size_t frame_threshold_ = 256 * 1024 * 1024;
+
+	// compression settings. Feel free to change.
+	static constexpr int compression_level = 3;
+	static constexpr int checksum = 1; // 0 or 1
+
+	void *stream_ = nullptr;
+
+	// buffers
+	std::vector<std::byte> buffer_;
+	std::vector<std::byte> write_buffer_;
+
+	size_t bytes_processed_ = 0; // bytes sent to zstd
+	size_t bytes_written_ = 0;   // bytes written to file
+	size_t last_frame_ = 0;      // 'bytes_processed_' at last frame boundary
+
+	// compress and write given data to disk. 'end' should be one of
+	// ZSTD_e_continue/flush/end.
+	void write_impl(std::span<const std::byte> data, int end);
+	void flush_buffer(int end);
+	ZstdFile(RawFile &&file, void *stream) noexcept;
+
+  public:
+	// number of plain/compressed bytes.
+	// - note: these counts stay valid after '.close()' to allow reporting final
+	//   statistics. Only reset when a new file is opened.
+	// - note: these counts are only exact after a '.flush()' or '.close()'
+	//   operation. Otherwise, some data might still be buffered (in this class
+	//   or in the zstd library) and not be accounted for yet.
+	size_t bytes_processed() const noexcept { return bytes_processed_; }
+	size_t bytes_written() const noexcept { return bytes_written_; }
+
+	// constructors
+	ZstdFile() = default;
+	~ZstdFile() noexcept;
+	static ZstdFile create(std::string_view file, bool overwrite = false);
+
+	explicit operator bool() const noexcept { return stream_ != nullptr; }
+
+	// move-only (byte-counts are preserved in moved-from object)
+	ZstdFile(ZstdFile &&other) noexcept;
+	ZstdFile &operator=(ZstdFile &&other) noexcept;
+
+	void close() noexcept;
+
+	// makes sure all buffered data is written to file
+	// - does not guarantee disk write (due to buffering in OS)
+	// - finalizes the current "zstd block", which can negatively impact
+	//   compression ratio. Effect should be mild though because compression
+	//   context/history is preserved.
+	// - does not finalize the current "zstd frame". That means a crash after
+	//   '.flush()' will not leave a strictly valid zstd file, but typical
+	//   decompression tools will happily read all existing data and ignore the
+	//   missing frame footer.
+	void flush();
+
+	// Write raw data. Buffered.
+	void write(void const *data, size_t size);
+
+	// Convenience function for writing formatted text using fmtlib. Buffered.
+	template <class... Args>
+	void print(fmt::format_string<Args...> format, Args &&...args)
+	{
+		auto text = fmt::format(format, std::forward<Args>(args)...);
+		write(text.data(), text.size());
+	}
+};
+#endif
 
 class MappedFile
 {

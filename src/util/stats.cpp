@@ -235,14 +235,83 @@ int64_t IntHistogram2D::operator()(int x, int y) const
 
 std::string IntHistogram2D::to_string() const
 {
-	std::string s;
+	if (max_x_ < 0 || max_y_ < 0)
+		return "";
+
+	auto format_entry = [](int64_t value) {
+		return value == 0 ? std::string(".") : fmt::format("{}", value);
+	};
+
+	std::vector<int64_t> row_sums(max_y_ + 1, 0);
+	std::vector<int64_t> col_sums(max_x_ + 1, 0);
+	std::vector<std::vector<std::string>> cells(
+	    max_y_ + 1, std::vector<std::string>(max_x_ + 1));
 	for (int y = 0; y <= max_y_; ++y)
 	{
-		s += fmt::format("{:4} :", y);
 		for (int x = 0; x <= max_x_; ++x)
-			s += fmt::format(" {:4}", (*this)(x, y));
+		{
+			int64_t value = (*this)(x, y);
+			cells[y][x] = format_entry(value);
+			row_sums[y] += value;
+			col_sums[x] += value;
+		}
+	}
+
+	int64_t total = 0;
+	for (int64_t value : row_sums)
+		total += value;
+
+	int row_label_width = 1;
+	for (int y = 0; y <= max_y_; ++y)
+		row_label_width =
+		    std::max(row_label_width, int(fmt::format("{}", y).size()));
+
+	std::vector<int> col_widths(max_x_ + 1, 1);
+	for (int x = 0; x <= max_x_; ++x)
+	{
+		col_widths[x] =
+		    std::max(col_widths[x], int(fmt::format("{}", x).size()));
+		col_widths[x] =
+		    std::max(col_widths[x], int(fmt::format("{}", col_sums[x]).size()));
+		for (int y = 0; y <= max_y_; ++y)
+			col_widths[x] = std::max(col_widths[x], int(cells[y][x].size()));
+	}
+
+	int sum_width = 3;
+	for (int y = 0; y <= max_y_; ++y)
+		sum_width =
+		    std::max(sum_width, int(fmt::format("{}", row_sums[y]).size()));
+	sum_width = std::max(sum_width, int(fmt::format("{}", total).size()));
+
+	int left_width = row_label_width + 1 + sum_width;
+
+	std::string s;
+	s += std::string(left_width + 2, ' ');
+	for (int x = 0; x <= max_x_; ++x)
+		s += fmt::format(" {:>{}}", x, col_widths[x]);
+	s += "\n";
+
+	s += fmt::format("{:>{}}", total, left_width);
+	s += "  ";
+	for (int x = 0; x <= max_x_; ++x)
+		s += fmt::format(" {:>{}}", col_sums[x], col_widths[x]);
+	s += "\n";
+
+	s += std::string(left_width + 1, ' ');
+	s += "+";
+	for (int x = 0; x <= max_x_; ++x)
+		s += std::string(col_widths[x] + 1, '-');
+	s += "\n";
+
+	for (int y = 0; y <= max_y_; ++y)
+	{
+		s += fmt::format("{:>{}} {:>{}} |", y, row_label_width, row_sums[y],
+		                 sum_width);
+		for (int x = 0; x <= max_x_; ++x)
+			s += fmt::format(" {:>{}}", cells[y][x], col_widths[x]);
 		s += "\n";
 	}
+
 	return s;
 }
 

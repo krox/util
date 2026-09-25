@@ -90,3 +90,17 @@ TEST_CASE("IntHistogram2D resizing")
 	CHECK(hist.max_x() == 20);
 	CHECK(hist.max_y() == 20);
 }
+
+TEST_CASE("IntHistogram2D to_string formats per-column widths and sums")
+{
+	IntHistogram2D hist;
+	hist.add(0, 0, 12);
+	hist.add(2, 0, 3);
+	hist.add(1, 1, 1234);
+
+	CHECK(hist.to_string() == "          0    1 2\n"
+	                          "  1249   12 1234 3\n"
+	                          "       +----------\n"
+	                          "0   15 | 12    . 3\n"
+	                          "1 1234 |  . 1234 .\n");
+}

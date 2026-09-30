@@ -168,6 +168,22 @@ Sqlite::Sqlite(const char *filename)
 Sqlite::Sqlite(std::string const &filename) : Sqlite(filename.c_str()) {}
 Sqlite::Sqlite(std::string_view filename) : Sqlite(std::string(filename)) {}
 
+Sqlite Sqlite::open_readonly(std::string_view filename)
+{
+	Sqlite opened;
+	std::string name{filename};
+	int ec = sqlite3_open_v2(name.c_str(), &opened.db_, SQLITE_OPEN_READONLY,
+	                         nullptr);
+	if (ec != SQLITE_OK)
+	{
+		std::string message =
+		    opened.db_ ? sqlite3_errmsg(opened.db_) : sqlite3_errstr(ec);
+		opened.close();
+		throw SqliteError(message);
+	}
+	return opened;
+}
+
 Sqlite::Sqlite(Sqlite &&other) noexcept : db_(std::exchange(other.db_, nullptr))
 {}
 

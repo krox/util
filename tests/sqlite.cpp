@@ -2,6 +2,7 @@
 
 #include "util/sqlite.h"
 
+#include <cstdint>
 #include <tuple>
 #include <vector>
 

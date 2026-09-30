@@ -135,6 +135,9 @@ class Sqlite
 	explicit Sqlite(std::string const &filename);
 	explicit Sqlite(std::string_view filename);
 
+	// Opens an existing file without creating it. Writes fail.
+	static Sqlite open_readonly(std::string_view filename);
+
 	Sqlite(Sqlite &&other) noexcept;
 	Sqlite &operator=(Sqlite &&other) noexcept;
 

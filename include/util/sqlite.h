@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,7 +19,32 @@
 
 namespace util {
 
-// Exceptin thrown whenever SQLite gives an error code. Also used for some
+//   auto db = util::Sqlite("my_database.sqlite");
+//
+// Core API with explicit statement handling:
+//   auto stmt = db.prepare("SELECT a,b FROM ...");
+//   while(stmt.step()) {
+//       auto [a, b] = stmt.row<int, std::string>();
+//       int a = stmt.column<int>(0);
+//       ... use a, b ...
+//   }
+//
+// Short-hand for reading multiple rows
+//   db.query<int, std::string>("SELECT a,b FROM ... WHERE id = ?", 42,
+//       [&](int a, std::string b)
+//       {
+//           ... use a, b ...
+//       });
+//
+// Short-hand for a single value
+//   std::optional<int> value =
+//         db.query_one<int>("SELECT value FROM settings WHERE key = ?", "foo");
+//
+// Short-hand for one-off, non-query statements
+//   db.execute("PRAGMA foreign_keys = ON");
+//   db.execute("CREATE TABLE IF NOT EXISTS ..."); // one statement per call
+
+// Exception thrown whenever SQLite gives an error code. Also used for some
 // higher-level errors from util::Sqlite (e.g. type-mismatches, that SQLite3
 // itself would tolerate)
 class SqliteError : public std::runtime_error
@@ -29,11 +55,6 @@ class SqliteError : public std::runtime_error
 	explicit SqliteError(std::string_view msg, sqlite3 *db);
 };
 
-// concept for anything with a 'std::tuple_size'
-template <class T>
-concept RowType =
-    requires { typename std::tuple_size<std::remove_cvref_t<T>>::type; };
-
 // nicely overloaded version of 'sqlite3_column_*(stmt, idx, ...)'
 void get_value(sqlite3_stmt *stmt, int column_index, int &value);
 void get_value(sqlite3_stmt *stmt, int column_index, int64_t &value);
@@ -41,18 +62,17 @@ void get_value(sqlite3_stmt *stmt, int column_index, float &value);
 void get_value(sqlite3_stmt *stmt, int column_index, double &value);
 void get_value(sqlite3_stmt *stmt, int column_index, std::string &value);
 
-template <RowType Row, std::size_t... I>
-void get_row_impl(sqlite3_stmt *stmt, Row &row, std::index_sequence<I...>)
+template <class... Ts, std::size_t... I>
+void get_row_impl(sqlite3_stmt *stmt, std::tuple<Ts...> &row,
+                  std::index_sequence<I...>)
 {
 	using std::get;
 	(get_value(stmt, static_cast<int>(I), get<I>(row)), ...);
 }
 
-template <RowType Row> void get_row(sqlite3_stmt *stmt, Row &row)
+template <class... Ts> void get_row(sqlite3_stmt *stmt, std::tuple<Ts...> &row)
 {
-	get_row_impl(stmt, row,
-	             std::make_index_sequence<
-	                 std::tuple_size_v<std::remove_cvref_t<Row>>>{});
+	get_row_impl(stmt, row, std::index_sequence_for<Ts...>{});
 }
 
 // Prepared Statement
@@ -63,21 +83,32 @@ class SqliteStatement
 	sqlite3_stmt *stmt_ = nullptr;
 
   public:
+	SqliteStatement() = default;
+
 	// compile a single SQL statement to SQLite's internal bytecode
 	explicit SqliteStatement(sqlite3 *db, std::string_view sql);
 
 	// move-only type
-	SqliteStatement() = default;
 	SqliteStatement(const SqliteStatement &) = delete;
 	SqliteStatement &operator=(const SqliteStatement &) = delete;
-	SqliteStatement(SqliteStatement &&other) noexcept;
-	SqliteStatement &operator=(SqliteStatement &&other) noexcept;
+	SqliteStatement(SqliteStatement &&other) noexcept
+	    : stmt_(std::exchange(other.stmt_, nullptr))
+	{}
+	SqliteStatement &operator=(SqliteStatement &&other) noexcept
+	{
+		if (this != &other)
+		{
+			finalize();
+			stmt_ = std::exchange(other.stmt_, nullptr);
+		}
+		return *this;
+	}
 
-	~SqliteStatement();
+	~SqliteStatement() { finalize(); }
 	void finalize() noexcept;
 
 	// valid statement?
-	explicit operator bool() const noexcept;
+	explicit operator bool() const noexcept { return stmt_ != nullptr; }
 
 	// number of parameters
 	int parameter_count() const;
@@ -99,13 +130,27 @@ class SqliteStatement
 	void bind(int index, double value);
 	void bind(int index, std::string_view value);
 
+	// bind multiple parameters at once
+	template <class... Args> void bind_all(Args &&...args)
+	{
+		bind_all_impl(1, std::forward<Args>(args)...);
+	}
+
 	// run until either
 	//   * next output row is produced (returns true)
 	//   * statement is finished (returns false)
 	//   * error (throws)
 	bool step();
 
-	// get a single column value of the current row
+	// execute the statement until completion
+	void execute()
+	{
+		while (step())
+		{
+		}
+	}
+
+	// get a single column value of the current row (0-based index)
 	template <class T> T column(int index) const
 	{
 		T value{};
@@ -114,12 +159,21 @@ class SqliteStatement
 	}
 
 	// get a full row
-	template <RowType Row> Row row() const
+	template <class... Cols> std::tuple<Cols...> row() const
 	{
-		Row out;
+		std::tuple<Cols...> out;
 		get_row(stmt_, out);
 		return out;
 	}
+
+  private:
+	template <class T, class... Args>
+	void bind_all_impl(int index, T &&value, Args &&...args)
+	{
+		bind(index, std::forward<T>(value));
+		bind_all_impl(index + 1, std::forward<Args>(args)...);
+	}
+	void bind_all_impl(int) {}
 };
 
 class Sqlite
@@ -127,75 +181,105 @@ class Sqlite
 	sqlite3 *db_ = nullptr;
 
   public:
-	Sqlite();
+	Sqlite() = default;
+
+	// if 'writeable' is false, any write attempts will fail. If the file does
+	// not exist, it will not be created.
+	explicit Sqlite(std::string_view filename, bool writeable = true);
+
 	Sqlite(const Sqlite &) = delete;
 	Sqlite &operator=(const Sqlite &) = delete;
-
-	explicit Sqlite(const char *filename);
-	explicit Sqlite(std::string const &filename);
-	explicit Sqlite(std::string_view filename);
-
-	// Opens an existing file without creating it. Writes fail.
-	static Sqlite open_readonly(std::string_view filename);
-
-	Sqlite(Sqlite &&other) noexcept;
-	Sqlite &operator=(Sqlite &&other) noexcept;
+	Sqlite(Sqlite &&other) noexcept : db_(std::exchange(other.db_, nullptr)) {}
+	Sqlite &operator=(Sqlite &&other) noexcept
+	{
+		if (this != &other)
+		{
+			close();
+			db_ = std::exchange(other.db_, nullptr);
+		}
+		return *this;
+	}
 
 	void close() noexcept;
 
-	~Sqlite();
+	~Sqlite() { close(); }
 
-	explicit operator bool() const noexcept;
+	explicit operator bool() const noexcept { return db_ != nullptr; }
 
 	// prepare a statement, does not run it yet
 	SqliteStatement prepare(std::string_view sql) const;
 
-	// prepare and run a statement (ignoring any returned rows)
-	void execute(std::string_view sql);
-
-	// prepare and run a statement, invoking a callback for each returned row
-	template <RowType Row>
-	void query(std::string_view sql, std::invocable<Row> auto callback)
+	// ditto, also binding parameters
+	template <class... Args>
+	    requires(sizeof...(Args) > 0)
+	SqliteStatement prepare(std::string_view sql, Args &&...args) const
 	{
 		auto stmt = prepare(sql);
-		while (stmt.step())
-			std::apply(callback, stmt.row<Row>());
+		stmt.bind_all(std::forward<Args>(args)...);
+		return stmt;
 	}
 
-	// same, but with individual column types
-	template <class... Cols>
-	void query(std::string_view sql, std::invocable<Cols...> auto callback)
+	// prepare and run a statement (ignoring any returned rows).
+	// Intended for one-off statements like PRAGMA's or schema changes.
+	template <class... Args> void execute(std::string_view sql, Args &&...args)
 	{
 		auto stmt = prepare(sql);
+		stmt.bind_all(std::forward<Args>(args)...);
 		while (stmt.step())
 		{
-			[&]<std::size_t... I>(std::index_sequence<I...>) {
-				callback(stmt.template column<Cols>(static_cast<int>(I))...);
-			}(std::index_sequence_for<Cols...>{});
 		}
 	}
 
-	// same, but collect all rows into a single vector
-	template <RowType Row> std::vector<Row> query(std::string_view sql)
+	// prepare and run a statement, invoking a callback for each returned row.
+	// Bind parameters come first and the callback last, as in the example above.
+	// A parameter pack is not deduced when it is not the last parameter, so the
+	// callback is split off from the argument list here.
+	template <class... Cols, class... Ts>
+	void query(std::string_view sql, Ts &&...ts)
 	{
-		std::vector<Row> out;
-		auto stmt = prepare(sql);
-		while (stmt.step())
-			out.emplace_back(stmt.row<Row>());
-		return out;
+		constexpr std::size_t n = sizeof...(Ts);
+		static_assert(n >= 1, "query() requires a callback");
+		auto args = std::forward_as_tuple(std::forward<Ts>(ts)...);
+		auto &&callback = std::get<n - 1>(args);
+		static_assert(std::invocable<decltype(callback), Cols...>,
+		              "query() callback is not invocable with the column types");
+		query_impl<Cols...>(sql, callback, args,
+		                    std::make_index_sequence<n - 1>{});
 	}
 
-	// same, but only return a single row. Throws if zero or more than one row
-	// is returned.
-	template <RowType Row> Row query_one(std::string_view sql)
+	// prepare and run a statement, returning a single row or nullopt if no rows
+	// are returned. Any additional rows are ignored.
+
+	template <class... Cols, class... Args>
+	    requires(sizeof...(Cols) == 1)
+	std::optional<Cols...> query_one(std::string_view sql, Args &&...args)
 	{
-		auto stmt = prepare(sql);
+		auto stmt = prepare(sql, std::forward<Args>(args)...);
 		if (!stmt.step())
-			throw SqliteError("query_one: no rows returned");
-		Row out = stmt.row<Row>();
-		if (stmt.step())
-			throw SqliteError("query_one: more than one row returned");
-		return out;
+			return std::nullopt;
+		return stmt.template column<Cols...>(0);
+	}
+
+	// ditto, for multiple columns
+	template <class... Cols, class... Args>
+	    requires(sizeof...(Cols) >= 2)
+	std::optional<std::tuple<Cols...>> query_one(std::string_view sql,
+	                                             Args &&...args)
+	{
+		auto stmt = prepare(sql, std::forward<Args>(args)...);
+		if (!stmt.step())
+			return std::nullopt;
+		return stmt.template row<Cols...>();
+	}
+
+  private:
+	template <class... Cols, class F, class Tuple, std::size_t... I>
+	void query_impl(std::string_view sql, F &&callback, Tuple &&args,
+	                std::index_sequence<I...>)
+	{
+		auto stmt = prepare(sql, std::get<I>(std::forward<Tuple>(args))...);
+		while (stmt.step())
+			std::apply(callback, stmt.template row<Cols...>());
 	}
 };
 

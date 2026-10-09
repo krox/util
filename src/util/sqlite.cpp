@@ -14,7 +14,7 @@ SqliteError::SqliteError(std::string_view msg, int error_code)
     : SqliteError(fmt::format("{}: {}", msg, sqlite3_errstr(error_code)))
 {}
 SqliteError::SqliteError(std::string_view msg, sqlite3 *db)
-    : SqliteError(fmt::format("{}: {}", msg, sqlite3_errmsg16(db)))
+    : SqliteError(fmt::format("{}: {}", msg, sqlite3_errmsg(db)))
 {}
 
 namespace {
@@ -52,7 +52,12 @@ void get_value(sqlite3_stmt *stmt, int idx, double &value)
 
 void get_value(sqlite3_stmt *stmt, int idx, std::string &value)
 {
-	value = reinterpret_cast<char const *>(sqlite3_column_text(stmt, idx));
+	auto p = sqlite3_column_text(stmt, idx);
+	// note: std::string(nullptr) is UB, so we check explicitly
+	if (p)
+		value = std::string(reinterpret_cast<char const *>(p));
+	else
+		value = {};
 }
 
 void SqliteStatement::finalize() noexcept
@@ -65,28 +70,15 @@ void SqliteStatement::finalize() noexcept
 
 SqliteStatement::SqliteStatement(sqlite3 *db, std::string_view sql)
 {
-	// note: 'sqlite3_prepare' only parses only a single sql statement
+	// note: 'sqlite3_prepare' only parses a single sql statement
 	assert(db != nullptr);
 	char const *tail = nullptr;
 	check(sqlite3_prepare_v2(db, sql.data(), (int)sql.size(), &stmt_, &tail),
 	      "could not prepare statement", db);
-	if (tail != nullptr && tail != &*sql.end())
+	if (tail != nullptr && tail != sql.data() + sql.size())
 		throw SqliteError("unused trailing SQL source");
 	assert(stmt_ != nullptr);
 }
-
-SqliteStatement &SqliteStatement::operator=(SqliteStatement &&other) noexcept
-{
-	if (this == &other)
-		return *this;
-	finalize();
-	stmt_ = std::exchange(other.stmt_, nullptr);
-	return *this;
-}
-
-SqliteStatement::~SqliteStatement() { finalize(); }
-
-SqliteStatement::operator bool() const noexcept { return stmt_ != nullptr; }
 
 int SqliteStatement::column_count() const
 {
@@ -148,15 +140,18 @@ bool SqliteStatement::step()
 void Sqlite::close() noexcept
 {
 	// sqlite3_close(null) is harmless no-op
-	check(sqlite3_close(db_), "double not close DB");
+	check(sqlite3_close(db_), "could not close DB");
 	db_ = nullptr;
 }
 
-Sqlite::Sqlite() = default;
-
-Sqlite::Sqlite(const char *filename)
+Sqlite::Sqlite(std::string_view filename, bool writeable)
 {
-	if (int ec = sqlite3_open(filename, &db_); ec != SQLITE_OK)
+	if (int ec = sqlite3_open_v2(std::string(filename).c_str(), &db_,
+	                             writeable ? SQLITE_OPEN_READWRITE |
+	                                             SQLITE_OPEN_CREATE
+	                                       : SQLITE_OPEN_READONLY,
+	                             nullptr);
+	    ec != SQLITE_OK)
 	{
 		// yes, even on error, calling 'close()' is necessary
 		std::string message = db_ ? sqlite3_errmsg(db_) : sqlite3_errstr(ec);
@@ -165,54 +160,11 @@ Sqlite::Sqlite(const char *filename)
 	}
 }
 
-Sqlite::Sqlite(std::string const &filename) : Sqlite(filename.c_str()) {}
-Sqlite::Sqlite(std::string_view filename) : Sqlite(std::string(filename)) {}
-
-Sqlite Sqlite::open_readonly(std::string_view filename)
-{
-	Sqlite opened;
-	std::string name{filename};
-	int ec = sqlite3_open_v2(name.c_str(), &opened.db_, SQLITE_OPEN_READONLY,
-	                         nullptr);
-	if (ec != SQLITE_OK)
-	{
-		std::string message =
-		    opened.db_ ? sqlite3_errmsg(opened.db_) : sqlite3_errstr(ec);
-		opened.close();
-		throw SqliteError(message);
-	}
-	return opened;
-}
-
-Sqlite::Sqlite(Sqlite &&other) noexcept : db_(std::exchange(other.db_, nullptr))
-{}
-
-Sqlite &Sqlite::operator=(Sqlite &&other) noexcept
-{
-	if (this == &other)
-		return *this;
-	close();
-	db_ = std::exchange(other.db_, nullptr);
-	return *this;
-}
-
-Sqlite::~Sqlite() { close(); }
-
-Sqlite::operator bool() const noexcept { return db_ != nullptr; }
-
 SqliteStatement Sqlite::prepare(std::string_view sql) const
 {
 	if (db_ == nullptr)
 		throw SqliteError("no SQLite db connected");
 	return SqliteStatement(db_, sql);
-}
-
-void Sqlite::execute(std::string_view sql)
-{
-	auto stmt = prepare(sql);
-	while (stmt.step())
-	{
-	}
 }
 
 } // namespace util

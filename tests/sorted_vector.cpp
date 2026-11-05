@@ -40,6 +40,54 @@ TEST_CASE("set_intersection iterator overload supports heterogeneous types",
 	CHECK(out == util::vector<long>{2, 4, 7});
 }
 
+TEST_CASE("set_intersection_inplace keeps the minimum multiplicity",
+          "[sorted_vector]")
+{
+	auto xs = util::vector<int>{1, 2, 2, 4, 5, 8};
+	constexpr auto ys = std::to_array<int>({2, 2, 2, 3, 5, 9});
+
+	util::set_intersection_inplace(xs, ys);
+
+	CHECK(xs == util::vector<int>{2, 2, 5});
+}
+
+TEST_CASE("set_intersection_inplace clears when nothing matches",
+          "[sorted_vector]")
+{
+	auto xs = util::vector<int>{1, 3, 5};
+	constexpr auto ys = std::to_array<int>({0, 2, 4});
+
+	util::set_intersection_inplace(xs, ys);
+
+	CHECK(xs.empty());
+}
+
+TEST_CASE("set_intersection_inplace accepts an empty range", "[sorted_vector]")
+{
+	auto xs = util::vector<int>{};
+	constexpr auto ys = std::to_array<int>({1, 2, 3});
+
+	util::set_intersection_inplace(xs, ys);
+	CHECK(xs.empty());
+
+	xs = {1, 2, 3};
+	util::set_intersection_inplace(xs, std::array<int, 0>{});
+	CHECK(xs.empty());
+}
+
+TEST_CASE("set_intersection_inplace supports heterogeneous value types",
+          "[sorted_vector]")
+{
+	auto xs = util::vector<int>{1, 2, 4, 7};
+	constexpr auto ys = std::to_array<long>({0, 2, 4, 6, 7});
+
+	auto end = util::set_intersection_inplace(xs.begin(), xs.end(), ys.begin(),
+	                                          ys.end());
+	xs.erase(end, xs.end());
+
+	CHECK(xs == util::vector<int>{2, 4, 7});
+}
+
 TEST_CASE("set_intersection3 preserves minimum multiplicity", "[sorted_vector]")
 {
 	constexpr auto a = std::to_array<int>({1, 2, 2, 3, 5, 5});

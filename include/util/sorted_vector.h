@@ -33,6 +33,33 @@ void set_intersection(std::input_iterator auto it_a, auto end_a,
 	}
 }
 
+// Compacts the sorted range [first, last) to the elements also present in the
+// sorted range [ys, ys_end). Returns the new end. Multiplicity is the minimum
+// of the two ranges. The tail is left in a valid but unspecified state.
+auto set_intersection_inplace(std::forward_iterator auto first, auto last,
+                              std::input_iterator auto ys, auto ys_end)
+    requires std::sentinel_for<decltype(last), decltype(first)> &&
+             std::sentinel_for<decltype(ys_end), decltype(ys)>
+{
+	auto out = first;
+	while (first != last && ys != ys_end)
+	{
+		if (*first < *ys)
+			++first;
+		else if (*ys < *first)
+			++ys;
+		else
+		{
+			if (out != first)
+				*out = std::move(*first);
+			++out;
+			++first;
+			++ys;
+		}
+	}
+	return out;
+}
+
 // Emits elements present in all three sorted iterator ranges.
 void set_intersection3(std::input_iterator auto it_a, auto end_a,
                        std::input_iterator auto it_b, auto end_b,
@@ -184,6 +211,16 @@ bool is_sorted(std::ranges::forward_range auto &&xs)
 		++it;
 	}
 	return true;
+}
+
+// Erases elements of the sorted container 'xs' that are absent from the sorted
+// range 'ys'.
+void set_intersection_inplace(auto &xs, std::ranges::input_range auto &&ys)
+{
+	auto end = util::set_intersection_inplace(
+	    std::ranges::begin(xs), std::ranges::end(xs), std::ranges::begin(ys),
+	    std::ranges::end(ys));
+	xs.erase(end, std::ranges::end(xs));
 }
 
 // Emits elements present in both sorted input ranges.

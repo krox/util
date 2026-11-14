@@ -343,6 +343,7 @@ if(UTIL_BUILD_TESTS)
 			tests/hash.cpp
 			tests/io.cpp
 			tests/iterator.cpp
+			tests/jagged_vector.cpp
 			tests/json.cpp
 			tests/linalg.cpp
 			tests/memory.cpp

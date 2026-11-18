@@ -341,6 +341,7 @@ if(UTIL_BUILD_TESTS)
 			tests/functional.cpp
 			tests/hash_map.cpp
 			tests/hash.cpp
+			tests/indexed_heap.cpp
 			tests/io.cpp
 			tests/iterator.cpp
 			tests/jagged_vector.cpp
